@@ -21,5 +21,5 @@ export function parseIPv4(ip: string) {
   for (let i = 0; i < parts.length; i++) {
     ip_int |= parseInt(parts[i], 10) << ((3 - i) * 8);
   }
-  return ip_int;
+  return ip_int >>> 0;
 }

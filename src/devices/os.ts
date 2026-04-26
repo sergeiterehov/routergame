@@ -12,7 +12,7 @@ export type TInterface = {
   iDriver: number;
   isBridge?: boolean;
   iMasterInterface?: number;
-  ips?: TIP4[];
+  ips: TIP4[];
 };
 export type TArpRecord = {
   iInterface: number;
@@ -26,6 +26,7 @@ export class OS {
   _system: System;
 
   _drivers: Driver[] = [];
+  _apps: { [key: string]: (os: OS, args: string[]) => void } = {};
 
   _netInterfaces: TInterface[] = [];
   _netCAMTable: { mac: bigint; iInterface: number }[] = [];
@@ -34,11 +35,32 @@ export class OS {
   _netRoutes: TRoute[] = [];
   _netForwarding = true;
 
+  on_print?: (text: string) => void;
+
   constructor(system: System) {
     this._system = system;
     this._system._interrupt = (deviceIndex) => {
       this._interruptHandlers[deviceIndex]?.();
     };
+  }
+
+  print(...text: string[]) {
+    this.on_print?.(text.join(""));
+  }
+
+  install(apps: typeof this._apps) {
+    Object.assign(this._apps, apps);
+    this.print(`Installed: ${Object.keys(apps).join(", ")}\n`);
+  }
+
+  exec(name: string, args: string[] = []) {
+    const app = this._apps[name];
+    if (!app) return this.print(`Unknown app: ${name}\n`);
+    try {
+      app(this, args);
+    } catch (e) {
+      this.print(`Error: ${e}\n`);
+    }
   }
 
   _interruptHandlers: { [key: number]: () => void } = {};
@@ -48,7 +70,7 @@ export class OS {
 
   net_add_interface(name: string, iDriver: number) {
     const index = this._netInterfaces.length;
-    this._netInterfaces.push({ name, iDriver });
+    this._netInterfaces.push({ name, iDriver, ips: [] });
     return index;
   }
 
@@ -122,7 +144,6 @@ export class OS {
     // Local
     let ip: TIP4 | undefined;
     for (const _iface of this._netInterfaces) {
-      if (!_iface.ips) continue;
       for (const _ip of _iface.ips) {
         if (_ip.address === dst) {
           ip = _ip;
@@ -207,7 +228,7 @@ export class OS {
     const src_mac = iface.mac;
     if (!src_mac) return;
 
-    const sender_ip = iface.ips?.[0];
+    const sender_ip = iface.ips[0];
     if (!sender_ip) return;
 
     const dst_mac = 0xffffffffffffn;
@@ -254,8 +275,6 @@ export class OS {
       const who_is_ip = view.getUint32(38);
 
       for (const _iface of this._netInterfaces) {
-        if (!_iface.ips?.length) continue;
-
         for (const _ip of _iface.ips) {
           if (_ip.address === who_is_ip) {
             const frame = new Uint8Array(6 + 6 + 2 + 28);

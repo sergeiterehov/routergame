@@ -33,7 +33,7 @@ export type TArpPacket = {
   protoType: number;
   hwSize: number;
   protoSize: number;
-  op: number;
+  opcode: number;
   src_mac: bigint;
   src_ip: number;
   dst_mac: bigint;
@@ -48,7 +48,7 @@ export function unpack_arp_packet(packet: Uint8Array): TArpPacket {
     protoType: $.getUint16(2),
     hwSize: $.getUint8(4),
     protoSize: $.getUint8(5),
-    op: $.getUint16(6),
+    opcode: $.getUint16(6),
     src_mac: $.getBigUint64(8) >> 16n,
     src_ip: $.getUint32(14),
     dst_mac: $.getBigUint64(18) >> 16n,
@@ -64,7 +64,7 @@ export function pack_arp_packet(obj: TArpPacket): Uint8Array {
   $.setUint16(2, obj.protoType);
   $.setUint8(4, obj.hwSize);
   $.setUint8(5, obj.protoSize);
-  $.setUint16(6, obj.op);
+  $.setUint16(6, obj.opcode);
   $.setBigUint64(8, obj.src_mac << 16n);
   $.setUint32(14, obj.src_ip);
   $.setBigUint64(18, obj.dst_mac << 16n);

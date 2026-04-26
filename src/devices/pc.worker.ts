@@ -1,6 +1,7 @@
 import { SimpleEthernet, Port } from "./device";
 import { System, BridgeDriver, SimpleEthernetDriver } from "./system";
 import { OS } from "./os";
+import * as ifconfig from "./apps/ifconfig.app";
 
 function expose(port: number, devicePort: Port) {
   devicePort.connect(({ tx }) => {
@@ -35,6 +36,8 @@ system.addDevice(dev0);
 system.addDevice(dev1);
 
 const os = new OS(system);
+os.on_print = (text) => self.postMessage({ $: "print", text });
+
 new BridgeDriver(os);
 new SimpleEthernetDriver(os, 0);
 new SimpleEthernetDriver(os, 1);
@@ -42,35 +45,18 @@ new SimpleEthernetDriver(os, 1);
 expose(0, dev0.port);
 expose(1, dev1.port);
 
-// interfaces
-{
-  function get_iface(name: string) {
-    return os._netInterfaces.find((p) => p.name === name);
-  }
-  function get_iface_index(name: string) {
-    return os._netInterfaces.findIndex((p) => p.name === name);
-  }
+os.install(ifconfig);
 
-  get_iface("eth0")!.ips = [
-    { address: 0x0a000002, prefix: 24 },
-    { address: 0x0a000003, prefix: 24 },
-  ];
-  get_iface("eth1")!.ips = [{ address: 0xc0a80002, prefix: 24 }];
+os.exec("iface", ["eth0", "add", "10.0.0.2/24"]);
+os.exec("iface", ["eth0", "add", "10.0.0.3/24"]);
+os.exec("iface", ["eth1", "add", "192.168.0.2/24"]);
 
-  os._netRoutes.push({
-    network: 0x0a000000,
-    prefix: 24,
-    iInterface: get_iface_index("eth0"),
-  });
-  os._netRoutes.push({
-    network: 0xc0a80000,
-    prefix: 24,
-    iInterface: get_iface_index("eth1"),
-  });
-  os._netRoutes.push({
-    network: 0,
-    prefix: 0,
-    gateway: 0xc0a80001,
-    iInterface: get_iface_index("eth1"),
-  });
-}
+os.exec("route", ["add", "10.0.0.0/24", "dev", "eth0"]);
+os.exec("route", ["add", "192.168.0.0/24", "dev", "eth1"]);
+os.exec("route", ["add", "default", "via", "192.168.0.1", "dev", "eth1"]);
+
+self.addEventListener("message", (e: MessageEvent<{ $: "exec"; app: string; args: string[] }>) => {
+  if (e.data.$ === "exec") {
+    os.exec(e.data.app, e.data.args);
+  }
+});
