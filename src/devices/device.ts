@@ -5,29 +5,44 @@ export class Device {
   _interrupt: () => void = () => {};
 }
 
-export class UTPEthernetFrames {
-  private _a?: Device;
-  private _aReceive?: (frame: Uint8Array) => void;
-  private _b?: Device;
-  private _bReceive?: (frame: Uint8Array) => void;
+type TPortConnection = {
+  rx: (frame: Uint8Array) => void;
+  link: (connected: boolean) => void;
+};
+type TPortConnect = (api: { tx: (frame: Uint8Array) => void }) => TPortConnection;
 
-  connect(device: Device, receive: (frame: Uint8Array) => void) {
-    if (!this._a) {
-      this._a = device;
-      this._aReceive = receive;
-    } else if (!this._b) {
-      this._b = device;
-      this._bReceive = receive;
-    } else {
-      throw new Error("Already connected");
-    }
+export class Port {
+  readonly _multicast: boolean;
+
+  _inside: TPortConnection;
+  _outsides: TPortConnection[] = [];
+
+  constructor(multicast: boolean, handle_connect: TPortConnect) {
+    this._multicast = multicast;
+    this._inside = handle_connect({ tx: this._outside_rx.bind(this) });
   }
-  send(src: Device, frame: Uint8Array) {
-    if (this._a === src && this._bReceive) {
-      this._bReceive(frame);
-    } else if (this._b === src && this._aReceive) {
-      this._aReceive(frame);
-    }
+
+  connect(handle_connect: TPortConnect) {
+    if (!this._multicast && this._outsides.length) throw new Error("Port is already connected");
+
+    const connection = handle_connect({ tx: this._inside.rx });
+    this._outsides.push(connection);
+
+    this._inside.link(true);
+    for (const outside of this._outsides) outside.link(true);
+  }
+
+  disconnect() {
+    if (!this._outsides.length) throw new Error("Port is not connected");
+
+    this._inside.link(false);
+    for (const outside of this._outsides) outside.link(false);
+
+    this._outsides.splice(0);
+  }
+
+  private _outside_rx(frame: Uint8Array) {
+    for (const outside of this._outsides) outside.rx(frame);
   }
 }
 
@@ -35,7 +50,16 @@ export class SimpleEthernet extends Device {
   type: string = "SimpleEthernet";
   mac = 0n;
 
-  utp?: UTPEthernetFrames;
+  private _link = false;
+  private _tx: (frame: Uint8Array) => void = () => null;
+
+  readonly port = new Port(false, ({ tx }) => {
+    this._tx = tx;
+    return {
+      rx: this._handle_rx.bind(this),
+      link: this._handle_link.bind(this),
+    };
+  });
 
   received?: Uint8Array;
 
@@ -44,18 +68,16 @@ export class SimpleEthernet extends Device {
     this.mac = mac;
   }
 
-  connect(utp: UTPEthernetFrames) {
-    this.utp = utp;
-    utp.connect(this, this._receive.bind(this));
-  }
-
-  _receive(frame: Uint8Array) {
+  private _handle_rx(frame: Uint8Array) {
     this.received = frame;
     this._interrupt();
   }
 
-  _send(frame: Uint8Array) {
-    if (!this.utp) return;
-    this.utp.send(this, frame);
+  private _handle_link(connected: boolean) {
+    this._link = connected;
+  }
+
+  tx(frame: Uint8Array) {
+    this._tx(frame);
   }
 }

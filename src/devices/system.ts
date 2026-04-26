@@ -83,6 +83,6 @@ export class SimpleEthernetDriver extends Driver {
   }
 
   net_send_frame = (iInterface: number, data: Uint8Array) => {
-    this._device._send(data);
+    this._device.tx(data);
   };
 }

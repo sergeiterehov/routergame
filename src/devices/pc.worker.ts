@@ -1,6 +1,32 @@
-import { SimpleEthernet, UTPEthernetFrames, Device } from "./device";
+import { SimpleEthernet, Port } from "./device";
 import { System, BridgeDriver, SimpleEthernetDriver } from "./system";
 import { OS } from "./os";
+
+function expose(port: number, devicePort: Port) {
+  devicePort.connect(({ tx }) => {
+    const controller = new AbortController();
+
+    self.addEventListener(
+      "message",
+      (e: MessageEvent<{ $: "ethernet_frame"; port: number; frame: Uint8Array }>) => {
+        if (e.data.$ === "ethernet_frame") {
+          if (e.data.port !== port) return;
+          tx(e.data.frame);
+        }
+      },
+      { signal: controller.signal },
+    );
+
+    return {
+      rx: (frame) => {
+        self.postMessage({ $: "ethernet_frame", port, frame });
+      },
+      link: (connected) => {
+        if (!connected) controller.abort();
+      },
+    };
+  });
+}
 
 const system = new System();
 const dev0 = new SimpleEthernet(0xaa00n);
@@ -13,43 +39,8 @@ new BridgeDriver(os);
 new SimpleEthernetDriver(os, 0);
 new SimpleEthernetDriver(os, 1);
 
-class WorkerDevice extends Device {
-  _port: number;
-  _utp?: UTPEthernetFrames;
-
-  constructor(port: number) {
-    super();
-    this._port = port;
-
-    self.addEventListener("message", this._handle_message.bind(this));
-  }
-
-  connect(utp: UTPEthernetFrames) {
-    utp.connect(this, this._handle_frame.bind(this));
-    this._utp = utp;
-  }
-
-  _handle_frame(frame: Uint8Array) {
-    self.postMessage({ $: "ethernet_frame", port: this._port, frame });
-  }
-
-  _handle_message(e: MessageEvent<{ $: "ethernet_frame"; port: number; frame: Uint8Array }>) {
-    if (e.data.$ === "ethernet_frame") {
-      if (e.data.port !== this._port) return;
-      this._utp?.send(this, e.data.frame);
-    }
-  }
-}
-
-const wire0 = new UTPEthernetFrames();
-const ext0 = new WorkerDevice(0);
-dev0.connect(wire0);
-ext0.connect(wire0);
-
-const wire1 = new UTPEthernetFrames();
-const ext1 = new WorkerDevice(1);
-dev1.connect(wire1);
-ext1.connect(wire1);
+expose(0, dev0.port);
+expose(1, dev1.port);
 
 // interfaces
 {
