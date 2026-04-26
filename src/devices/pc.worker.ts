@@ -2,6 +2,9 @@ import { SimpleEthernet, Port } from "./device";
 import { System, BridgeDriver, SimpleEthernetDriver } from "./system";
 import { OS } from "./os";
 import * as ifconfig from "./apps/ifconfig.app";
+import * as arp from "./apps/arp.app";
+
+console.log("Hello", self.name);
 
 function expose(port: number, devicePort: Port) {
   devicePort.connect(({ tx }) => {
@@ -45,15 +48,7 @@ new SimpleEthernetDriver(os, 1);
 expose(0, dev0.port);
 expose(1, dev1.port);
 
-os.install(ifconfig);
-
-os.exec("iface", ["eth0", "add", "10.0.0.2/24"]);
-os.exec("iface", ["eth0", "add", "10.0.0.3/24"]);
-os.exec("iface", ["eth1", "add", "192.168.0.2/24"]);
-
-os.exec("route", ["add", "10.0.0.0/24", "dev", "eth0"]);
-os.exec("route", ["add", "192.168.0.0/24", "dev", "eth1"]);
-os.exec("route", ["add", "default", "via", "192.168.0.1", "dev", "eth1"]);
+os.install({ ...ifconfig, ...arp });
 
 self.addEventListener("message", (e: MessageEvent<{ $: "exec"; app: string; args: string[] }>) => {
   if (e.data.$ === "exec") {

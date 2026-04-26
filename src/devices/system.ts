@@ -28,6 +28,8 @@ export class Driver {
     this._iDriver = this._os._drivers.length;
     this._os._drivers.push(this);
   }
+
+  call(cmd: unknown) {}
 }
 
 export class BridgeDriver extends Driver {
@@ -85,4 +87,11 @@ export class SimpleEthernetDriver extends Driver {
   net_send_frame = (iInterface: number, data: Uint8Array) => {
     this._device.tx(data);
   };
+
+  call(cmd: { $: "change_mac"; mac: bigint }) {
+    if (cmd.$ === "change_mac") {
+      this._device.change_mac(cmd.mac);
+      this._os._netInterfaces[this._iInterface].mac = cmd.mac;
+    }
+  }
 }

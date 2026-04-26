@@ -78,6 +78,12 @@ export class OS {
     this._netCAMTable.push({ mac, iInterface });
   }
 
+  net_change_mac(iInterface: number, mac: bigint) {
+    const iface = this._netInterfaces[iInterface];
+    const driver = this._drivers[iface.iDriver];
+    driver.call({ $: "change_mac", mac });
+  }
+
   net_resolve_cam(mac: bigint) {
     for (const entry of this._netCAMTable) {
       if (entry.mac === mac) {

@@ -1,23 +1,5 @@
-import { formatIPv4, formatMAC, parseIPv4 } from "../format";
+import { formatIPv4, formatMAC, parseIPv4, parseMAC, validate_address, validate_ip, validate_mac } from "../format";
 import type { OS } from "../os";
-
-function _validate_ip(ip: string) {
-  if (!/\d+\.\d+\.\d+\.\d+/.test(ip)) return false;
-  for (const part of ip[0].split(".")) {
-    const int = parseInt(part);
-    if (int > 255) return false;
-  }
-  return true;
-}
-
-function _validate_address(address: string) {
-  if (!/\d+\.\d+\.\d+\.\d+\/\d+/.test(address)) return false;
-  const parts = address.split("/");
-  const prefix = parseInt(parts[1]);
-  if (prefix > 32) return false;
-  if (!_validate_ip(parts[0])) return false;
-  return true;
-}
 
 function _get_iface(os: OS, name: string) {
   return os._netInterfaces.find((p) => p.name === name);
@@ -70,7 +52,7 @@ export function iface(os: OS, args: string[]) {
   if (op === "add" || op === "del") {
     const ip = args.shift();
     if (!ip) throw new Error(`Usage: ${name} ${op} <ip/prefix>`);
-    if (!_validate_address(ip)) throw new Error(`Invalid address ${ip}`);
+    if (!validate_address(ip)) throw new Error(`Invalid address ${ip}`);
 
     const _ipaddr = ip.split("/");
     const _ip = parseIPv4(_ipaddr[0]);
@@ -85,6 +67,15 @@ export function iface(os: OS, args: string[]) {
       if (ip_index === -1) throw new Error("IP not found");
       iface.ips.splice(ip_index, 1);
     }
+  } else if (op === "mac") {
+    if (iface.mac === undefined) throw new Error("Mac is unsupported");
+
+    const mac = args.shift();
+    if (!mac) return os.print(`${formatMAC(iface.mac) || ""}\n`);
+    if (!validate_mac(mac)) throw new Error("Mac is invalid");
+
+    const iInterface = os._netInterfaces.indexOf(iface);
+    os.net_change_mac(iInterface, parseMAC(mac));
   } else if (op === "flush") {
     iface.ips = [];
   } else {
@@ -95,13 +86,11 @@ export function iface(os: OS, args: string[]) {
 export function route(os: OS, args: string[]) {
   const op = args.shift();
   if (!op) {
-    os.print("Routes:\n");
     for (let i = 0; i < os._netRoutes.length; i++) {
       const route = os._netRoutes[i];
       const iface = os._netInterfaces[route.iInterface];
       os.print(
         [
-          "\t",
           route.prefix === 0 ? "default" : `${formatIPv4(route.network)}/${route.prefix}`,
           route.gateway !== undefined && `via ${formatIPv4(route.gateway)}`,
           `dev ${iface.name}`,
@@ -112,7 +101,7 @@ export function route(os: OS, args: string[]) {
       );
     }
   } else if (op === "add") {
-    if (args[0] === "default" && args[1] === "via" && _validate_ip(args[2]) && args[3] === "dev" && args[4]) {
+    if (args[0] === "default" && args[1] === "via" && validate_ip(args[2]) && args[3] === "dev" && args[4]) {
       const iface_index = _get_iface_index(os, args[4]);
       if (iface_index === -1) throw new Error("Interface not found");
 
@@ -122,7 +111,7 @@ export function route(os: OS, args: string[]) {
         iInterface: iface_index,
         gateway: parseIPv4(args[2]),
       });
-    } else if (_validate_address(args[0]) && args[1] === "dev" && args[2]) {
+    } else if (validate_address(args[0]) && args[1] === "dev" && args[2]) {
       const network = args[0].split("/");
       const network_ip = parseIPv4(network[0]);
       const network_prefix = parseInt(network[1]);
@@ -136,7 +125,9 @@ export function route(os: OS, args: string[]) {
         iInterface: iface_index,
       });
     } else {
-      throw new Error("Usage: add <network/prefix> via <gateway>");
+      throw new Error("Usage: add <network/prefix> dev <interface>");
     }
+  } else {
+    throw new Error("Unknown command")
   }
 }

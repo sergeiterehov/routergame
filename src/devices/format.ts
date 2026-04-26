@@ -23,3 +23,30 @@ export function parseIPv4(ip: string) {
   }
   return ip_int >>> 0;
 }
+
+export function parseMAC(mac: string) {
+  return BigInt(`0x${mac.replace(/:/g, "")}`);
+}
+
+export function validate_ip(ip: string) {
+  if (!/\d+\.\d+\.\d+\.\d+/.test(ip)) return false;
+  for (const part of ip[0].split(".")) {
+    const int = parseInt(part);
+    if (int > 255) return false;
+  }
+  return true;
+}
+
+export function validate_address(address: string) {
+  if (!/\d+\.\d+\.\d+\.\d+\/\d+/.test(address)) return false;
+  const parts = address.split("/");
+  const prefix = parseInt(parts[1]);
+  if (prefix > 32) return false;
+  if (!validate_ip(parts[0])) return false;
+  return true;
+}
+
+export function validate_mac(mac: string) {
+  if (!/([0-9a-f]{2}:){5}[0-9a-f]{2}/i.test(mac)) return false;
+  return true;
+}
