@@ -1,0 +1,88 @@
+import type { Device, SimpleEthernet } from "./device";
+import type { OS } from "./os";
+
+export class System {
+  _devices: Device[] = [];
+
+  _interrupt?: (deviceIndex: number) => void;
+
+  addDevice(device: Device) {
+    const deviceIndex = this._devices.length;
+    this._devices.push(device);
+    device._interrupt = () => this._interrupt?.(deviceIndex);
+    return this;
+  }
+}
+
+export class Driver {
+  name: string = "";
+  instance: string = "";
+
+  _os: OS;
+  _iDriver: number = -1;
+
+  net_send_frame?: (iInterface: number, data: Uint8Array) => void;
+
+  constructor(os: OS) {
+    this._os = os;
+    this._iDriver = this._os._drivers.length;
+    this._os._drivers.push(this);
+  }
+}
+
+export class BridgeDriver extends Driver {
+  name = "Bridge";
+  instance = "Bridge Instance";
+
+  net_send_frame = (iInterface: number, data: Uint8Array) => {
+    const slave = this._os._netInterfaces[iInterface];
+    const iBridge = slave.iMasterInterface;
+    if (iBridge === undefined) return;
+
+    const iface = this._os._netInterfaces[iBridge];
+    if (!iface.isBridge) return;
+
+    // multicast
+    for (let i = 0; i < this._os._netInterfaces.length; i++) {
+      if (i === iInterface) continue; // skip sender
+      const iface = this._os._netInterfaces[i];
+      if (iface.iMasterInterface === iBridge) {
+        this._os.net_send_frame(i, data);
+      }
+    }
+  };
+}
+
+export class SimpleEthernetDriver extends Driver {
+  name = "SimpleEthernet";
+
+  _device: SimpleEthernet;
+  _iInterface: number = -1;
+
+  constructor(os: OS, iDevice: number) {
+    super(os);
+
+    const device = this._os._system._devices[iDevice];
+    if (!device) throw new Error("Device not found");
+    if (device.type !== "SimpleEthernet") throw new Error("Device is not SimpleEthernet");
+    this._device = device as SimpleEthernet;
+
+    this._os.interrupt_register(iDevice, this._handleInterrupt.bind(this));
+
+    this.instance = `SimpleEthernet:${this._device.gid}`;
+
+    this._iInterface = this._os.net_add_interface(`eth${iDevice}`, this._iDriver);
+    const iface = this._os._netInterfaces[this._iInterface];
+    iface.mac = this._device.mac;
+  }
+
+  _handleInterrupt() {
+    const dev = this._device;
+    if (!dev.received) return;
+    this._os.net_handle_frame(this._iInterface, dev.received);
+  }
+
+  net_send_frame = (iInterface: number, data: Uint8Array) => {
+    this._device._send(data);
+  };
+}
