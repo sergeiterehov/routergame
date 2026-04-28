@@ -9,15 +9,24 @@ export async function arp(os: OS, args: string[]) {
       const iface = os._netInterfaces[rec.iInterface];
       os.print(`${formatIPv4(rec.ip)} at ${formatMAC(rec.mac)} on ${iface.name} [${rec.state}]\n`);
     }
-  } else if (args[0] === "who" && validate_ip(args[1]) && args[2] === "on" && args[3]) {
-    const iface_index = os._netInterfaces.findIndex((i) => i.name === args[3]);
-    if (iface_index === -1) throw new Error("Interface not found");
+  } else if (args[0] === "who" && validate_ip(args[1])) {
+    const who_ip = parseIPv4(args[1]);
+
+    let iface_index = -1;
+
+    if (args[2] === "on" && args[3]) {
+      iface_index = os._netInterfaces.findIndex((i) => i.name === args[3]);
+      if (iface_index === -1) throw new Error("Interface not found");
+    } else {
+      const route = os.net_ip4_route(who_ip);
+      if (!route) throw new Error("No route to host");
+
+      iface_index = route.iInterface;
+    }
 
     const iface = os._netInterfaces[iface_index];
     if (!iface.mac) throw new Error("Interface has no MAC");
     if (!iface.ips.length) throw new Error("Interface has no IPs");
-
-    const who_ip = parseIPv4(args[1]);
 
     os.print("Request...");
 
@@ -37,6 +46,6 @@ export async function arp(os: OS, args: string[]) {
     os.print(`${formatMAC(mac)}\n`);
   } else {
     os.print("Usage:\n");
-    os.print("who <ip> on <interface>\n");
+    os.print("[who <ip> [on <interface>]]\n");
   }
 }

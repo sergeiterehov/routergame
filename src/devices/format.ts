@@ -7,6 +7,10 @@ export function formatTime(ms: number) {
   return `${(ms / 1000 / 60 / 60 / 24 / 365).toFixed(2)}y`;
 }
 
+export function prefixToMask(prefix: number) {
+  return 0xffffffff - Number((1n << (32n - BigInt(prefix))) - 1n);
+}
+
 export function hexdump(data: Uint8Array) {
   return [...data].map((d) => d.toString(16).padStart(2, "0")).join(" ");
 }

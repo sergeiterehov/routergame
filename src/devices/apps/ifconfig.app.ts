@@ -128,6 +128,6 @@ export function route(os: OS, args: string[]) {
       throw new Error("Usage: add <network/prefix> dev <interface>");
     }
   } else {
-    throw new Error("Unknown command")
+    throw new Error("Usage:\nadd <network/prefix> dev <interface>\nadd default via <ip> dev <interface>");
   }
 }

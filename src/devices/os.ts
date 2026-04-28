@@ -1,3 +1,4 @@
+import { prefixToMask } from "./format";
 import { pack_icmp_packet, pack_ip4_packet, unpack_icmp_packet, unpack_ip4_packet } from "./pack";
 import type { System, Driver } from "./system";
 
@@ -67,7 +68,7 @@ export type TArpRecord = {
   expiresAt: number;
   state: "pending" | "success" | "fail";
 };
-export type TRoute = { network: number; prefix: number; gateway?: number; iInterface: number };
+export type TRoute = { network: number; prefix: number; gateway?: number; iInterface: number; src?: number };
 export class OS {
   _system: System;
 
@@ -81,7 +82,7 @@ export class OS {
   _netRoutes: TRoute[] = [];
   _netForwarding = true;
 
-  _netArpChannel = new OSChannel<"pending" | "fail" | "success">();
+  _netArpChannel = new OSChannel<"pending" | "fail" | "success" | "retry">();
   _netIp4Channel = new OSChannel<{ direction: "in" | "out"; iInterface: number; packet: Uint8Array }>();
 
   on_print?: (text: string) => void;
@@ -420,7 +421,7 @@ export class OS {
   net_ip4_route(dst: number) {
     let route: TRoute | undefined;
     for (const _route of this._netRoutes) {
-      const mask = ~((1 << (32 - _route.prefix)) - 1);
+      const mask = prefixToMask(_route.prefix);
       if ((dst & mask) !== (_route.network & mask)) continue;
       if (!route || _route.prefix > route.prefix) {
         route = _route;
@@ -430,13 +431,19 @@ export class OS {
     if (!route) return;
 
     const iface = this._netInterfaces[route.iInterface];
+
     let src = -1;
-    for (const _ip of iface.ips) {
-      const mask = ~((1 << (32 - _ip.prefix)) - 1);
-      if ((dst & mask) === (_ip.address & mask)) {
-        src = _ip.address;
-        break;
+    if (route.src) {
+      src = route.src;
+      for (const _ip of iface.ips) {
+        const mask = prefixToMask(_ip.prefix);
+        if ((src & mask) === (_ip.address & mask)) {
+          src = _ip.address;
+          break;
+        }
       }
+    } else {
+      src = iface.ips[0]?.address ?? -1;
     }
     if (src === -1) return;
 
@@ -558,6 +565,8 @@ export class OS {
 
   net_arp_check_table() {
     const now = Date.now();
+    let failed = 0;
+    let removed = 0;
 
     for (let i = 0; i < this._netARPTable.length; i++) {
       const arp = this._netARPTable[i];
@@ -565,14 +574,18 @@ export class OS {
         if (arp.state === "pending") {
           arp.state = "fail";
           arp.expiresAt = now + ARP_RETRY_MS;
-          this._netArpChannel.postMessage("fail");
+          failed += 1;
         } else {
           this._netARPTable.splice(i, 1);
+          removed += 1;
           i--;
         }
         continue;
       }
     }
+
+    if (failed) this._netArpChannel.postMessage("fail");
+    if (removed) this._netArpChannel.postMessage("retry");
   }
 
   net_ip4_process_queue(iInterface: number, ip: number) {
