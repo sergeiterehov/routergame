@@ -5,7 +5,7 @@ import * as ifconfig from "./apps/ifconfig.app";
 import * as arp from "./apps/arp.app";
 import * as ping from "./apps/ping.app";
 
-console.log("Hello", self.name);
+console.log("Hello PC", self.name);
 
 function expose(port: number, devicePort: Port) {
   devicePort.connect(({ tx }) => {
@@ -49,6 +49,7 @@ new SimpleEthernetDriver(os, 1);
 expose(0, dev0.port);
 expose(1, dev1.port);
 
+os.print(`PC ${self.name}\n`);
 os.install({ ...ifconfig, ...arp, ...ping });
 
 self.addEventListener("message", (e: MessageEvent<{ $: "exec"; app: string; args: string[] }>) => {

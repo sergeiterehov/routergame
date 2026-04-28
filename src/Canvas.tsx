@@ -153,7 +153,7 @@ export function Canvas() {
           return (
             <div
               key={n.id}
-              className={`absolute ${n.id === activePc ? "bg-sky-300" : "bg-sky-200"} rounded-lg`}
+              className={`absolute bg-sky-200 rounded-lg border-2 ${n.id === activePc ? "border-black" : "border-transparent"}`}
               style={{ left: n.ui.x, top: n.ui.y, width: itemSize, height: itemSize }}
               onClick={(e) => {
                 e.preventDefault();
@@ -168,7 +168,7 @@ export function Canvas() {
       })}
       <div
         className="absolute flex flex-col bg-black text-white"
-        style={{ left: 200, top: 200, width: 400, height: 300 }}
+        style={{ left: 100, top: 200, width: 600, height: 400 }}
       >
         <pre ref={consoleRef} className="grow overflow-x-hidden overflow-y-scroll whitespace-pre-wrap">
           {tty[activePc]}
