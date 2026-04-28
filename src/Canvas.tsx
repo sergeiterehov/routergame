@@ -1,29 +1,6 @@
 import TestWorker from "./devices/pc.worker.ts?worker";
-import { hexdump, parseIPv4 } from "./devices/format.ts";
-import { pack_arp_packet, pack_ethernet_frame } from "./devices/pack.ts";
+import { hexdump } from "./devices/format.ts";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-
-function arpRequest(w: Worker) {
-  // Arp Request
-  const frame = pack_ethernet_frame({
-    dst: 0xff_ff_ff_ff_ff_ffn,
-    src: 0xaa_bb_cc_dd_ee_ffn,
-    etherType: 0x0806,
-    payload: pack_arp_packet({
-      hwType: 0x0001,
-      protoType: 0x0800,
-      hwSize: 6,
-      protoSize: 4,
-      opcode: 0x0001,
-      src_mac: 0xff_00_ff_00_ff_00n,
-      src_ip: parseIPv4("192.168.0.5"),
-      dst_mac: 0n,
-      dst_ip: parseIPv4("192.168.0.2"),
-    }),
-  });
-
-  w.postMessage({ $: "ethernet_frame", port: 0, frame });
-}
 
 type TArchPC = {
   id: string;
@@ -31,10 +8,19 @@ type TArchPC = {
   name: string;
   ports: { id: string; type: "ethernet" }[];
   ethernetPorts: { id: string; mac: string }[];
+  init: string[];
   ui: { x: number; y: number };
 };
 type TArchNode = TArchPC;
-type TArchConnection = { id: string; a_id: string; a_pid: string; b_id: string; b_pid: string };
+type TArchConnection = {
+  id: string;
+  a_id: string;
+  a_pid: string;
+  b_id: string;
+  b_pid: string;
+  delay: number;
+  speed: number;
+};
 
 type TArchitecture = {
   title: string;
@@ -51,6 +37,7 @@ const arch: TArchitecture = {
       name: "PC 0",
       ports: [{ id: "eth0", type: "ethernet" }],
       ethernetPorts: [{ id: "eth0", mac: "00:00:00:aa:aa:00" }],
+      init: ["iface eth0 add 10.0.0.1/24", "route add 10.0.0.0/24 dev eth0"],
       ui: { x: 50, y: 50 },
     },
     {
@@ -59,10 +46,11 @@ const arch: TArchitecture = {
       name: "PC 1",
       ports: [{ id: "eth0", type: "ethernet" }],
       ethernetPorts: [{ id: "eth0", mac: "00:00:00:aa:aa:01" }],
+      init: ["iface eth0 add 10.0.0.2/24", "route add 10.0.0.0/24 dev eth0"],
       ui: { x: 150, y: 50 },
     },
   ],
-  connections: [{ id: "c0", a_id: "pc0", a_pid: "eth0", b_id: "pc1", b_pid: "eth0" }],
+  connections: [{ id: "c0", a_id: "pc0", a_pid: "eth0", b_id: "pc1", b_pid: "eth0", delay: 0, speed: 100_000_000 }],
 };
 
 export function Canvas() {
@@ -76,8 +64,6 @@ export function Canvas() {
 
       w.addEventListener("message", (e) => {
         if (e.data.$ === "ethernet_frame") {
-          console.log(`PC[${n.id}:${e.data.port}] =>`, hexdump(e.data.frame));
-
           const pid = n.ports[e.data.port].id;
           for (const c of arch.connections) {
             let targetNode: TArchNode | undefined;
@@ -98,7 +84,10 @@ export function Canvas() {
             const target = _pcs[targetNode.id];
             if (!target) continue;
 
-            target.postMessage({ $: "ethernet_frame", port: targetPort, frame: e.data.frame });
+            console.log(`PC[${n.id}:${e.data.port}] => PC[${targetNode.id}:${targetPort}]\n${hexdump(e.data.frame)}`);
+
+            const time = c.delay + (1000 * e.data.frame.length) / c.speed;
+            setTimeout(() => target.postMessage({ $: "ethernet_frame", port: targetPort, frame: e.data.frame }), time);
             break;
           }
         } else if (e.data.$ === "print") {
@@ -108,6 +97,11 @@ export function Canvas() {
 
       for (const eth of n.ethernetPorts) {
         w.postMessage({ $: "exec", app: "iface", args: [eth.id, "mac", eth.mac] });
+      }
+
+      for (const cmd of n.init) {
+        const [app, ...args] = cmd.split(/\s+/);
+        w.postMessage({ $: "exec", app, args });
       }
 
       _pcs[n.id] = w;

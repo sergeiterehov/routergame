@@ -3,6 +3,7 @@ import { System, BridgeDriver, SimpleEthernetDriver } from "./system";
 import { OS } from "./os";
 import * as ifconfig from "./apps/ifconfig.app";
 import * as arp from "./apps/arp.app";
+import * as ping from "./apps/ping.app";
 
 console.log("Hello", self.name);
 
@@ -48,7 +49,7 @@ new SimpleEthernetDriver(os, 1);
 expose(0, dev0.port);
 expose(1, dev1.port);
 
-os.install({ ...ifconfig, ...arp });
+os.install({ ...ifconfig, ...arp, ...ping });
 
 self.addEventListener("message", (e: MessageEvent<{ $: "exec"; app: string; args: string[] }>) => {
   if (e.data.$ === "exec") {

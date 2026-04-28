@@ -1,9 +1,55 @@
-import { hexdump, formatIPv4 } from "./format";
+import { pack_icmp_packet, pack_ip4_packet, unpack_icmp_packet, unpack_ip4_packet } from "./pack";
 import type { System, Driver } from "./system";
 
-const ARP_TIMEOUT_MS = 10_000;
-const ARP_TTL_MS = 30_000;
-const ARP_RETRY_MS = 10_000;
+const ARP_TIMEOUT_MS = 3_000;
+const ARP_TTL_MS = 60_000;
+const ARP_RETRY_MS = 5_000;
+
+class OSChannel<T = unknown> extends EventTarget {
+  private _eventMap = {
+    message: new MessageEvent("message", { data: null as T }),
+  };
+
+  postMessage(message: T): void {
+    this.dispatchEvent(new MessageEvent("message", { data: message }));
+  }
+
+  addEventListener<K extends keyof typeof this._eventMap>(
+    type: K,
+    listener: (this: OSChannel, ev: (typeof this._eventMap)[K]) => void,
+    options?: boolean | AddEventListenerOptions,
+  ): void;
+  addEventListener(
+    type: string,
+    listener: EventListenerOrEventListenerObject,
+    options?: boolean | AddEventListenerOptions,
+  ): void;
+  addEventListener(
+    type: string,
+    listener: EventListenerOrEventListenerObject,
+    options?: boolean | AddEventListenerOptions,
+  ): void {
+    super.addEventListener(type, listener, options);
+  }
+
+  removeEventListener<K extends keyof typeof this._eventMap>(
+    type: K,
+    listener: (this: OSChannel, ev: (typeof this._eventMap)[K]) => void,
+    options?: boolean | EventListenerOptions,
+  ): void;
+  removeEventListener(
+    type: string,
+    listener: EventListenerOrEventListenerObject,
+    options?: boolean | EventListenerOptions,
+  ): void;
+  removeEventListener(
+    type: string,
+    listener: EventListenerOrEventListenerObject,
+    options?: boolean | EventListenerOptions,
+  ): void {
+    super.removeEventListener(type, listener, options);
+  }
+}
 
 export type TIP4 = { address: number; prefix: number };
 export type TInterface = {
@@ -35,6 +81,9 @@ export class OS {
   _netRoutes: TRoute[] = [];
   _netForwarding = true;
 
+  _netArpChannel = new OSChannel<"pending" | "fail" | "success">();
+  _netIp4Channel = new OSChannel<{ direction: "in" | "out"; iInterface: number; packet: Uint8Array }>();
+
   on_print?: (text: string) => void;
 
   constructor(system: System) {
@@ -42,6 +91,42 @@ export class OS {
     this._system._interrupt = (deviceIndex) => {
       this._interruptHandlers[deviceIndex]?.();
     };
+
+    setInterval(this.timer_handle_1s.bind(this), 1000);
+  }
+
+  timer_handle_1s() {
+    this.net_arp_check_table();
+  }
+
+  deadline(ms: number) {
+    const start = Date.now();
+    return {
+      get start() {
+        return start;
+      },
+      get left() {
+        return ms - (Date.now() - start);
+      },
+    };
+  }
+
+  async channel_sync<T>(channel: OSChannel<T>, deadline: { left: number }) {
+    return new Promise<[T] | [void, Error]>((resolve) => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => {
+        controller.abort();
+        resolve([undefined, new Error("TIMEOUT")]);
+      }, deadline.left);
+      channel.addEventListener(
+        "message",
+        (e) => {
+          clearTimeout(timeout);
+          resolve([e.data]);
+        },
+        { signal: controller.signal },
+      );
+    });
   }
 
   print(...text: string[]) {
@@ -53,13 +138,14 @@ export class OS {
     this.print(`Installed: ${Object.keys(apps).join(", ")}\n`);
   }
 
-  exec(name: string, args: string[] = []) {
+  async exec(name: string, args: string[] = []) {
     const app = this._apps[name];
     if (!app) return this.print(`Unknown app: ${name}\n`);
     try {
-      app(this, args);
+      await app(this, args);
     } catch (e) {
-      this.print(`Error: ${e}\n`);
+      this.print(`[${name} exit error] ${e}\n`);
+      console.error(e);
     }
   }
 
@@ -109,8 +195,6 @@ export class OS {
   }
 
   net_handle_frame(iInterface: number, frame: Uint8Array) {
-    console.log("-> OS", this._netInterfaces[iInterface].name, hexdump(frame));
-
     const iface = this._netInterfaces[iInterface];
     if (iface.iMasterInterface !== undefined) {
       const slave = this._netInterfaces[iface.iMasterInterface];
@@ -128,6 +212,32 @@ export class OS {
     const etherType = view.getUint16(12);
 
     if (etherType === 0x0800) {
+      // ARP update
+      {
+        const srcMac = view.getBigUint64(6) >> 16n;
+        const srcIp = view.getUint32(14 + 12);
+        let found = false;
+        for (const entry of this._netARPTable) {
+          if (entry.iInterface === iInterface && entry.ip === srcIp) {
+            entry.mac = srcMac;
+            entry.state = "success";
+            entry.expiresAt = Date.now() + ARP_TTL_MS;
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          this._netARPTable.push({
+            iInterface,
+            mac: srcMac,
+            ip: srcIp,
+            state: "success",
+            expiresAt: Date.now() + ARP_TTL_MS,
+          });
+        }
+      }
+
+      // IPv4
       const payload = frame.slice(14);
       this.net_ip4_handle_packet(iInterface, payload);
     } else if (etherType === 0x0806) {
@@ -136,14 +246,10 @@ export class OS {
   }
 
   net_ip4_handle_packet(iInterface: number, packet: Uint8Array) {
-    const iface = this._netInterfaces[iInterface];
-
     const pack_view = new DataView(packet.buffer);
     const ttl = pack_view.getUint32(8);
-    const src = pack_view.getUint32(12);
+    // const src = pack_view.getUint32(12);
     const dst = pack_view.getUint32(16);
-
-    console.log("=> OS:IP", formatIPv4(dst), `from ${iface.name}`, hexdump(packet));
 
     if (ttl === 0) return;
 
@@ -158,8 +264,7 @@ export class OS {
       }
     }
     if (ip) {
-      // TODO: L4
-      console.log("PROCESS L4", hexdump(packet));
+      this.net_ip4_handle_protocol(iInterface, packet);
       return;
     }
 
@@ -168,35 +273,92 @@ export class OS {
 
     if (ttl === 1) return;
 
-    let route: TRoute | undefined;
-    for (const _route of this._netRoutes) {
-      const mask = ~((1 << (32 - _route.prefix)) - 1);
-      if ((dst & mask) !== (_route.network & mask)) continue;
-      if (!route || _route.prefix > route.prefix) {
-        route = _route;
-      }
-    }
+    const route = this.net_ip4_route(dst);
     if (!route) return;
-
-    const next_hop = route.gateway ?? dst;
 
     pack_view.setUint32(8, ttl - 1);
 
-    this.net_ip4_send_packet(route.iInterface, next_hop, packet);
+    this.net_ip4_send_packet(route.iInterface, route.gateway, packet);
+  }
+
+  net_ip4_handle_protocol(iInterface: number, packet: Uint8Array) {
+    this._netIp4Channel.postMessage({ direction: "in", iInterface, packet });
+
+    const view = new DataView(packet.buffer);
+    const protocol = view.getUint8(9);
+
+    // icmp
+    if (protocol === 1) {
+      this.net_ip4_icmp_handle(iInterface, packet);
+    }
+  }
+
+  net_ip4_icmp_handle(iInterface: number, ip_packet: Uint8Array) {
+    const ip_struct = unpack_ip4_packet(ip_packet);
+    const icmp_struct = unpack_icmp_packet(ip_struct.payload);
+
+    // TODO: types 0,3,8
+
+    if (icmp_struct.type === 8) {
+      const reply = pack_ip4_packet({
+        header: {
+          version: 4,
+          dst: ip_struct.header.src,
+          src: ip_struct.header.dst,
+          protocol: 1,
+          ttl: 64,
+          flags: 0,
+          id: 0,
+          ihl: 0,
+          length: 0,
+          offset: 0,
+          options: [],
+          tos: 0,
+          checksum: 0,
+        },
+        payload: pack_icmp_packet({
+          type: 0,
+          code: 0,
+          checksum: 0,
+          rest: icmp_struct.rest,
+          payload: icmp_struct.payload,
+        }),
+      });
+
+      this.net_ip4_send_packet(iInterface, ip_struct.header.src, reply);
+    }
   }
 
   net_ip4_send_packet(iInterface: number, ip: number, packet: Uint8Array) {
     const route_iface = this._netInterfaces[iInterface];
     if (route_iface.mac === undefined) return;
 
+    this._netIp4Channel.postMessage({ direction: "out", iInterface, packet });
+
+    let local_iface: TInterface | undefined;
+
+    for (const _iface of this._netInterfaces) {
+      for (const _ip of _iface.ips) {
+        if (_ip.address === ip) {
+          local_iface = _iface;
+          break;
+        }
+      }
+    }
+
+    if (local_iface) {
+      setTimeout(() => this.net_ip4_handle_packet(this._netInterfaces.indexOf(local_iface), packet));
+      return;
+    }
+
     const src_mac = route_iface.mac;
     let dst_mac = -1n; // -1 unknown, -2 pending, -3 fail
 
-    for (const _entry of this._netARPTable) {
-      if (_entry.iInterface === iInterface && _entry.ip === ip) {
-        switch (_entry.state) {
+    for (const _arp of this._netARPTable) {
+      if (_arp.iInterface === iInterface && _arp.ip === ip) {
+        switch (_arp.state) {
           case "success": {
-            dst_mac = _entry.mac;
+            dst_mac = _arp.mac;
             break;
           }
           case "pending": {
@@ -227,6 +389,58 @@ export class OS {
     } else {
       this.net_send_frame(iInterface, frame);
     }
+  }
+
+  net_ip4_send(ip: number, protocol: number, payload: Uint8Array) {
+    const route = this.net_ip4_route(ip);
+    if (!route) return;
+
+    const packet = pack_ip4_packet({
+      header: {
+        version: 4,
+        dst: ip,
+        src: route.src,
+        protocol,
+        ttl: 64,
+        flags: 0,
+        id: 0,
+        ihl: 0,
+        length: 0,
+        offset: 0,
+        options: [],
+        tos: 0,
+        checksum: 0,
+      },
+      payload,
+    });
+
+    this.net_ip4_send_packet(route.iInterface, route.gateway, packet);
+  }
+
+  net_ip4_route(dst: number) {
+    let route: TRoute | undefined;
+    for (const _route of this._netRoutes) {
+      const mask = ~((1 << (32 - _route.prefix)) - 1);
+      if ((dst & mask) !== (_route.network & mask)) continue;
+      if (!route || _route.prefix > route.prefix) {
+        route = _route;
+        break;
+      }
+    }
+    if (!route) return;
+
+    const iface = this._netInterfaces[route.iInterface];
+    let src = -1;
+    for (const _ip of iface.ips) {
+      const mask = ~((1 << (32 - _ip.prefix)) - 1);
+      if ((dst & mask) === (_ip.address & mask)) {
+        src = _ip.address;
+        break;
+      }
+    }
+    if (src === -1) return;
+
+    return { ...route, gateway: route.gateway ?? dst, src };
   }
 
   net_arp_send_request(iInterface: number, ip: number) {
@@ -264,12 +478,14 @@ export class OS {
       state: "pending",
       expiresAt: Date.now() + ARP_TIMEOUT_MS,
     });
+
+    this._netArpChannel.postMessage("pending");
   }
 
   net_arp_handle(iInterface: number, frame: Uint8Array) {
     const iface = this._netInterfaces[iInterface];
 
-    const view = new DataView(frame.buffer);
+    const view = new DataView(frame.buffer, frame.byteOffset);
     const opcode = view.getUint16(20);
 
     if (opcode === 0x0001) {
@@ -322,6 +538,8 @@ export class OS {
       arp.mac = mac;
       arp.expiresAt = Date.now() + ARP_TTL_MS;
 
+      this._netArpChannel.postMessage("success");
+
       this.net_ip4_process_queue(iInterface, ip);
     }
   }
@@ -338,6 +556,25 @@ export class OS {
     return -1n;
   }
 
+  net_arp_check_table() {
+    const now = Date.now();
+
+    for (let i = 0; i < this._netARPTable.length; i++) {
+      const arp = this._netARPTable[i];
+      if (arp.expiresAt < now) {
+        if (arp.state === "pending") {
+          arp.state = "fail";
+          arp.expiresAt = now + ARP_RETRY_MS;
+          this._netArpChannel.postMessage("fail");
+        } else {
+          this._netARPTable.splice(i, 1);
+          i--;
+        }
+        continue;
+      }
+    }
+  }
+
   net_ip4_process_queue(iInterface: number, ip: number) {
     for (let i = 0; i < this._netIp4Queue.length; i++) {
       const record = this._netIp4Queue[i];
@@ -346,7 +583,7 @@ export class OS {
         if (dst_mac < 0n) continue;
 
         const frame = record.frame;
-        const view = new DataView(frame.buffer);
+        const view = new DataView(frame.buffer, frame.byteOffset);
         view.setBigUint64(0, (view.getBigUint64(0) & 0xffffn) | (dst_mac << 16n));
 
         this.net_send_frame(record.iInterface, frame);

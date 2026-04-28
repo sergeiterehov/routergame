@@ -1,12 +1,13 @@
 import { formatIPv4, formatMAC, parseIPv4, validate_ip } from "../format";
 import type { OS } from "../os";
 
-export function arp(os: OS, args: string[]) {
+export async function arp(os: OS, args: string[]) {
   if (!args.length) {
+    if (!os._netARPTable.length) os.print("empty\n");
+
     for (const rec of os._netARPTable) {
-      if (rec.state !== "success") continue;
       const iface = os._netInterfaces[rec.iInterface];
-      os.print(`${formatIPv4(rec.ip)} at ${formatMAC(rec.mac)} on ${iface.name}\n`);
+      os.print(`${formatIPv4(rec.ip)} at ${formatMAC(rec.mac)} on ${iface.name} [${rec.state}]\n`);
     }
   } else if (args[0] === "who" && validate_ip(args[1]) && args[2] === "on" && args[3]) {
     const iface_index = os._netInterfaces.findIndex((i) => i.name === args[3]);
@@ -18,9 +19,22 @@ export function arp(os: OS, args: string[]) {
 
     const who_ip = parseIPv4(args[1]);
 
+    os.print("Request...");
+
     os.net_arp_send_request(iface_index, who_ip);
 
-    return;
+    let mac: bigint = -1n;
+
+    const dl = os.deadline(1000);
+    while (dl.left) {
+      mac = os.net_arp_resolve(iface_index, who_ip);
+      if (mac !== -1n) break;
+      const [, err] = await os.channel_sync(os._netArpChannel, dl);
+      if (err) throw err;
+    }
+
+    os.print("ok\n");
+    os.print(`${formatMAC(mac)}\n`);
   } else {
     os.print("Usage:\n");
     os.print("who <ip> on <interface>\n");

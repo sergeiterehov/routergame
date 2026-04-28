@@ -1,3 +1,12 @@
+export function formatTime(ms: number) {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 1000 * 60) return `${(ms / 1000).toFixed(2)}s`;
+  if (ms < 1000 * 60 * 60) return `${(ms / 1000 / 60).toFixed(2)}m`;
+  if (ms < 1000 * 60 * 60 * 24) return `${(ms / 1000 / 60 / 60).toFixed(2)}h`;
+  if (ms < 1000 * 60 * 60 * 24 * 365) return `${(ms / 1000 / 60 / 60 / 24).toFixed(2)}d`;
+  return `${(ms / 1000 / 60 / 60 / 24 / 365).toFixed(2)}y`;
+}
+
 export function hexdump(data: Uint8Array) {
   return [...data].map((d) => d.toString(16).padStart(2, "0")).join(" ");
 }

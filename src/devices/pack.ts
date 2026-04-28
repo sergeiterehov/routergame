@@ -6,7 +6,7 @@ export type TEthernetFrame = {
 };
 
 export function unpack_ethernet_frame(frame: Uint8Array): TEthernetFrame {
-  const $ = new DataView(frame.buffer);
+  const $ = new DataView(frame.buffer, frame.byteOffset);
 
   return {
     dst: $.getBigUint64(0) >> 16n,
@@ -41,7 +41,7 @@ export type TArpPacket = {
 };
 
 export function unpack_arp_packet(packet: Uint8Array): TArpPacket {
-  const $ = new DataView(packet.buffer);
+  const $ = new DataView(packet.buffer, packet.byteOffset);
 
   return {
     hwType: $.getUint16(0),
@@ -93,7 +93,7 @@ export type TIP4Packet = {
 };
 
 export function unpack_ip4_packet(packet: Uint8Array): TIP4Packet {
-  const $ = new DataView(packet.buffer);
+  const $ = new DataView(packet.buffer, packet.byteOffset);
 
   const obj: TIP4Packet = {
     header: {
@@ -135,6 +135,21 @@ export function unpack_ip4_packet(packet: Uint8Array): TIP4Packet {
 }
 
 export function pack_ip4_packet(obj: TIP4Packet): Uint8Array {
+  // IHL
+  {
+    let ihl = 5;
+    for (const option of obj.header.options) {
+      ihl += 1;
+      ihl += Math.ceil(option.data.length / 4);
+    }
+    obj.header.ihl = ihl;
+  }
+
+  // Length
+  {
+    obj.header.length = obj.header.ihl * 4 + obj.payload.length;
+  }
+
   const packet = new Uint8Array(obj.header.ihl * 4 + obj.payload.length);
   const $ = new DataView(packet.buffer);
 
@@ -160,6 +175,54 @@ export function pack_ip4_packet(obj: TIP4Packet): Uint8Array {
   }
 
   packet.set(obj.payload, obj.header.ihl * 4);
+
+  // Checksum
+  {
+    let sum = 0;
+    for (let j = 0; j < obj.header.ihl * 4; j += 2) {
+      const word = $.getUint16(j);
+      sum += word;
+      if (sum > 0xffff) {
+        sum = (sum & 0xffff) + (sum >>> 16);
+      }
+    }
+    sum = ~sum & 0xffff;
+    if (sum === 0) sum = 0xffff;
+
+    $.setUint16(10, sum);
+  }
+
+  return packet;
+}
+
+type TIcmpPacket = {
+  type: number;
+  code: number;
+  checksum: number;
+  rest: Uint8Array;
+  payload: Uint8Array;
+};
+
+export function unpack_icmp_packet(packet: Uint8Array): TIcmpPacket {
+  const $ = new DataView(packet.buffer, packet.byteOffset);
+  return {
+    type: $.getUint8(0),
+    code: $.getUint8(1),
+    checksum: $.getUint16(2),
+    rest: packet.subarray(4, 8),
+    payload: packet.subarray(8),
+  };
+}
+
+export function pack_icmp_packet(obj: TIcmpPacket): Uint8Array {
+  const packet = new Uint8Array(4 + 4 + obj.payload.length);
+  const $ = new DataView(packet.buffer, packet.byteOffset);
+
+  $.setUint8(0, obj.type);
+  $.setUint8(1, obj.code);
+  $.setUint16(2, obj.checksum);
+  packet.set(obj.rest, 4);
+  packet.set(obj.payload, 8);
 
   return packet;
 }
