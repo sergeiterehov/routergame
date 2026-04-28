@@ -435,17 +435,11 @@ export class OS {
     let src = -1;
     if (route.src) {
       src = route.src;
-      for (const _ip of iface.ips) {
-        const mask = prefixToMask(_ip.prefix);
-        if ((src & mask) === (_ip.address & mask)) {
-          src = _ip.address;
-          break;
-        }
-      }
+    } else if (iface.ips.length) {
+      src = iface.ips[0].address;
     } else {
-      src = iface.ips[0]?.address ?? -1;
+      return;
     }
-    if (src === -1) return;
 
     return { ...route, gateway: route.gateway ?? dst, src };
   }
