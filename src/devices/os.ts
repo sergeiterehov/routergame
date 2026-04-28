@@ -210,6 +210,8 @@ export class OS {
     // reject if not our mac or broadcast
     if (iface.mac && dstMac !== iface.mac && dstMac !== 0xffffffffffffn) return;
 
+    // FIXME: широковещательный пакет нужно отправить всем
+
     const etherType = view.getUint16(12);
 
     if (etherType === 0x0800) {

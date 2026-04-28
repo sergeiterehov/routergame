@@ -35,8 +35,14 @@ const arch: TArchitecture = {
       id: "pc0",
       type: "pc",
       name: "PC 0",
-      ports: [{ id: "eth0", type: "ethernet" }],
-      ethernetPorts: [{ id: "eth0", mac: "00:00:00:aa:aa:00" }],
+      ports: [
+        { id: "eth0", type: "ethernet" },
+        { id: "eth1", type: "ethernet" },
+      ],
+      ethernetPorts: [
+        { id: "eth0", mac: "00:00:00:aa:aa:00" },
+        { id: "eth1", mac: "00:00:00:bb:bb:00" },
+      ],
       init: ["iface eth0 add 10.0.0.1/24", "route add 10.0.0.0/24 dev eth0"],
       ui: { x: 50, y: 50 },
     },
@@ -44,13 +50,42 @@ const arch: TArchitecture = {
       id: "pc1",
       type: "pc",
       name: "PC 1",
-      ports: [{ id: "eth0", type: "ethernet" }],
-      ethernetPorts: [{ id: "eth0", mac: "00:00:00:aa:aa:01" }],
-      init: ["iface eth0 add 10.0.0.2/24", "route add 10.0.0.0/24 dev eth0"],
+      ports: [
+        { id: "eth0", type: "ethernet" },
+        { id: "eth1", type: "ethernet" },
+      ],
+      ethernetPorts: [
+        { id: "eth0", mac: "00:00:00:aa:aa:01" },
+        { id: "eth1", mac: "00:00:00:bb:bb:01" },
+      ],
+      init: [
+        "iface eth0 add 10.0.0.2/24",
+        "route add 10.0.0.0/24 dev eth0",
+        "iface eth1 add 192.168.0.2/24",
+        "route add 192.168.0.0/24 dev eth1",
+      ],
       ui: { x: 150, y: 50 },
     },
+    {
+      id: "pc2",
+      type: "pc",
+      name: "PC 2",
+      ports: [
+        { id: "eth0", type: "ethernet" },
+        { id: "eth1", type: "ethernet" },
+      ],
+      ethernetPorts: [
+        { id: "eth0", mac: "00:00:00:aa:aa:02" },
+        { id: "eth1", mac: "00:00:00:bb:bb:02" },
+      ],
+      init: ["iface eth0 add 192.168.0.1/24", "route add 192.168.0.0/24 dev eth0"],
+      ui: { x: 150, y: 150 },
+    },
   ],
-  connections: [{ id: "c0", a_id: "pc0", a_pid: "eth0", b_id: "pc1", b_pid: "eth0", delay: 0, speed: 100_000_000 }],
+  connections: [
+    { id: "c0", a_id: "pc0", a_pid: "eth0", b_id: "pc1", b_pid: "eth0", delay: 0, speed: 100_000_000 },
+    { id: "c1", a_id: "pc1", a_pid: "eth1", b_id: "pc2", b_pid: "eth0", delay: 0, speed: 100_000_000 },
+  ],
 };
 
 export function Canvas() {
