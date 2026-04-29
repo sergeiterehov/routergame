@@ -249,12 +249,9 @@ export class OS {
   }
 
   net_ip4_handle_packet(iInterface: number, packet: Uint8Array) {
-    const pack_view = new DataView(packet.buffer);
-    const ttl = pack_view.getUint32(8);
-    // const src = pack_view.getUint32(12);
+    const pack_view = new DataView(packet.buffer, packet.byteOffset);
+    const ttl = pack_view.getUint8(8);
     const dst = pack_view.getUint32(16);
-
-    if (ttl === 0) return;
 
     // Local
     let ip: TIP4 | undefined;
@@ -274,12 +271,12 @@ export class OS {
     // Forwarding
     if (!this._netForwarding) return;
 
-    if (ttl === 1) return;
+    if (ttl <= 1) return this.net_icmp_send_time_exceeded(iInterface, packet);
 
     const route = this.net_ip4_route(dst);
     if (!route) return;
 
-    pack_view.setUint32(8, ttl - 1);
+    pack_view.setUint8(8, ttl - 1);
 
     this.net_ip4_send_packet(route.iInterface, route.gateway, packet);
   }
@@ -330,6 +327,45 @@ export class OS {
 
       this.net_ip4_send_packet(iInterface, ip_struct.header.src, reply);
     }
+  }
+
+  net_icmp_send_time_exceeded(iInterface: number, origin_packet: Uint8Array) {
+    const origin_view = new DataView(origin_packet.buffer, origin_packet.byteOffset);
+
+    const src = origin_view.getUint32(12);
+    const ihl = (origin_view.getUint8(0) & 0x0f) * 4;
+
+    const route = this.net_ip4_route(src);
+    if (!route) return;
+
+    const embedded_len = Math.min(origin_packet.length, ihl + 8);
+
+    const response = pack_ip4_packet({
+      header: {
+        version: 4,
+        dst: src,
+        src: route.src,
+        protocol: 1,
+        ttl: 64,
+        flags: 0,
+        id: 0,
+        ihl: 0,
+        length: 0,
+        offset: 0,
+        options: [],
+        tos: 0,
+        checksum: 0,
+      },
+      payload: pack_icmp_packet({
+        type: 11,
+        code: 0,
+        checksum: 0,
+        rest: new Uint8Array(4),
+        payload: origin_packet.slice(0, embedded_len),
+      }),
+    });
+
+    this.net_ip4_send_packet(iInterface, route.gateway, response);
   }
 
   net_ip4_send_packet(iInterface: number, ip: number, packet: Uint8Array) {
@@ -473,7 +509,6 @@ export class OS {
 
     this.net_send_frame(iInterface, frame);
 
-    // TODO: timeout
     this._netARPTable.push({
       iInterface,
       ip,

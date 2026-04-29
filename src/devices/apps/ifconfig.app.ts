@@ -132,22 +132,29 @@ export function route(os: OS, args: string[]) {
       );
     }
   } else if (op === "add") {
-    if (test_args(args, "default", "via", validate_ip) || test_args(args, validate_address)) {
-      let _via: string | undefined;
+    if (test_args(args, "default", "via") || test_args(args, validate_address)) {
       let _network: string | undefined;
+      let _dev = find_arg(args, "dev");
+      const _via = find_arg(args, "via");
 
       if (args[0] === "default") {
         _network = "0.0.0.0/0";
-        _via = find_arg(args, "via");
       } else {
         _network = args[0];
       }
 
+      if (_via) {
+        if (!validate_ip(_via)) throw new Error("Invalid gateway");
+        const _via_route = os.net_ip4_route(parseIPv4(_via));
+        if (!_via_route) throw new Error("Gateway is unreachable");
+
+        if (!_dev) _dev = os._netInterfaces[_via_route.iInterface].name;
+      }
+
       const network_parts = _network.split("/");
       const network_prefix = parseInt(network_parts[1]);
-      const network_ip = parseIPv4(network_parts[0]) & prefixToMask(network_prefix);
+      const network_ip = (parseIPv4(network_parts[0]) & prefixToMask(network_prefix)) >>> 0;
 
-      let _dev = find_arg(args, "dev");
       const _src = find_arg(args, "src");
       if (!_dev && !_src) throw new Error("Device or source IP is required");
 
@@ -207,7 +214,7 @@ export function route(os: OS, args: string[]) {
 
       const network_parts = _network.split("/");
       const network_prefix = parseInt(network_parts[1]);
-      const network_ip = parseIPv4(network_parts[0]) & prefixToMask(network_prefix);
+      const network_ip = (parseIPv4(network_parts[0]) & prefixToMask(network_prefix)) >>> 0;
 
       for (let i = 0; i < os._netRoutes.length; i++) {
         const route = os._netRoutes[i];
