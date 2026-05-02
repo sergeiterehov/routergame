@@ -1,5 +1,5 @@
 import { createRoot } from "react-dom/client";
 import "./main.css";
-import { Canvas } from "./Canvas.tsx";
+import { Root } from "./Root.tsx";
 
-createRoot(document.getElementById("root")!).render(<Canvas />);
+createRoot(document.getElementById("root")!).render(<Root />);
