@@ -1,5 +1,5 @@
 import { SimpleEthernet, Port } from "./device";
-import { System, BridgeDriver, SimpleEthernetDriver } from "./system";
+import { System, SimpleEthernetDriver } from "./system";
 import { OS } from "./os";
 import * as ifconfig from "./apps/ifconfig.app";
 import * as arp from "./apps/arp.app";
@@ -42,7 +42,6 @@ system.addDevice(dev1);
 const os = new OS(system);
 os.on_print = (text) => self.postMessage({ $: "print", text });
 
-new BridgeDriver(os);
 new SimpleEthernetDriver(os, 0);
 new SimpleEthernetDriver(os, 1);
 

@@ -54,10 +54,11 @@ class OSChannel<T = unknown> extends EventTarget {
 
 export type TIP4 = { address: number; prefix: number };
 export type TInterface = {
+  index: number;
+  type: "bridge" | "ethernet";
   name: string;
   mac?: bigint;
   iDriver: number;
-  isBridge?: boolean;
   iMasterInterface?: number;
   ips: TIP4[];
 };
@@ -155,9 +156,9 @@ export class OS {
     this._interruptHandlers[iDevice] = handler;
   }
 
-  net_add_interface(name: string, iDriver: number) {
+  net_add_interface(type: TInterface["type"], name: string, iDriver: number) {
     const index = this._netInterfaces.length;
-    this._netInterfaces.push({ name, iDriver, ips: [] });
+    this._netInterfaces.push({ index, type, name, iDriver, ips: [] });
     return index;
   }
 
@@ -189,62 +190,63 @@ export class OS {
   }
 
   net_send_frame(iInterface: number, frame: Uint8Array) {
-    if (iInterface === -1) return;
     const iface = this._netInterfaces[iInterface];
+
+    if (iface.type === "bridge") {
+      // Just flood
+      for (const _iface of this._netInterfaces) {
+        if (_iface.iMasterInterface === iface.index) {
+          this.net_send_frame(_iface.index, frame);
+        }
+      }
+
+      return;
+    }
+
     const driver = this._drivers[iface.iDriver];
     driver.net_send_frame?.(iInterface, frame);
   }
 
   net_handle_frame(iInterface: number, frame: Uint8Array) {
     const iface = this._netInterfaces[iInterface];
-    if (iface.iMasterInterface !== undefined) {
-      const slave = this._netInterfaces[iface.iMasterInterface];
-      const driver = this._drivers[slave.iDriver];
-      driver.net_send_frame?.(iInterface, frame);
-      return;
-    }
 
     const view = new DataView(frame.buffer);
-
     const dstMac = view.getBigUint64(0) >> 16n;
+
     // reject if not our mac or broadcast
-    if (iface.mac && dstMac !== iface.mac && dstMac !== 0xffffffffffffn) return;
+    if (iface.mac && (dstMac === iface.mac || dstMac === 0xffffffffffffn)) {
+      const etherType = view.getUint16(12);
 
-    // FIXME: широковещательный пакет нужно отправить всем
-
-    const etherType = view.getUint16(12);
-
-    if (etherType === 0x0800) {
-      // ARP update
-      {
+      if (etherType === 0x0800) {
+        // ARP update
         const srcMac = view.getBigUint64(6) >> 16n;
         const srcIp = view.getUint32(14 + 12);
-        let found = false;
-        for (const entry of this._netARPTable) {
-          if (entry.iInterface === iInterface && entry.ip === srcIp) {
-            entry.mac = srcMac;
-            entry.state = "success";
-            entry.expiresAt = Date.now() + ARP_TTL_MS;
-            found = true;
-            break;
+        this.net_arp_update(iInterface, srcIp, srcMac);
+
+        // IPv4
+        const payload = frame.slice(14);
+        this.net_ip4_handle_packet(iInterface, payload);
+      } else if (etherType === 0x0806) {
+        this.net_arp_handle(iInterface, frame);
+      }
+
+      // Если не широковещательный, то был адресован нам, уходим
+      if (dstMac !== 0xffffffffffffn) return;
+    }
+
+    if (iface.iMasterInterface !== undefined) {
+      const master = this._netInterfaces[iface.iMasterInterface];
+
+      if (master.type === "bridge") {
+        // Just flood, ignore source port
+        for (const _iface of this._netInterfaces) {
+          if (_iface.iMasterInterface === master.index && _iface !== iface) {
+            this.net_send_frame(_iface.index, frame);
           }
-        }
-        if (!found) {
-          this._netARPTable.push({
-            iInterface,
-            mac: srcMac,
-            ip: srcIp,
-            state: "success",
-            expiresAt: Date.now() + ARP_TTL_MS,
-          });
         }
       }
 
-      // IPv4
-      const payload = frame.slice(14);
-      this.net_ip4_handle_packet(iInterface, payload);
-    } else if (etherType === 0x0806) {
-      this.net_arp_handle(iInterface, frame);
+      return;
     }
   }
 
@@ -253,19 +255,13 @@ export class OS {
     const ttl = pack_view.getUint8(8);
     const dst = pack_view.getUint32(16);
 
-    // Local
-    let ip: TIP4 | undefined;
+    // Own IP
     for (const _iface of this._netInterfaces) {
       for (const _ip of _iface.ips) {
         if (_ip.address === dst) {
-          ip = _ip;
-          break;
+          return this.net_ip4_handle_protocol(iInterface, packet);
         }
       }
-    }
-    if (ip) {
-      this.net_ip4_handle_protocol(iInterface, packet);
-      return;
     }
 
     // Forwarding
@@ -386,7 +382,7 @@ export class OS {
     }
 
     if (local_iface) {
-      setTimeout(() => this.net_ip4_handle_packet(this._netInterfaces.indexOf(local_iface), packet));
+      setTimeout(() => this.net_ip4_handle_packet(local_iface.index, packet));
       return;
     }
 
@@ -518,6 +514,25 @@ export class OS {
     });
 
     this._netArpChannel.postMessage("pending");
+  }
+
+  net_arp_update(iInterface: number, ip: number, mac: bigint) {
+    for (const entry of this._netARPTable) {
+      if (entry.iInterface === iInterface && entry.ip === ip) {
+        entry.mac = mac;
+        entry.state = "success";
+        entry.expiresAt = Date.now() + ARP_TTL_MS;
+        return;
+      }
+    }
+
+    this._netARPTable.push({
+      iInterface,
+      mac,
+      ip,
+      state: "success",
+      expiresAt: Date.now() + ARP_TTL_MS,
+    });
   }
 
   net_arp_handle(iInterface: number, frame: Uint8Array) {

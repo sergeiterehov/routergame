@@ -34,12 +34,8 @@ function find_arg(args: string[], key: string, initial: string = "") {
 function _get_iface(os: OS, name: string) {
   return os._netInterfaces.find((p) => p.name === name);
 }
-function _get_iface_index(os: OS, name: string) {
-  return os._netInterfaces.findIndex((p) => p.name === name);
-}
 
 function _print_interface(os: OS, name: string) {
-  const iInterface = _get_iface_index(os, name);
   const iface = _get_iface(os, name);
 
   if (!iface) {
@@ -49,11 +45,11 @@ function _print_interface(os: OS, name: string) {
 
   os.print(
     [
-      `${iface.name}: <${[iface.isBridge && "BRIDGE", iface.iMasterInterface ? "SLAVE" : undefined].filter(Boolean).join(",")}>`,
+      `${iface.name}: <${["UP", iface.type.toUpperCase(), iface.iMasterInterface ? "SLAVE" : undefined].filter(Boolean).join(",")}>`,
       iface.mac && `ether ${formatMAC(iface.mac)}`,
       iface.ips?.map((ip) => `inet ${formatIPv4(ip.address)}/${ip.prefix}`).join("\n\t"),
       ...os._netInterfaces
-        .filter((other) => other.iMasterInterface === iInterface)
+        .filter((other) => other.iMasterInterface === iface.index)
         .map((other) => `member: ${other.name}`),
     ]
       .filter(Boolean)
@@ -104,8 +100,7 @@ export function iface(os: OS, args: string[]) {
     if (!mac) return os.print(`${formatMAC(iface.mac) || ""}\n`);
     if (!validate_mac(mac)) throw new Error("Mac is invalid");
 
-    const iInterface = os._netInterfaces.indexOf(iface);
-    os.net_change_mac(iInterface, parseMAC(mac));
+    os.net_change_mac(iface.index, parseMAC(mac));
   } else if (op === "flush") {
     iface.ips = [];
   } else {
@@ -132,7 +127,7 @@ export function route(os: OS, args: string[]) {
       );
     }
   } else if (op === "add") {
-    if (test_args(args, "default", "via") || test_args(args, validate_address)) {
+    if (test_args(args, "default") || test_args(args, validate_address)) {
       let _network: string | undefined;
       let _dev = find_arg(args, "dev");
       const _via = find_arg(args, "via");
@@ -171,13 +166,13 @@ export function route(os: OS, args: string[]) {
         if (!_dev) throw new Error(`Interface with ${_src} not found`);
       }
 
-      const iface_index = _get_iface_index(os, _dev);
-      if (iface_index === -1) throw new Error("Interface not found");
+      const iface = _get_iface(os, _dev);
+      if (!iface) throw new Error("Interface not found");
 
       if (_src) {
         const src = parseIPv4(_src);
         let _ip = -1;
-        for (const ip of os._netInterfaces[iface_index].ips) {
+        for (const ip of os._netInterfaces[iface.index].ips) {
           if (ip.address === src) {
             _ip = ip.address;
             break;
@@ -195,7 +190,7 @@ export function route(os: OS, args: string[]) {
       os._netRoutes.push({
         network: network_ip,
         prefix: network_prefix,
-        iInterface: iface_index,
+        iInterface: iface.index,
         gateway: _via ? parseIPv4(_via) : undefined,
         src: _src ? parseIPv4(_src) : undefined,
       });
@@ -229,5 +224,61 @@ export function route(os: OS, args: string[]) {
     }
   } else {
     throw new Error("Usage:\nadd ...\ndel ...");
+  }
+}
+
+export function br(os: OS, args: string[]) {
+  const op = args.shift();
+
+  if (!op) {
+    for (const _br of os._netInterfaces) {
+      if (_br.type !== "bridge") continue;
+      os.print(`${_br.name}:\n`);
+      for (const _iface of os._netInterfaces) {
+        if (_iface.iMasterInterface !== _br.index) continue;
+        os.print(`\t${_iface.name}\n`);
+      }
+    }
+
+    return;
+  }
+
+  if (op === "add") {
+    if (test_args(args, Boolean)) {
+      const name = args.shift()!;
+      for (const _br of os._netInterfaces) {
+        if (_br.name === name) throw new Error("Bridge already exists");
+      }
+
+      const slaves = args.map((_name) => {
+        const _slave = _get_iface(os, _name);
+        if (!_slave) throw new Error(`Interface ${_name} not found`);
+        if (_slave.iMasterInterface !== undefined) throw new Error(`Interface ${_name} is already a slave`);
+        if (_slave.type === "bridge") throw new Error(`Interface ${_name} is a bridge`);
+        return _slave;
+      });
+
+      const index = os.net_add_interface("bridge", name, -1);
+      const br = os._netInterfaces[index];
+
+      for (const slave of slaves) {
+        slave.ips.splice(0);
+
+        for (let r = 0; r < os._netRoutes.length; r += 1) {
+          if (os._netRoutes[r].iInterface !== slave.index) continue;
+          os._netRoutes.splice(r, 1);
+          r -= 1;
+        }
+
+        os._netARPTable.splice(0);
+
+        slave.iMasterInterface = br.index;
+      }
+
+      os.print("created\n");
+      return;
+    }
+
+    return;
   }
 }

@@ -32,29 +32,6 @@ export class Driver {
   call(cmd: unknown) {}
 }
 
-export class BridgeDriver extends Driver {
-  name = "Bridge";
-  instance = "Bridge Instance";
-
-  net_send_frame = (iInterface: number, data: Uint8Array) => {
-    const slave = this._os._netInterfaces[iInterface];
-    const iBridge = slave.iMasterInterface;
-    if (iBridge === undefined) return;
-
-    const iface = this._os._netInterfaces[iBridge];
-    if (!iface.isBridge) return;
-
-    // multicast
-    for (let i = 0; i < this._os._netInterfaces.length; i++) {
-      if (i === iInterface) continue; // skip sender
-      const iface = this._os._netInterfaces[i];
-      if (iface.iMasterInterface === iBridge) {
-        this._os.net_send_frame(i, data);
-      }
-    }
-  };
-}
-
 export class SimpleEthernetDriver extends Driver {
   name = "SimpleEthernet";
 
@@ -73,7 +50,7 @@ export class SimpleEthernetDriver extends Driver {
 
     this.instance = `SimpleEthernet:${this._device.gid}`;
 
-    this._iInterface = this._os.net_add_interface(`eth${iDevice}`, this._iDriver);
+    this._iInterface = this._os.net_add_interface("ethernet", `eth${iDevice}`, this._iDriver);
     const iface = this._os._netInterfaces[this._iInterface];
     iface.mac = this._device.mac;
   }
