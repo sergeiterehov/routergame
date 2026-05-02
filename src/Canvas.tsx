@@ -3,18 +3,22 @@ import { store, type TArchNode } from "./store.ts";
 
 const itemSize = 64;
 
-const Type2ClassName: { [key in TArchNode["type"]]?: string } = {
-  pc: "bg-sky-200",
-  router: "bg-violet-200",
-  server: "bg-green-200",
-  l2: "bg-gray-200",
+const Type2Color: { [key in TArchNode["type"]]?: string } = {
+  pc: "sky",
+  router: "violet",
+  server: "green",
+  l2: "gray",
 };
 
 export const Canvas = observer(function Canvas() {
   const { active_id } = store;
 
+  const connected_ids = store.arch.connections
+    .filter((c) => c.a_id === active_id || c.b_id === active_id)
+    .map((c) => (c.a_id === active_id ? c.b_id : c.a_id));
+
   return (
-    <div className="relative" style={{ width: 1024, height: 768 }}>
+    <div className="relative w-full h-full overflow-hidden">
       <svg className="absolute w-full h-full">
         {store.arch.connections.map((c) => {
           const a = store.arch.node.find((n) => n.id === c.a_id);
@@ -34,10 +38,11 @@ export const Canvas = observer(function Canvas() {
         })}
       </svg>
       {store.arch.node.map((n) => {
+        const color = Type2Color[n.type];
         return (
           <div
             key={n.id}
-            className={`absolute flex text-center justify-center items-center ${Type2ClassName[n.type] || "bg-gray-400 text-gray-500"} rounded-lg border-2 ${n.id === active_id ? "border-black" : "border-transparent"}`}
+            className={`absolute flex text-center justify-center items-center ${color ? `bg-${Type2Color[n.type]}-200` : "bg-gray-500 text-gray-400"} rounded-lg border-2 ${n.id === active_id ? "border-black" : connected_ids.includes(n.id) ? `border-gray-500 border-dashed` : "border-transparent"}`}
             style={{ left: n.ui.x, top: n.ui.y, width: itemSize, height: itemSize }}
             onClick={(e) => {
               e.preventDefault();
