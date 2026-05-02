@@ -207,8 +207,12 @@ export class OS {
     driver.net_send_frame?.(iInterface, frame);
   }
 
-  net_handle_frame(iInterface: number, frame: Uint8Array) {
-    const iface = this._netInterfaces[iInterface];
+  net_handle_frame(iInterfaceOrigin: number, frame: Uint8Array) {
+    let iface = this._netInterfaces[iInterfaceOrigin];
+
+    if (iface.iMasterInterface !== undefined) {
+      iface = this._netInterfaces[iface.iMasterInterface];
+    }
 
     const view = new DataView(frame.buffer);
     const dstMac = view.getBigUint64(0) >> 16n;
@@ -221,32 +225,26 @@ export class OS {
         // ARP update
         const srcMac = view.getBigUint64(6) >> 16n;
         const srcIp = view.getUint32(14 + 12);
-        this.net_arp_update(iInterface, srcIp, srcMac);
+        this.net_arp_update(iface.index, srcIp, srcMac);
 
         // IPv4
         const payload = frame.slice(14);
-        this.net_ip4_handle_packet(iInterface, payload);
+        this.net_ip4_handle_packet(iface.index, payload);
       } else if (etherType === 0x0806) {
-        this.net_arp_handle(iInterface, frame);
+        this.net_arp_handle(iface.index, frame);
       }
 
       // Если не широковещательный, то был адресован нам, уходим
       if (dstMac !== 0xffffffffffffn) return;
     }
 
-    if (iface.iMasterInterface !== undefined) {
-      const master = this._netInterfaces[iface.iMasterInterface];
-
-      if (master.type === "bridge") {
-        // Just flood, ignore source port
-        for (const _iface of this._netInterfaces) {
-          if (_iface.iMasterInterface === master.index && _iface !== iface) {
-            this.net_send_frame(_iface.index, frame);
-          }
+    if (iface.type === "bridge") {
+      // Just flood, ignore source port
+      for (const _slave of this._netInterfaces) {
+        if (_slave.iMasterInterface === iface.index && iInterfaceOrigin !== _slave.index) {
+          this.net_send_frame(_slave.index, frame);
         }
       }
-
-      return;
     }
   }
 

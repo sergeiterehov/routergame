@@ -76,6 +76,8 @@ export function iface(os: OS, args: string[]) {
   if (!op) return _print_interface(os, name);
 
   if (op === "add" || op === "del") {
+    if (iface.iMasterInterface !== undefined) throw new Error("Interface is slave");
+
     const ip = args.shift();
     if (!ip) throw new Error(`Usage: ${name} ${op} <ip/prefix>`);
     if (!validate_address(ip)) throw new Error(`Invalid address ${ip}`);
@@ -261,6 +263,8 @@ export function br(os: OS, args: string[]) {
       const index = os.net_add_interface("bridge", name, -1);
       const br = os._netInterfaces[index];
 
+      br.mac = 0n;
+
       for (const slave of slaves) {
         slave.ips.splice(0);
 
@@ -270,9 +274,15 @@ export function br(os: OS, args: string[]) {
           r -= 1;
         }
 
-        os._netARPTable.splice(0);
+        for (let a = 0; a < os._netARPTable.length; a += 1) {
+          if (os._netARPTable[a].iInterface !== slave.index) continue;
+          os._netARPTable.splice(a, 1);
+          a -= 1;
+        }
 
         slave.iMasterInterface = br.index;
+
+        if (slave.mac !== undefined && br.mac === 0n) br.mac = slave.mac;
       }
 
       os.print("created\n");
