@@ -1,6 +1,11 @@
 import { prefixToMask } from "./format";
 import {
+  ARP_OPCODES,
+  ETHER_TYPES,
   IP_PROTOCOLS,
+  MAC_BROADCAST,
+  pack_arp_packet,
+  pack_ethernet_frame,
   pack_icmp_packet,
   pack_ip4_packet,
   pack_udp_packet,
@@ -461,12 +466,12 @@ export class OS {
 
     if (dst_mac === -3n) return;
 
-    const frame = new Uint8Array(6 + 6 + 2 + packet.length);
-    const frame_view = new DataView(frame.buffer);
-    frame_view.setBigUint64(0, dst_mac << 16n);
-    frame_view.setBigUint64(6, src_mac << 16n);
-    frame_view.setUint16(12, 0x0800);
-    frame.set(packet, 14);
+    const frame = pack_ethernet_frame({
+      dst: dst_mac,
+      src: src_mac,
+      etherType: ETHER_TYPES.IPv4,
+      payload: packet,
+    });
 
     if (dst_mac < 0n) {
       this._netIp4Queue.push({ iInterface, ip, frame });
@@ -536,22 +541,22 @@ export class OS {
     const sender_ip = iface.ips[0];
     if (!sender_ip) return;
 
-    const dst_mac = 0xffffffffffffn;
-
-    const frame = new Uint8Array(6 + 6 + 2 + 28);
-    const view = new DataView(frame.buffer);
-    view.setBigUint64(0, dst_mac << 16n);
-    view.setBigUint64(6, src_mac << 16n);
-    view.setUint16(12, 0x0806);
-    view.setUint16(14, 0x0001);
-    view.setUint16(16, 0x0800);
-    view.setUint8(18, 0x06);
-    view.setUint8(19, 0x04);
-    view.setUint16(20, 0x0001);
-    view.setBigUint64(22, src_mac << 16n);
-    view.setUint32(28, sender_ip.address);
-    view.setBigUint64(32, 0n);
-    view.setUint32(38, ip);
+    const frame = pack_ethernet_frame({
+      dst: MAC_BROADCAST,
+      src: src_mac,
+      etherType: ETHER_TYPES.ARP,
+      payload: pack_arp_packet({
+        hwType: 0x0001,
+        protoType: ETHER_TYPES.IPv4,
+        hwSize: 6,
+        protoSize: 4,
+        opcode: ARP_OPCODES.REQUEST,
+        src_mac,
+        src_ip: sender_ip.address,
+        dst_ip: ip,
+        dst_mac: 0n,
+      }),
+    });
 
     this.net_send_frame(iInterface, frame);
 
@@ -602,20 +607,22 @@ export class OS {
       for (const _iface of this._netInterfaces) {
         for (const _ip of _iface.ips) {
           if (_ip.address === who_is_ip) {
-            const frame = new Uint8Array(6 + 6 + 2 + 28);
-            const view = new DataView(frame.buffer);
-            view.setBigUint64(0, remote_mac << 16n);
-            view.setBigUint64(6, iface.mac << 16n);
-            view.setUint16(12, 0x0806);
-            view.setUint16(14, 0x0001);
-            view.setUint16(16, 0x0800);
-            view.setUint8(18, 0x06);
-            view.setUint8(19, 0x04);
-            view.setUint16(20, 0x0002);
-            view.setBigUint64(22, iface.mac << 16n);
-            view.setUint32(28, who_is_ip);
-            view.setBigUint64(32, remote_mac << 16n);
-            view.setUint32(38, remote_ip);
+            const frame = pack_ethernet_frame({
+              dst: remote_mac,
+              src: iface.mac,
+              etherType: ETHER_TYPES.ARP,
+              payload: pack_arp_packet({
+                hwType: 0x0001,
+                protoType: ETHER_TYPES.IPv4,
+                hwSize: 6,
+                protoSize: 4,
+                opcode: ARP_OPCODES.REPLY,
+                src_mac: iface.mac,
+                src_ip: who_is_ip,
+                dst_mac: remote_mac,
+                dst_ip: remote_ip,
+              }),
+            });
 
             this.net_send_frame(iInterface, frame);
 

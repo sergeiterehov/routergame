@@ -11,6 +11,19 @@ export const IP_PROTOCOLS = {
   UDP: 17,
 };
 
+export const MAC_BROADCAST = 0xffffffffffffn;
+
+export const ETHER_TYPES = {
+  IPv4: 0x0800,
+  ARP: 0x0806,
+  IPv6: 0x86dd,
+};
+
+export const ARP_OPCODES = {
+  REQUEST: 0x0001,
+  REPLY: 0x0002,
+};
+
 export function unpack_ethernet_frame(frame: Uint8Array): TEthernetFrame {
   const $ = new DataView(frame.buffer, frame.byteOffset);
 
