@@ -5,6 +5,12 @@ export type TEthernetFrame = {
   payload: Uint8Array;
 };
 
+export const IP_PROTOCOLS = {
+  ICMP: 1,
+  TCP: 6,
+  UDP: 17,
+};
+
 export function unpack_ethernet_frame(frame: Uint8Array): TEthernetFrame {
   const $ = new DataView(frame.buffer, frame.byteOffset);
 
@@ -224,5 +230,39 @@ export function pack_icmp_packet(obj: TIcmpPacket): Uint8Array {
   packet.set(obj.rest, 4);
   packet.set(obj.payload, 8);
 
+  return packet;
+}
+
+export type TUdpPacket = {
+  header: {
+    src: number;
+    dst: number;
+    length: number;
+    checksum: number;
+  };
+  payload: Uint8Array;
+};
+
+export function unpack_udp_packet(packet: Uint8Array): TUdpPacket {
+  const $ = new DataView(packet.buffer, packet.byteOffset);
+  return {
+    header: {
+      src: $.getUint16(0),
+      dst: $.getUint16(2),
+      length: $.getUint16(4),
+      checksum: $.getUint16(6),
+    },
+    payload: packet.subarray(8),
+  };
+}
+
+export function pack_udp_packet(obj: TUdpPacket): Uint8Array {
+  const packet = new Uint8Array(8 + obj.payload.length);
+  const $ = new DataView(packet.buffer, packet.byteOffset);
+  $.setUint16(0, obj.header.src);
+  $.setUint16(2, obj.header.dst);
+  $.setUint16(4, obj.payload.length);
+  $.setUint16(6, obj.header.checksum);
+  packet.set(obj.payload, 8);
   return packet;
 }

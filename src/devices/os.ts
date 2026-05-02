@@ -1,5 +1,13 @@
 import { prefixToMask } from "./format";
-import { pack_icmp_packet, pack_ip4_packet, unpack_icmp_packet, unpack_ip4_packet } from "./pack";
+import {
+  IP_PROTOCOLS,
+  pack_icmp_packet,
+  pack_ip4_packet,
+  pack_udp_packet,
+  unpack_icmp_packet,
+  unpack_ip4_packet,
+  unpack_udp_packet,
+} from "./pack";
 import type { System, Driver } from "./system";
 
 const ARP_TIMEOUT_MS = 3_000;
@@ -70,21 +78,33 @@ export type TArpRecord = {
   state: "pending" | "success" | "fail";
 };
 export type TRoute = { network: number; prefix: number; gateway?: number; iInterface: number; src?: number };
+export type TSocket = {
+  ip: number;
+} & (
+  | { protocol: "raw"; on_data: (data: Uint8Array, ip: number) => void }
+  | { protocol: "icmp"; on_data: (data: Uint8Array, ip: number) => void }
+  | { protocol: "udp"; port: number; on_data: (data: Uint8Array, ip: number, port: number) => void }
+);
+
 export class OS {
   _system: System;
 
   _drivers: Driver[] = [];
   _apps: { [key: string]: (os: OS, args: string[]) => void } = {};
 
+  _netForwarding = true;
+  _netDefaultTTL = 64;
+
   _netInterfaces: TInterface[] = [];
   _netCAMTable: { mac: bigint; iInterface: number }[] = [];
   _netARPTable: TArpRecord[] = [];
   _netIp4Queue: { iInterface: number; ip: number; frame: Uint8Array }[] = [];
   _netRoutes: TRoute[] = [];
-  _netForwarding = true;
 
   _netArpChannel = new OSChannel<"pending" | "fail" | "success" | "retry">();
   _netIp4Channel = new OSChannel<{ direction: "in" | "out"; iInterface: number; packet: Uint8Array }>();
+
+  _netSockets: TSocket[] = [];
 
   on_print?: (text: string) => void;
 
@@ -278,13 +298,45 @@ export class OS {
   net_ip4_handle_protocol(iInterface: number, packet: Uint8Array) {
     this._netIp4Channel.postMessage({ direction: "in", iInterface, packet });
 
-    const view = new DataView(packet.buffer);
-    const protocol = view.getUint8(9);
+    const ip_struct = unpack_ip4_packet(packet);
 
     // icmp
-    if (protocol === 1) {
+    if (ip_struct.header.protocol === IP_PROTOCOLS.ICMP) {
       this.net_ip4_icmp_handle(iInterface, packet);
     }
+
+    for (const socket of this._netSockets) {
+      if (socket.ip !== 0 && socket.ip !== ip_struct.header.dst) continue;
+      if (socket.protocol === "raw") {
+        socket.on_data(packet, ip_struct.header.src);
+      } else if (ip_struct.header.protocol === IP_PROTOCOLS.ICMP && socket.protocol === "icmp") {
+        socket.on_data(ip_struct.payload, ip_struct.header.src);
+      } else if (socket.protocol === "udp" && ip_struct.header.protocol === IP_PROTOCOLS.UDP) {
+        const udp_struct = unpack_udp_packet(ip_struct.payload);
+        if (socket.port === udp_struct.header.dst) {
+          socket.on_data(udp_struct.payload, ip_struct.header.src, udp_struct.header.src);
+        }
+      }
+    }
+  }
+
+  socket_send_raw(socket: TSocket, data: Uint8Array) {
+    if (socket.protocol !== "raw") return;
+
+    const struct = unpack_ip4_packet(data);
+
+    const route = this.net_ip4_route(struct.header.dst);
+    if (!route) return;
+
+    return this.net_ip4_send_packet(route.iInterface, route.gateway, data);
+  }
+
+  socket_send_udp(socket: TSocket, data: Uint8Array, ip: number, port: number) {
+    if (socket.protocol !== "udp") return;
+
+    const payload = pack_udp_packet({ header: { dst: port, src: socket.port, length: 0, checksum: 0 }, payload: data });
+
+    return this.net_ip4_send(ip, IP_PROTOCOLS.UDP, payload);
   }
 
   net_ip4_icmp_handle(iInterface: number, ip_packet: Uint8Array) {
@@ -300,7 +352,7 @@ export class OS {
           dst: ip_struct.header.src,
           src: ip_struct.header.dst,
           protocol: 1,
-          ttl: 64,
+          ttl: this._netDefaultTTL,
           flags: 0,
           id: 0,
           ihl: 0,
@@ -340,7 +392,7 @@ export class OS {
         dst: src,
         src: route.src,
         protocol: 1,
-        ttl: 64,
+        ttl: this._netDefaultTTL,
         flags: 0,
         id: 0,
         ihl: 0,
@@ -434,7 +486,7 @@ export class OS {
         dst: ip,
         src: route.src,
         protocol,
-        ttl: 64,
+        ttl: this._netDefaultTTL,
         flags: 0,
         id: 0,
         ihl: 0,

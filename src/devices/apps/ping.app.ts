@@ -1,34 +1,34 @@
-import { formatIPv4, formatTime, parseIPv4, validate_ip } from "../format";
-import type { OS } from "../os";
+import { formatIPv4, formatTime, hexdump, parseIPv4, validate_ip } from "../format";
+import type { OS, TSocket } from "../os";
 import { pack_icmp_packet, pack_ip4_packet, unpack_icmp_packet, unpack_ip4_packet } from "../pack";
+
+function find_config(args: string[], key: string, initial: string = "") {
+  for (let i = 1; i < args.length; i++) {
+    if (args[i] === key && args[i + 1]) {
+      return args[i + 1];
+    }
+  }
+
+  return initial;
+}
 
 export async function ping(os: OS, args: string[]) {
   if (validate_ip(args[0])) {
     const ip = parseIPv4(args[0]);
 
-    function find_config(key: string, initial: string = "") {
-      for (let i = 1; i < args.length; i++) {
-        if (args[i] === key && args[i + 1]) {
-          return args[i + 1];
-        }
-      }
-
-      return initial;
-    }
-
-    const count = parseInt(find_config("-c", "1"));
+    const count = parseInt(find_config(args, "-c", "1"));
     if (Number.isNaN(count) || count < 0) throw new Error("Invalid count");
 
-    const size = parseInt(find_config("-s", "56"));
+    const size = parseInt(find_config(args, "-s", "56"));
     if (Number.isNaN(size) || size < 0) throw new Error("Invalid packet size");
 
-    const timeout = parseInt(find_config("-t", "1000"));
+    const timeout = parseInt(find_config(args, "-t", "1000"));
     if (Number.isNaN(timeout) || timeout < 0) throw new Error("Invalid timeout");
 
-    const ttl = parseInt(find_config("-m", "64"));
+    const ttl = parseInt(find_config(args, "-m", "64"));
     if (Number.isNaN(ttl) || ttl < 0 || ttl > 255) throw new Error("Invalid TTL");
 
-    const wait = parseInt(find_config("-i", "1000"));
+    const wait = parseInt(find_config(args, "-i", "1000"));
     if (Number.isNaN(wait) || wait < 0) throw new Error("Invalid wait");
 
     os.print(`PING ${formatIPv4(ip)}: ${size} data bytes\n`);
@@ -112,4 +112,88 @@ export async function ping(os: OS, args: string[]) {
   }
 
   os.print("Usage: <ip> [-c count] [-s packet_size] [-t timeout_ms] [-m TTL] [-i wait_ms]\n");
+}
+
+export async function nc(os: OS, args: string[]) {
+  if (!args.length) {
+    os.print("Usage: [-l] [-u] [-s source_ip] [-p source_port] [-w data] [ip] [port]\n");
+    return;
+  }
+
+  const flags = { l: false, u: false };
+  const config = { s: "", p: "", w: "" };
+  const params = { ip: "", port: "" };
+
+  for (let i = 0; i < args.length; i++) {
+    let arg = args[i];
+    if (arg.startsWith("-")) {
+      arg = arg.slice(1);
+      if (arg in flags) {
+        flags[arg as keyof typeof flags] = true;
+      } else if (arg in config) {
+        if (i + 1 >= args.length) throw new Error(`Missing value for ${arg}`);
+        const value = args[(i += 1)];
+        config[arg as keyof typeof config] = value;
+
+        if (arg === "s" && !validate_ip(value)) {
+          throw new Error(`Invalid IP: ${value}`);
+        } else if (arg === "p" && !(parseInt(value) >= 0 && parseInt(value) <= 65535)) {
+          throw new Error(`Invalid port: ${value}`);
+        }
+      } else {
+        throw new Error(`Unknown argument: ${arg}\n`);
+      }
+    } else if (validate_ip(arg)) {
+      params.ip = arg;
+    } else if (parseInt(arg) >= 0 && parseInt(arg) <= 65535) {
+      params.port = arg;
+    } else {
+      throw new Error(`Unexpected argument: ${arg}\n`);
+    }
+  }
+
+  if (flags.l) {
+    const ip = params.ip ? parseIPv4(params.ip) : 0;
+
+    os.print(`Listening ${params.port ? `port ${params.port}` : "RAW"} on ${formatIPv4(ip)}:\n`);
+
+    if (!params.port) {
+      os._netSockets.push({ protocol: "raw", ip: 0, on_data: (data) => os.print(hexdump(data), "\n\n") });
+    } else {
+      const port = parseInt(params.port);
+
+      if (!flags.u) throw new Error("Only UDP is supported for listening");
+
+      os._netSockets.push({
+        protocol: "udp",
+        ip,
+        port,
+        on_data: (data) => os.print(hexdump(data), "\n\n"),
+      });
+    }
+
+    await new Promise(() => null);
+  } else {
+    if (!params.ip || !params.port) throw new Error("Missing ip and port");
+
+    if (!flags.u) throw new Error("Only UDP is supported");
+
+    const source_ip = config.s ? parseIPv4(config.s) : 0;
+    const source_port = config.s ? parseInt(config.p) : 0;
+
+    const ip = params.ip ? parseIPv4(params.ip) : 0;
+    const port = parseInt(params.port);
+
+    const sock: TSocket = {
+      protocol: "udp",
+      ip: source_ip,
+      port: source_port,
+      on_data: () => null,
+    };
+    os._netSockets.push(sock);
+
+    os.socket_send_udp(sock, new Uint8Array(config.w.split("").map((c) => c.charCodeAt(0))), ip, port);
+
+    os._netSockets.splice(os._netSockets.indexOf(sock), 1);
+  }
 }

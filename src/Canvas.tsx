@@ -205,7 +205,7 @@ export function Canvas() {
         className="absolute flex flex-col bg-black text-white"
         style={{ left: 100, top: 200, width: 600, height: 400 }}
       >
-        <pre ref={consoleRef} className="grow overflow-x-hidden overflow-y-scroll whitespace-pre-wrap">
+        <pre ref={consoleRef} className="grow overflow-x-hidden overflow-y-scroll whitespace-pre-wrap wrap-break-word">
           {tty[activePc]}
         </pre>
         <input
