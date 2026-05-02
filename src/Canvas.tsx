@@ -30,7 +30,7 @@ export const Canvas = observer(function Canvas() {
         return (
           <div
             key={n.id}
-            className={`absolute ${n.type === "pc" ? "bg-sky-200" : n.type === "router" ? "bg-violet-200" : n.type === "server" ? "bg-green-200" : "bg-gray-200"} rounded-lg border-2 ${n.id === active_id ? "border-black" : "border-transparent"}`}
+            className={`absolute flex text-center justify-center items-center ${n.type === "pc" ? "bg-sky-200" : n.type === "router" ? "bg-violet-200" : n.type === "server" ? "bg-green-200" : "bg-gray-200"} rounded-lg border-2 ${n.id === active_id ? "border-black" : "border-transparent"}`}
             style={{ left: n.ui.x, top: n.ui.y, width: itemSize, height: itemSize }}
             onClick={(e) => {
               e.preventDefault();

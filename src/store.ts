@@ -173,7 +173,7 @@ export const store = new Store();
           break;
         }
       } else if (e.data.$ === "print") {
-        store.consoles[n.id] += e.data.text;
+        store.console_append(n.id, e.data.text);
       }
     });
 
