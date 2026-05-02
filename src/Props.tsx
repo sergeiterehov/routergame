@@ -8,7 +8,7 @@ export const Props = observer(function Props(props: { id: string }) {
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="text-lg">{node.name}</div>
+      <div className="text-lg font-semibold">{node.name}</div>
       <div className="text-sm font-mono">
         {store.arch.connections
           .filter((c) => c.a_id === id || c.b_id === id)
@@ -25,6 +25,12 @@ export const Props = observer(function Props(props: { id: string }) {
             );
           })}
       </div>
+      {"init" in node ? (
+        <>
+          <div className="text-md font-semibold">Init script</div>
+          <div className="font-mono text-xs whitespace-pre wrap-break-word">{node.init.join("\n")}</div>
+        </>
+      ) : null}
     </div>
   );
 });

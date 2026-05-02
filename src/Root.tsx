@@ -18,7 +18,10 @@ export const Root = observer(function Root() {
           <Canvas />
         </div>
         {active_id ? (
-          <div className="shrink-0 flex bg-gray-100 p-2" style={{ width: props_width }}>
+          <div
+            className="shrink-0 flex bg-gray-100 p-2 overflow-x-hidden overflow-y-auto"
+            style={{ width: props_width }}
+          >
             <Props id={active_id} />
           </div>
         ) : null}
