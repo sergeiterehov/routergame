@@ -5,7 +5,7 @@ import * as ifconfig from "./apps/ifconfig.app";
 import * as arp from "./apps/arp.app";
 import * as ping from "./apps/ping.app";
 
-function expose(port: number, devicePort: Port) {
+export function expose(port: number, devicePort: Port) {
   devicePort.connect(({ tx }) => {
     const controller = new AbortController();
 
