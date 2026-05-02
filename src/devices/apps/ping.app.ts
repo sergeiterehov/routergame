@@ -116,11 +116,16 @@ export async function ping(os: OS, args: string[]) {
 
 export async function nc(os: OS, args: string[]) {
   if (!args.length) {
-    os.print("Usage: [-l] [-u] [-s source_ip] [-p source_port] [-w data] [ip] [port]\n");
+    os.print(
+      "Usage: [-l] [-u] [-s source_ip] [-p source_port] [-w data] [ip] [port]\n",
+      "\t-l listen\n",
+      "\t-u UDP\n",
+      "\t-h HEX format\n",
+    );
     return;
   }
 
-  const flags = { l: false, u: false };
+  const flags = { l: false, u: false, h: false };
   const config = { s: "", p: "", w: "" };
   const params = { ip: "", port: "" };
 
@@ -152,13 +157,21 @@ export async function nc(os: OS, args: string[]) {
     }
   }
 
+  const print = (data: Uint8Array) => {
+    if (flags.h) {
+      os.print(hexdump(data), "\n\n");
+    } else {
+      os.print(new TextDecoder().decode(data));
+    }
+  };
+
   if (flags.l) {
     const ip = params.ip ? parseIPv4(params.ip) : 0;
 
     os.print(`Listening ${params.port ? `port ${params.port}` : "RAW"} on ${formatIPv4(ip)}:\n`);
 
     if (!params.port) {
-      os._netSockets.push({ protocol: "raw", ip: 0, on_data: (data) => os.print(hexdump(data), "\n\n") });
+      os._netSockets.push({ protocol: "raw", ip: 0, on_data: (data) => print(data) });
     } else {
       const port = parseInt(params.port);
 
@@ -168,7 +181,7 @@ export async function nc(os: OS, args: string[]) {
         protocol: "udp",
         ip,
         port,
-        on_data: (data) => os.print(hexdump(data), "\n\n"),
+        on_data: (data) => print(data),
       });
     }
 
@@ -192,7 +205,7 @@ export async function nc(os: OS, args: string[]) {
     };
     os._netSockets.push(sock);
 
-    os.socket_send_udp(sock, new Uint8Array(config.w.split("").map((c) => c.charCodeAt(0))), ip, port);
+    os.socket_send_udp(sock, new TextEncoder().encode(config.w), ip, port);
 
     os._netSockets.splice(os._netSockets.indexOf(sock), 1);
   }
