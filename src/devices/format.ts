@@ -8,7 +8,14 @@ export function formatTime(ms: number) {
 }
 
 export function prefixToMask(prefix: number) {
+  if (prefix === 24) return 0xffffff00;
+  if (prefix === 0) return 0;
   return 0xffffffff - Number((1n << (32n - BigInt(prefix))) - 1n);
+}
+
+export function testSameNetwork(test_ip: number, ip: number, prefix: number) {
+  const mask = prefixToMask(prefix);
+  return (ip & mask) === (test_ip & mask);
 }
 
 export function hexdump(data: Uint8Array) {

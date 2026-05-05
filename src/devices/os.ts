@@ -1,4 +1,4 @@
-import { prefixToMask } from "./format";
+import { testSameNetwork } from "./format";
 import {
   ARP_OPCODES,
   ETHER_TYPES,
@@ -246,16 +246,22 @@ export class OS {
     if (iface.mac && (dstMac === iface.mac || dstMac === 0xffffffffffffn)) {
       const etherType = view.getUint16(12);
 
-      if (etherType === 0x0800) {
+      if (etherType === ETHER_TYPES.IPv4) {
         // ARP update
-        const srcMac = view.getBigUint64(6) >> 16n;
         const srcIp = view.getUint32(14 + 12);
-        this.net_arp_update(iface.index, srcIp, srcMac);
+        for_arp: for (const _iface of this._netInterfaces) {
+          for (const _ip of _iface.ips) {
+            if (!testSameNetwork(srcIp, _ip.address, _ip.prefix)) continue;
+            const srcMac = view.getBigUint64(6) >> 16n;
+            this.net_arp_update(iface.index, srcIp, srcMac);
+            break for_arp;
+          }
+        }
 
         // IPv4
         const payload = frame.slice(14);
         this.net_ip4_handle_packet(iface.index, payload);
-      } else if (etherType === 0x0806) {
+      } else if (etherType === ETHER_TYPES.ARP) {
         this.net_arp_handle(iface.index, frame);
       }
 
@@ -351,32 +357,15 @@ export class OS {
     // TODO: types 0,3,8
 
     if (icmp_struct.type === 8) {
-      const reply = pack_ip4_packet({
-        header: {
-          version: 4,
-          dst: ip_struct.header.src,
-          src: ip_struct.header.dst,
-          protocol: 1,
-          ttl: this._netDefaultTTL,
-          flags: 0,
-          id: 0,
-          ihl: 0,
-          length: 0,
-          offset: 0,
-          options: [],
-          tos: 0,
-          checksum: 0,
-        },
-        payload: pack_icmp_packet({
-          type: 0,
-          code: 0,
-          checksum: 0,
-          rest: icmp_struct.rest,
-          payload: icmp_struct.payload,
-        }),
+      const reply = pack_icmp_packet({
+        type: 0,
+        code: 0,
+        checksum: 0,
+        rest: icmp_struct.rest,
+        payload: icmp_struct.payload,
       });
 
-      this.net_ip4_send_packet(iInterface, ip_struct.header.src, reply);
+      this.net_ip4_send(ip_struct.header.src, IP_PROTOCOLS.ICMP, reply);
     }
   }
 
@@ -510,8 +499,7 @@ export class OS {
   net_ip4_route(dst: number) {
     let route: TRoute | undefined;
     for (const _route of this._netRoutes) {
-      const mask = prefixToMask(_route.prefix);
-      if ((dst & mask) !== (_route.network & mask)) continue;
+      if (!testSameNetwork(dst, _route.network, _route.prefix)) continue;
       if (!route || _route.prefix > route.prefix) {
         route = _route;
         break;
