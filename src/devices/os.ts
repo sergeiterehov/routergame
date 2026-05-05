@@ -15,6 +15,8 @@ import {
 } from "./pack";
 import type { System, Driver } from "./system";
 
+const CAM_TTL = 60_000;
+
 const ARP_TIMEOUT_MS = 3_000;
 const ARP_TTL_MS = 60_000;
 const ARP_RETRY_MS = 5_000;
@@ -75,6 +77,7 @@ export type TInterface = {
   iMasterInterface?: number;
   ips: TIP4[];
 };
+export type TBridgeFDB = { iBridge: number; mac: bigint; iPort: number; expiresAt: number };
 export type TArpRecord = {
   iInterface: number;
   ip: number;
@@ -101,7 +104,7 @@ export class OS {
   _netDefaultTTL = 64;
 
   _netInterfaces: TInterface[] = [];
-  _netCAMTable: { mac: bigint; iInterface: number }[] = [];
+  _netBridgeFDB: TBridgeFDB[] = [];
   _netARPTable: TArpRecord[] = [];
   _netIp4Queue: { iInterface: number; ip: number; frame: Uint8Array }[] = [];
   _netRoutes: TRoute[] = [];
@@ -123,7 +126,8 @@ export class OS {
   }
 
   timer_handle_1s() {
-    this.net_arp_check_table();
+    this.net_arp_actualize();
+    this.net_br_fdb_actualize();
   }
 
   deadline(ms: number) {
@@ -187,29 +191,54 @@ export class OS {
     return index;
   }
 
-  net_add_cam_entry(mac: bigint, iInterface: number) {
-    this._netCAMTable.push({ mac, iInterface });
-  }
-
   net_change_mac(iInterface: number, mac: bigint) {
     const iface = this._netInterfaces[iInterface];
     const driver = this._drivers[iface.iDriver];
     driver.call({ $: "change_mac", mac });
   }
 
-  net_resolve_cam(mac: bigint) {
-    for (const entry of this._netCAMTable) {
-      if (entry.mac === mac) {
-        return entry.iInterface;
-      }
+  net_br_fdb_update(iBridge: number, mac: bigint, iPort: number) {
+    for (const _record of this._netBridgeFDB) {
+      if (_record.mac !== mac || _record.iBridge !== iBridge) continue;
+      _record.mac = mac;
+      _record.iPort = iPort;
+      _record.expiresAt = Date.now() + CAM_TTL;
+      return;
+    }
+
+    this._netBridgeFDB.push({ iBridge, mac, iPort, expiresAt: Date.now() + CAM_TTL });
+  }
+
+  net_br_fdb_resolve(iBridge: number, mac: bigint) {
+    for (const entry of this._netBridgeFDB) {
+      if (entry.mac !== mac || entry.iBridge !== iBridge) continue;
+      return entry.iPort;
     }
     return -1;
   }
 
-  net_resolve_arp(iInterface: number, ip: number) {
-    for (const entry of this._netARPTable) {
-      if (entry.iInterface === iInterface && entry.ip === ip) {
-        return entry.mac;
+  net_br_send(iBridge: number, mac: bigint, frame: Uint8Array, iSourcePort: number = -1) {
+    const iface_learned = this._netInterfaces[this.net_br_fdb_resolve(iBridge, mac)];
+
+    if (iface_learned) {
+      this.net_send_frame(iface_learned.index, frame);
+    } else {
+      // Broadcast
+      for (const _iface_port of this._netInterfaces) {
+        if (_iface_port.iMasterInterface !== iBridge) continue;
+        if (_iface_port.index === iSourcePort) continue;
+        this.net_send_frame(_iface_port.index, frame);
+      }
+    }
+  }
+
+  net_br_fdb_actualize() {
+    const now = Date.now();
+
+    for (let i = 0; i < this._netBridgeFDB.length; i += 1) {
+      if (this._netBridgeFDB[i].expiresAt < now) {
+        this._netBridgeFDB.splice(i, 1);
+        i -= 1;
       }
     }
   }
@@ -218,12 +247,8 @@ export class OS {
     const iface = this._netInterfaces[iInterface];
 
     if (iface.type === "bridge") {
-      // Just flood
-      for (const _iface of this._netInterfaces) {
-        if (_iface.iMasterInterface === iface.index) {
-          this.net_send_frame(_iface.index, frame);
-        }
-      }
+      const mac_dst = new DataView(frame.buffer, frame.byteOffset).getBigUint64(0) >> 16n;
+      this.net_br_send(iface.index, mac_dst, frame);
 
       return;
     }
@@ -241,41 +266,37 @@ export class OS {
 
     const view = new DataView(frame.buffer);
     const dstMac = view.getBigUint64(0) >> 16n;
-
-    // reject if not our mac or broadcast
-    if (iface.mac && (dstMac === iface.mac || dstMac === 0xffffffffffffn)) {
-      const etherType = view.getUint16(12);
-
-      if (etherType === ETHER_TYPES.IPv4) {
-        // ARP update
-        const srcIp = view.getUint32(14 + 12);
-        for_arp: for (const _iface of this._netInterfaces) {
-          for (const _ip of _iface.ips) {
-            if (!testSameNetwork(srcIp, _ip.address, _ip.prefix)) continue;
-            const srcMac = view.getBigUint64(6) >> 16n;
-            this.net_arp_update(iface.index, srcIp, srcMac);
-            break for_arp;
-          }
-        }
-
-        // IPv4
-        const payload = frame.slice(14);
-        this.net_ip4_handle_packet(iface.index, payload);
-      } else if (etherType === ETHER_TYPES.ARP) {
-        this.net_arp_handle(iface.index, frame);
-      }
-
-      // Если не широковещательный, то был адресован нам, уходим
-      if (dstMac !== 0xffffffffffffn) return;
-    }
+    const srcMac = view.getBigUint64(6) >> 16n;
 
     if (iface.type === "bridge") {
-      // Just flood, ignore source port
-      for (const _slave of this._netInterfaces) {
-        if (_slave.iMasterInterface === iface.index && iInterfaceOrigin !== _slave.index) {
-          this.net_send_frame(_slave.index, frame);
+      this.net_br_fdb_update(iface.index, srcMac, iInterfaceOrigin);
+
+      if (dstMac !== iface.mac) {
+        this.net_br_send(iface.index, dstMac, frame, iInterfaceOrigin);
+      }
+    }
+
+    // reject if not our mac or broadcast
+    if (dstMac !== iface.mac && dstMac !== 0xffffffffffffn) return;
+
+    const etherType = view.getUint16(12);
+
+    if (etherType === ETHER_TYPES.IPv4) {
+      // ARP update
+      const srcIp = view.getUint32(14 + 12);
+      for_arp: for (const _iface of this._netInterfaces) {
+        for (const _ip of _iface.ips) {
+          if (!testSameNetwork(srcIp, _ip.address, _ip.prefix)) continue;
+          this.net_arp_update(iface.index, srcIp, srcMac);
+          break for_arp;
         }
       }
+
+      // IPv4
+      const payload = frame.slice(14);
+      this.net_ip4_handle_packet(iface.index, payload);
+    } else if (etherType === ETHER_TYPES.ARP) {
+      this.net_arp_handle(iface.index, frame);
     }
   }
 
@@ -654,7 +675,7 @@ export class OS {
     return -1n;
   }
 
-  net_arp_check_table() {
+  net_arp_actualize() {
     const now = Date.now();
     let failed = 0;
     let removed = 0;
