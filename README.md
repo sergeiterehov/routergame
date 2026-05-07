@@ -26,4 +26,4 @@
 - `ping`
 - `nc` - аналог netcat
 - `dhcp` - клиент
-- `dhcp_server`
+- `dhcpd` - сервер
