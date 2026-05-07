@@ -71,7 +71,7 @@ const initial_arch: TArchitecture = {
         "br add br0 eth1 eth2",
         "iface br0 add 10.0.0.1/24",
         "route add 10.0.0.0/24 dev br0",
-        "dhcp_server br0 10.0.0.10 10.0.0.20 -g 10.0.0.1",
+        "dhcpd br0 10.0.0.10 10.0.0.20 -g 10.0.0.1",
       ],
       ui: { x: 150, y: 50 },
     },

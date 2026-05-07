@@ -1,5 +1,5 @@
-import { formatIPv4, maskToPrefix, parseIPv4, prefixToMask, validate_ip } from "../format";
-import type { OS, TSocket } from "../os";
+import { formatIPv4, formatMAC, formatTime, maskToPrefix, parseIPv4, prefixToMask, validate_ip } from "../format";
+import type { OS, TInterface, TSocket } from "../os";
 import {
   DHCP_OPS,
   DHCP_OPTIONS,
@@ -27,15 +27,30 @@ function get_option(type: number, packet: TDhcpPacket): Uint8Array | undefined {
   }
 }
 
-let server_started = false;
-export async function dhcp_server(os: OS, args: string[]) {
-  if (server_started) throw new Error("DHCP server already started");
-  server_started = true;
+type TLease = { iface: TInterface; ip: number; mac: bigint; expiresAt: number };
 
+const leases: TLease[] = [];
+let server_started = false;
+export async function dhcpd(os: OS, args: string[]) {
   if (!args.length) {
-    os.print("usage: <interface> <ip_start> <ip_end> [-g gateway_ip]\n");
+    os.print("usage:\n");
+    os.print("\t<interface> <ip_start> <ip_end> [-g gateway_ip]\n");
+    os.print("\tls\n");
     return;
   }
+
+  if (args[0] === "ls") {
+    os.print(`Server is ${server_started ? "started" : "stopped"}\n`);
+    for (const lease of leases) {
+      os.print(
+        `- ${lease.iface.name} ${formatMAC(lease.mac)} - ${formatIPv4(lease.ip)} - ${formatTime(lease.expiresAt - Date.now())} left\n`,
+      );
+    }
+    return;
+  }
+
+  if (server_started) throw new Error("DHCP server already started");
+  server_started = true;
 
   const _iface_name = args.shift();
   if (!_iface_name) throw new Error("No interface specified");
@@ -47,8 +62,8 @@ export async function dhcp_server(os: OS, args: string[]) {
   if (!server_ip) throw new Error(`Interface ${_iface_name} has no IPs`);
 
   const pool = {
-    start: 0xc0a8000a,
-    end: 0xc0a80014,
+    start: -1,
+    end: -1,
   };
 
   {
@@ -77,12 +92,10 @@ export async function dhcp_server(os: OS, args: string[]) {
     }
   }
 
-  const leases: { ip: number; mac: bigint; expiresAt: number }[] = [];
-
   function addr_allocate(mac: bigint) {
     for_address: for (let ip = pool.start; ip <= pool.end; ip += 1) {
       for (const _used of leases) if (_used.ip === ip) continue for_address;
-      leases.push({ ip, mac, expiresAt: Date.now() + 10_000 });
+      leases.push({ iface, ip, mac, expiresAt: Date.now() + 10_000 });
       return leases.at(-1);
     }
   }
@@ -99,7 +112,7 @@ export async function dhcp_server(os: OS, args: string[]) {
       const client_mac =
         new DataView(packet.header.chaddr.buffer, packet.header.chaddr.byteOffset).getBigUint64(0) >> 16n;
 
-      let leasing = leases.find((lease) => lease.mac === client_mac);
+      let leasing = leases.find((lease) => lease.iface === iface && lease.mac === client_mac);
 
       function get_options() {
         const options: TDhcpPacket["header"]["options"] = [
@@ -219,7 +232,6 @@ export async function dhcp_server(os: OS, args: string[]) {
 
       if (type === DHCP_TYPES.DISCOVER) {
         if (!leasing) leasing = addr_allocate(client_mac);
-
         send_offer();
       } else if (type === DHCP_TYPES.REQUEST) {
         if (leasing) {
@@ -437,8 +449,6 @@ export async function dhcp(os: OS, args: string[]) {
 
       const packet = unpack_dhcp_packet(payload);
       if (packet.header.xid !== xid) return;
-
-      console.log("Client got:", packet);
 
       const type_opt = get_option(DHCP_OPTIONS.MESSAGE_TYPE, packet);
       if (!type_opt) return;

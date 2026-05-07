@@ -20,11 +20,14 @@ export const Console = observer(function Console(props: { id: string }) {
 
   return (
     <div className="grow flex flex-col bg-gray-900 text-gray-100">
-      <pre ref={consoleRef} className="grow overflow-x-hidden overflow-y-scroll whitespace-pre-wrap wrap-break-word">
+      <pre
+        ref={consoleRef}
+        className="p-2 grow overflow-x-hidden overflow-y-scroll whitespace-pre-wrap wrap-break-word"
+      >
         {text}
       </pre>
       <input
-        className="block font-mono border border-gray-300 px-3 py-2 placeholder-gray-400 shadow-sm invalid:border-pink-500 invalid:text-pink-600 focus:border-sky-500 focus:outline focus:outline-sky-500 focus:invalid:border-pink-500 focus:invalid:outline-pink-500 disabled:border-gray-200 disabled:bg-gray-50 disabled:text-gray-500 disabled:shadow-none sm:text-sm dark:disabled:border-gray-700 dark:disabled:bg-gray-800/20"
+        className="block font-mono border-0 outline-0 px-3 py-2 placeholder-gray-400 shadow-sm invalid:bg-pink-900 invalid:text-pink-500 focus:bg-gray-800 focus:invalid:bg-pink-500 disabled:bg-gray-50 disabled:text-gray-500 disabled:shadow-none sm:text-sm"
         placeholder="#"
         disabled={!id}
         value={actualCmd}
