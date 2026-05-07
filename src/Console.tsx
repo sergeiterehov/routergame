@@ -1,17 +1,69 @@
 import { observer } from "mobx-react-lite";
-import { useRef, useState, useEffect } from "react";
+import { useRef, useEffect } from "react";
 import { store } from "./store";
+import { makeAutoObservable } from "mobx";
+
+class State {
+  readonly id: string;
+
+  pHistory = -1;
+  history: string[] = [];
+  cmd = "";
+
+  get actualCmd() {
+    return this.pHistory !== -1 ? this.history[this.pHistory] : this.cmd;
+  }
+
+  constructor(id: string) {
+    this.id = id;
+    makeAutoObservable(this);
+  }
+
+  cmd_set(cmd: string) {
+    this.cmd = cmd;
+    this.pHistory = -1;
+  }
+
+  send() {
+    const { id, actualCmd } = this;
+    store.console_append(id, `# ${actualCmd}\n`);
+
+    this.history.push(actualCmd);
+    this.cmd_set("");
+
+    const [app, ...args] = actualCmd.split(/\s+/);
+
+    if (app === "clear") return store.console_clear(id);
+    store.instances[id]?.postMessage({ $: "exec", app, args });
+  }
+
+  prev() {
+    if (!this.history.length) return;
+    if (this.pHistory === -1) {
+      this.pHistory = this.history.length - 1;
+    } else {
+      this.pHistory = Math.max(0, this.pHistory - 1);
+    }
+  }
+
+  next() {
+    if (!this.history.length) return;
+    if (this.pHistory === -1) return;
+    if (this.pHistory === this.history.length - 1) {
+      this.pHistory = -1;
+    } else {
+      this.pHistory = Math.min(this.history.length - 1, this.pHistory + 1);
+    }
+  }
+}
+
+const states: { [key in string]?: State } = {};
 
 export const Console = observer(function Console(props: { id: string }) {
   const { id } = props;
+  const state = (states[id] ||= new State(id));
 
   const consoleRef = useRef<HTMLPreElement>(null);
-
-  const [pHistory, setPHistory] = useState<number>(-1);
-  const [history, setHistory] = useState<string[]>([]);
-  const [cmd, setCmd] = useState<string>("");
-
-  const actualCmd = pHistory !== -1 ? history[pHistory] : cmd;
   const text = store.consoles[id];
 
   useEffect(() => {
@@ -30,55 +82,24 @@ export const Console = observer(function Console(props: { id: string }) {
         className="block font-mono border-0 outline-0 px-3 py-2 placeholder-gray-400 shadow-sm invalid:bg-pink-900 invalid:text-pink-500 focus:bg-gray-800 focus:invalid:bg-pink-500 disabled:bg-gray-50 disabled:text-gray-500 disabled:shadow-none sm:text-sm"
         placeholder="#"
         disabled={!id}
-        value={actualCmd}
-        onChange={(e) => {
-          setCmd(e.currentTarget.value);
-          setPHistory(-1);
-        }}
+        value={state.actualCmd}
+        onChange={(e) => state.cmd_set(e.currentTarget.value)}
         onKeyDown={(e) => {
+          let prevent = true;
+
           if (e.key === "Enter") {
-            e.preventDefault();
-            e.stopPropagation();
-
-            store.console_append(id, `# ${actualCmd}\n`);
-
-            setHistory((prev) => [...prev, actualCmd]);
-            setPHistory(-1);
-            setCmd("");
-
-            const [app, ...args] = actualCmd.split(/\s+/);
-
-            if (app === "clear") return store.console_clear(id);
-            store.instances[id]?.postMessage({ $: "exec", app, args });
-
-            return;
+            state.send();
+          } else if (e.key === "ArrowUp") {
+            state.prev();
+          } else if (e.key === "ArrowDown") {
+            state.next();
+          } else {
+            prevent = false;
           }
 
-          if (e.key === "ArrowUp") {
+          if (prevent) {
             e.preventDefault();
             e.stopPropagation();
-
-            if (!history.length) return;
-
-            setPHistory((prev) => {
-              if (prev === -1) return history.length - 1;
-
-              return Math.max(0, prev - 1);
-            });
-          }
-
-          if (e.key === "ArrowDown") {
-            e.preventDefault();
-            e.stopPropagation();
-
-            if (!history.length) return;
-
-            setPHistory((prev) => {
-              if (prev === -1) return prev;
-              if (prev === history.length - 1) return -1;
-
-              return Math.min(history.length - 1, prev + 1);
-            });
           }
         }}
       />
