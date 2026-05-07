@@ -1,5 +1,6 @@
 import { observer } from "mobx-react-lite";
 import { store, type TArchNode } from "./store.ts";
+import { useEffect, useState } from "react";
 
 const itemSize = 64;
 
@@ -15,6 +16,38 @@ export const Canvas = observer(function Canvas() {
 
   const connections = store.arch.connections.filter((c) => c.a_id === active_id || c.b_id === active_id);
   const siblings_ids = connections.map((c) => (c.a_id === active_id ? c.b_id : c.a_id));
+
+  const [grid, grid_set] = useState(50);
+  const [drug, drug_set] = useState<{
+    id: string;
+    ui: { x: number; y: number };
+    start: { x: number; y: number };
+    current: { x: number; y: number };
+  }>();
+
+  useEffect(() => {
+    if (!drug) return;
+
+    const controller = new AbortController();
+
+    const wrap_grid = (val: number) => (grid > 1 ? grid * Math.round(val / grid) : val);
+
+    document.body.addEventListener(
+      "mousemove",
+      (e) => {
+        drug.current = { x: e.clientX, y: e.clientY };
+        store.move_node(
+          drug.id,
+          wrap_grid(drug.ui.x + (drug.current.x - drug.start.x)),
+          wrap_grid(drug.ui.y + (drug.current.y - drug.start.y)),
+        );
+      },
+      { signal: controller.signal },
+    );
+    document.body.addEventListener("mouseup", () => drug_set(undefined), { signal: controller.signal });
+
+    return () => controller.abort();
+  }, [drug, grid]);
 
   return (
     <div
@@ -48,12 +81,25 @@ export const Canvas = observer(function Canvas() {
         return (
           <div
             key={n.id}
-            className={`absolute cursor-pointer flex text-center justify-center items-center ${color ?? "bg-gray-500 text-gray-400"} rounded-lg border-2 ${n.id === active_id ? "border-black" : siblings_ids.includes(n.id) ? `border-gray-500 border-dashed` : "border-transparent"} overflow-hidden`}
-            style={{ left: n.ui.x, top: n.ui.y, width: itemSize, height: itemSize }}
+            className={`absolute cursor-pointer flex text-center justify-center items-center overflow-hidden rounded-lg border-2 ${n.id === active_id ? "border-black" : siblings_ids.includes(n.id) ? `border-gray-500 border-dashed` : "border-transparent"} ${store.instances[n.id] ? "" : "outline-2 outline-red-300"} ${color ?? "bg-gray-500 text-gray-400"}`}
+            style={{
+              left: n.ui.x,
+              top: n.ui.y,
+              width: itemSize,
+              height: itemSize,
+            }}
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
               store.active_id_set(n.id);
+            }}
+            onMouseDown={(e) => {
+              drug_set({
+                id: n.id,
+                ui: { x: n.ui.x, y: n.ui.y },
+                start: { x: e.clientX, y: e.clientY },
+                current: { x: e.clientX, y: e.clientY },
+              });
             }}
           >
             {n.name}

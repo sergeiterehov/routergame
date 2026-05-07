@@ -145,83 +145,112 @@ class Store {
   }
 
   console_clear(node: string) {
-    store.consoles[node] = "";
+    this.consoles[node] = "";
   }
-  console_append(node: string, text: string) {
-    store.consoles[node] += text;
+  console_append(id: string, text: string) {
+    const current = this.consoles[id];
+    this.consoles[id] = (current || "") + text;
   }
   active_id_set(id?: string) {
-    store.active_id = id;
+    this.active_id = id;
   }
 
   rename_node(id: string, name: string) {
-    const node = store.arch.node.find((n) => n.id === id);
+    const node = this.arch.node.find((n) => n.id === id);
     if (!node) return;
     node.name = name;
   }
-}
 
-export const store = new Store();
+  move_node(id: string, x: number, y: number) {
+    const node = this.arch.node.find((n) => n.id === id);
+    if (!node) return;
+    node.ui.x = x;
+    node.ui.y = y;
+  }
 
-(function init() {
-  for (const n of store.arch.node) {
-    const WorkerClass = Type2Worker[n.type];
+  terminate_node(id: string) {
+    const node = this.arch.node.find((n) => n.id === id);
+    if (!node) return;
+
+    const w = this.instances[id];
+    if (!w) return;
+
+    w.terminate();
+
+    delete this.instances[id];
+    this.console_append(node.id, "\n[Terminated]\n");
+  }
+
+  reboot_node(id: string) {
+    const node = this.arch.node.find((n) => n.id === id);
+    if (!node) return;
+
+    this.terminate_node(id);
+
+    const WorkerClass = Type2Worker[node.type];
     if (!WorkerClass) throw new Error("Unknown node type");
 
-    const w = new WorkerClass({ name: n.id });
+    const w = new WorkerClass({ name: node.id });
 
-    store.instances[n.id] = w;
-    store.consoles[n.id] = "";
+    this.instances[node.id] = w;
+    this.console_append(node.id, "");
 
-    w.addEventListener("message", (e) => {
-      if (e.data.$ === "ethernet_frame") {
-        const port = n.ports[e.data.port];
-        if (!port) return;
+    w.addEventListener("message", (e) => this._handle_node_message(node, e.data));
 
-        const pid = port.id;
-        for (const c of store.arch.connections) {
-          let targetNode: TArchNode | undefined;
-          let targetPort: number | undefined;
-
-          if (c.a_id === n.id && c.a_pid === pid) {
-            targetNode = store.arch.node.find((n) => n.id === c.b_id);
-            targetPort = targetNode?.ports.findIndex((p) => p.id === c.b_pid);
-          } else if (c.b_id === n.id && c.b_pid === pid) {
-            targetNode = store.arch.node.find((n) => n.id === c.a_id);
-            targetPort = targetNode?.ports.findIndex((p) => p.id === c.a_pid);
-          } else {
-            continue;
-          }
-
-          if (!targetNode || targetPort === undefined || targetPort === -1) continue;
-
-          const target = store.instances[targetNode.id];
-          if (!target) continue;
-
-          console.log(`[${n.id}:${e.data.port}] => [${targetNode.id}:${targetPort}]\n${hexdump(e.data.frame)}`);
-
-          const time = c.delay + (1000 * e.data.frame.length) / c.speed;
-          setTimeout(() => target.postMessage({ $: "ethernet_frame", port: targetPort, frame: e.data.frame }), time);
-          break;
-        }
-      } else if (e.data.$ === "print") {
-        store.console_append(n.id, e.data.text);
-      }
-    });
-
-    if ("ethernetPorts" in n) {
-      for (const eth of n.ethernetPorts) {
+    if ("ethernetPorts" in node) {
+      for (const eth of node.ethernetPorts) {
         w.postMessage({ $: "exec", app: "iface", args: [eth.id, "mac", eth.mac] });
       }
     }
 
-    if ("init" in n) {
-      for (const cmd of n.init) {
+    if ("init" in node) {
+      for (const cmd of node.init) {
         const [app, ...args] = cmd.split(/\s+/);
         w.postMessage({ $: "exec", app, args });
       }
     }
   }
 
+  private _handle_node_message(node: TArchNode, data: any) {
+    if (data.$ === "ethernet_frame") {
+      const port = node.ports[data.port];
+      if (!port) return;
+
+      const pid = port.id;
+      for (const c of this.arch.connections) {
+        let targetNode: TArchNode | undefined;
+        let targetPort: number | undefined;
+
+        if (c.a_id === node.id && c.a_pid === pid) {
+          targetNode = this.arch.node.find((n) => n.id === c.b_id);
+          targetPort = targetNode?.ports.findIndex((p) => p.id === c.b_pid);
+        } else if (c.b_id === node.id && c.b_pid === pid) {
+          targetNode = this.arch.node.find((n) => n.id === c.a_id);
+          targetPort = targetNode?.ports.findIndex((p) => p.id === c.a_pid);
+        } else {
+          continue;
+        }
+
+        if (!targetNode || targetPort === undefined || targetPort === -1) continue;
+
+        const target = this.instances[targetNode.id];
+        if (!target) continue;
+
+        console.log(`[${node.id}:${data.port}] => [${targetNode.id}:${targetPort}]\n${hexdump(data.frame)}`);
+
+        const time = c.delay + (1000 * data.frame.length) / c.speed;
+        setTimeout(() => target.postMessage({ $: "ethernet_frame", port: targetPort, frame: data.frame }), time);
+        break;
+      }
+    } else if (data.$ === "print") {
+      this.console_append(node.id, data.text);
+    }
+  }
+}
+
+export const store = new Store();
+
+(function init() {
+  for (const n of store.arch.node) store.reboot_node(n.id);
   store.active_id = store.arch.node.at(0)?.id;
 })();

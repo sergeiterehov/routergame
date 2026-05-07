@@ -55,6 +55,29 @@ export const Props = observer(function Props(props: { id: string }) {
           </div>
         </>
       ) : null}
+      {store.instances[node.id] ? (
+        <div
+          className="cursor-pointer text-center rounded-lg p-2 text-red-400 border border-red-400 hover:bg-red-400 hover:text-white select-none"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            store.terminate_node(id);
+          }}
+        >
+          Power off
+        </div>
+      ) : (
+        <div
+          className="cursor-pointer text-center rounded-lg p-2 border border-transparent bg-green-400 text-white hover:bg-green-500 select-none"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            store.reboot_node(id);
+          }}
+        >
+          Power on
+        </div>
+      )}
       <div className="h-25 shrink-0"></div>
     </div>
   );
