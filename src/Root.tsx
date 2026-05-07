@@ -6,7 +6,7 @@ import { useState } from "react";
 import { Props } from "./Props";
 
 export const Root = observer(function Root() {
-  const { active_id } = store;
+  const { active_node } = store;
 
   const [props_width, props_width_set] = useState(350);
   const [console_height, console_height_set] = useState(420);
@@ -17,18 +17,18 @@ export const Root = observer(function Root() {
         <div className="grow overflow-hidden">
           <Canvas />
         </div>
-        {active_id ? (
+        {active_node ? (
           <div
             className="shrink-0 flex bg-gray-100 p-2 overflow-x-hidden overflow-y-auto *:grow"
             style={{ width: props_width }}
           >
-            <Props id={active_id} />
+            <Props id={active_node.id} />
           </div>
         ) : null}
       </div>
-      {active_id ? (
+      {active_node && active_node.type !== "l2" ? (
         <div className="shrink-0 flex" style={{ height: console_height }}>
-          <Console id={active_id} />
+          <Console id={active_node.id} />
         </div>
       ) : null}
     </div>

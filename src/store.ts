@@ -80,12 +80,7 @@ const initial_arch: TArchitecture = {
       type: "l2",
       ui: { x: 250, y: 50 },
       name: "Switch",
-      ports: [
-        { id: "eth0", type: "ethernet" },
-        { id: "eth1", type: "ethernet" },
-        { id: "eth2", type: "ethernet" },
-        { id: "eth3", type: "ethernet" },
-      ],
+      ports: new Array(16).fill(0).map((_, i) => ({ id: `eth${i}`, type: "ethernet" })),
     },
     {
       id: "server",
@@ -140,6 +135,11 @@ class Store {
 
   active_id?: string;
 
+  get active_node() {
+    if (!this.active_id) return undefined;
+    return this.arch.node.find((n) => n.id === this.active_id);
+  }
+
   constructor() {
     makeAutoObservable(this);
   }
@@ -152,6 +152,12 @@ class Store {
   }
   active_id_set(id?: string) {
     store.active_id = id;
+  }
+
+  rename_node(id: string, name: string) {
+    const node = store.arch.node.find((n) => n.id === id);
+    if (!node) return;
+    node.name = name;
   }
 }
 
