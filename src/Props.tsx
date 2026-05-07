@@ -7,7 +7,7 @@ export const Props = observer(function Props(props: { id: string }) {
   const node = store.arch.node.find((n) => n.id === id)!;
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-3">
       <div className="text-lg font-semibold">{node.name}</div>
       <div className="text-sm font-mono">
         {store.arch.connections
@@ -28,9 +28,16 @@ export const Props = observer(function Props(props: { id: string }) {
       {"init" in node ? (
         <>
           <div className="text-md font-semibold">Init script</div>
-          <div className="font-mono text-xs whitespace-pre wrap-break-word">{node.init.join("\n")}</div>
+          <div className="flex flex-col gap-1">
+            {node.init.map((cmd, i) => (
+              <div key={i} className="border border-gray-300 p-1 rounded-lg font-mono text-sm leading-relaxed">
+                <code>{cmd}</code>
+              </div>
+            ))}
+          </div>
         </>
       ) : null}
+      <div className="h-[100px] shrink-0"></div>
     </div>
   );
 });

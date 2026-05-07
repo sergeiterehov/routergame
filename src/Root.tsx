@@ -8,8 +8,8 @@ import { Props } from "./Props";
 export const Root = observer(function Root() {
   const { active_id } = store;
 
-  const [console_height, console_height_set] = useState(480);
-  const [props_width, props_width_set] = useState(300);
+  const [props_width, props_width_set] = useState(350);
+  const [console_height, console_height_set] = useState(420);
 
   return (
     <div className="flex flex-col h-svh">
@@ -19,7 +19,7 @@ export const Root = observer(function Root() {
         </div>
         {active_id ? (
           <div
-            className="shrink-0 flex bg-gray-100 p-2 overflow-x-hidden overflow-y-auto"
+            className="shrink-0 flex bg-gray-100 p-2 overflow-x-hidden overflow-y-auto *:grow"
             style={{ width: props_width }}
           >
             <Props id={active_id} />

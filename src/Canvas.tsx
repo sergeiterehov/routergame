@@ -4,10 +4,10 @@ import { store, type TArchNode } from "./store.ts";
 const itemSize = 64;
 
 const Type2Color: { [key in TArchNode["type"]]?: string } = {
-  pc: "sky",
-  router: "violet",
-  server: "green",
-  l2: "gray",
+  pc: "bg-sky-200",
+  router: "bg-violet-200",
+  server: "bg-green-200",
+  l2: "bg-gray-200",
 };
 
 export const Canvas = observer(function Canvas() {
@@ -42,7 +42,7 @@ export const Canvas = observer(function Canvas() {
         return (
           <div
             key={n.id}
-            className={`absolute flex text-center justify-center items-center ${color ? `bg-${Type2Color[n.type]}-200` : "bg-gray-500 text-gray-400"} rounded-lg border-2 ${n.id === active_id ? "border-black" : connected_ids.includes(n.id) ? `border-gray-500 border-dashed` : "border-transparent"}`}
+            className={`absolute flex text-center justify-center items-center ${color ?? "bg-gray-500 text-gray-400"} rounded-lg border-2 ${n.id === active_id ? "border-black" : connected_ids.includes(n.id) ? `border-gray-500 border-dashed` : "border-transparent"}`}
             style={{ left: n.ui.x, top: n.ui.y, width: itemSize, height: itemSize }}
             onClick={(e) => {
               e.preventDefault();

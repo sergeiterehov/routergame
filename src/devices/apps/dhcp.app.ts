@@ -32,6 +32,11 @@ export async function dhcp_server(os: OS, args: string[]) {
   if (server_started) throw new Error("DHCP server already started");
   server_started = true;
 
+  if (!args.length) {
+    os.print("usage: <interface> <ip_start> <ip_end> [-g gateway_ip]\n");
+    return;
+  }
+
   const _iface_name = args.shift();
   if (!_iface_name) throw new Error("No interface specified");
 
@@ -240,6 +245,11 @@ export async function dhcp_server(os: OS, args: string[]) {
 }
 
 export async function dhcp(os: OS, args: string[]) {
+  if (!args.length) {
+    os.print("usage: <interface>\n");
+    return;
+  }
+
   const _iface_name = args.shift();
   if (!_iface_name) throw new Error("No interface specified");
 

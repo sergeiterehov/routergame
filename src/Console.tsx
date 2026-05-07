@@ -19,7 +19,7 @@ export const Console = observer(function Console(props: { id: string }) {
   }, [text]);
 
   return (
-    <div className="grow flex flex-col bg-black text-white">
+    <div className="grow flex flex-col bg-gray-900 text-gray-100">
       <pre ref={consoleRef} className="grow overflow-x-hidden overflow-y-scroll whitespace-pre-wrap wrap-break-word">
         {text}
       </pre>
