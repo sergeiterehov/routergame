@@ -4,6 +4,7 @@ import { OS } from "./os";
 import * as ifconfig from "./apps/ifconfig.app";
 import * as arp from "./apps/arp.app";
 import * as ping from "./apps/ping.app";
+import * as dhcp from "./apps/dhcp.app";
 
 export function expose(port: number, devicePort: Port) {
   devicePort.connect(({ tx }) => {
@@ -55,11 +56,13 @@ export function beginWorker(config: { type: string; ethernet?: { mac: bigint }[]
   }
 
   os.print(`Host ${self.name}\n`);
-  os.install({ ...ifconfig, ...arp, ...ping });
+  os.install({ ...ifconfig, ...arp, ...ping, ...dhcp });
 
   self.addEventListener("message", (e: MessageEvent<{ $: "exec"; app: string; args: string[] }>) => {
     if (e.data.$ === "exec") {
       os.exec(e.data.app, e.data.args);
     }
   });
+
+  return os;
 }

@@ -71,6 +71,7 @@ const initial_arch: TArchitecture = {
         "br add br0 eth1 eth2",
         "iface br0 add 10.0.0.1/24",
         "route add 10.0.0.0/24 dev br0",
+        "dhcp_server br0 10.0.0.10 10.0.0.20 -g 10.0.0.1",
       ],
       ui: { x: 150, y: 50 },
     },
@@ -98,7 +99,11 @@ const initial_arch: TArchitecture = {
         { id: "eth0", mac: "00:00:00:bb:00:00" },
         { id: "eth1", mac: "00:00:00:bb:00:01" },
       ],
-      init: ["iface eth0 add 192.168.0.100/24", "route add 192.168.0.0/24 dev eth0"],
+      init: [
+        "iface eth0 add 192.168.0.100/24",
+        "route add 192.168.0.0/24 dev eth0",
+        "route add default via 192.168.0.1",
+      ],
       ui: { x: 150, y: 150 },
     },
     {
@@ -107,7 +112,7 @@ const initial_arch: TArchitecture = {
       name: "PC A",
       ports: [{ id: "eth0", type: "ethernet" }],
       ethernetPorts: [{ id: "eth0", mac: "00:00:00:aa:00:00" }],
-      init: ["iface eth0 add 10.0.0.2/24", "route add 10.0.0.0/24 dev eth0"],
+      init: ["dhcp eth0"],
       ui: { x: 50, y: 50 },
     },
     {
@@ -116,7 +121,7 @@ const initial_arch: TArchitecture = {
       name: "PC B",
       ports: [{ id: "eth0", type: "ethernet" }],
       ethernetPorts: [{ id: "eth0", mac: "00:00:00:aa:01:00" }],
-      init: ["iface eth0 add 10.0.0.3/24", "route add 10.0.0.0/24 dev eth0"],
+      init: ["dhcp eth0"],
       ui: { x: 350, y: 50 },
     },
   ],

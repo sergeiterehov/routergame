@@ -12,6 +12,7 @@ export const IP_PROTOCOLS = {
 };
 
 export const MAC_BROADCAST = 0xffffffffffffn;
+export const IP_BROADCAST = 0xffffffff;
 
 export const ETHER_TYPES = {
   IPv4: 0x0800,
@@ -23,6 +24,54 @@ export const ARP_OPCODES = {
   REQUEST: 0x0001,
   REPLY: 0x0002,
 };
+
+export const DHCP_OPS = {
+  REQUEST: 1,
+  REPLY: 2,
+};
+
+export const DHCP_OPTIONS = {
+  PADDING: 0x00,
+  SUBNET_MASK: 0x01,
+  ROUTER: 0x03,
+  DNS_SERVER: 0x06,
+  REQUESTED_IP: 0x32,
+  LEASE_TIME: 0x33,
+  MESSAGE_TYPE: 0x35,
+  SERVER_ID: 0x36,
+  PARAM_REQUEST: 0x37,
+  END: 0xff,
+};
+
+export const DHCP_TYPES = {
+  DISCOVER: 1,
+  OFFER: 2,
+  REQUEST: 3,
+  DECLINE: 4,
+  ACK: 5,
+  NAK: 6,
+  RELEASE: 7,
+  INFORM: 8,
+};
+
+export function uint8(n: number) {
+  return new Uint8Array([n & 0xff]);
+}
+
+export function uint32(n: number) {
+  return new Uint8Array([(n >> 24) & 0xff, (n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff]);
+}
+
+export function mac_to_bytes(mac: bigint) {
+  return new Uint8Array([
+    Number((mac >> 40n) & 0xffn),
+    Number((mac >> 32n) & 0xffn),
+    Number((mac >> 24n) & 0xffn),
+    Number((mac >> 16n) & 0xffn),
+    Number((mac >> 8n) & 0xffn),
+    Number(mac & 0xffn),
+  ]);
+}
 
 export function unpack_ethernet_frame(frame: Uint8Array): TEthernetFrame {
   const $ = new DataView(frame.buffer, frame.byteOffset);
@@ -258,14 +307,15 @@ export type TUdpPacket = {
 
 export function unpack_udp_packet(packet: Uint8Array): TUdpPacket {
   const $ = new DataView(packet.buffer, packet.byteOffset);
+  const total_length = $.getUint16(4);
   return {
     header: {
       src: $.getUint16(0),
       dst: $.getUint16(2),
-      length: $.getUint16(4),
+      length: total_length,
       checksum: $.getUint16(6),
     },
-    payload: packet.subarray(8),
+    payload: packet.subarray(8, total_length),
   };
 }
 
@@ -274,8 +324,114 @@ export function pack_udp_packet(obj: TUdpPacket): Uint8Array {
   const $ = new DataView(packet.buffer, packet.byteOffset);
   $.setUint16(0, obj.header.src);
   $.setUint16(2, obj.header.dst);
-  $.setUint16(4, obj.payload.length);
+  $.setUint16(4, 8 + obj.payload.length);
   $.setUint16(6, obj.header.checksum);
   packet.set(obj.payload, 8);
   return packet;
+}
+
+export type TDhcpPacket = {
+  header: {
+    op: number;
+    htype: number;
+    hlen: number;
+    hops: number;
+    xid: number;
+    secs: number;
+    flags: number;
+    ciaddr: number;
+    yiaddr: number;
+    siaddr: number;
+    giaddr: number;
+    chaddr: Uint8Array;
+    sname: Uint8Array;
+    file: Uint8Array;
+    options: {
+      type: number;
+      data: Uint8Array;
+    }[];
+  };
+};
+
+export function unpack_dhcp_packet(packet: Uint8Array): TDhcpPacket {
+  const $ = new DataView(packet.buffer, packet.byteOffset);
+  return {
+    header: {
+      op: $.getUint8(0),
+      htype: $.getUint8(1),
+      hlen: $.getUint8(2),
+      hops: $.getUint8(3),
+      xid: $.getUint32(4),
+      secs: $.getUint16(8),
+      flags: $.getUint16(10),
+      ciaddr: $.getUint32(12),
+      yiaddr: $.getUint32(16),
+      siaddr: $.getUint32(20),
+      giaddr: $.getUint32(24),
+      chaddr: packet.subarray(28, 28 + 16),
+      sname: packet.subarray(44, 44 + 64),
+      file: packet.subarray(108, 108 + 128),
+      options: (function unpack_options(options: Uint8Array) {
+        const res: TDhcpPacket["header"]["options"] = [];
+        const $opt = new DataView(options.buffer, options.byteOffset);
+        for (let i = 0; i < options.length; ) {
+          const type = $opt.getUint8(i);
+          i += 1;
+          if (type === DHCP_OPTIONS.PADDING) continue;
+          if (type === DHCP_OPTIONS.END) break;
+
+          const len = $opt.getUint8(i);
+          i += 1;
+          res.push({
+            type,
+            data: options.subarray(i, i + len),
+          });
+          i += len;
+        }
+        return res;
+      })(packet.subarray(240)),
+    },
+  };
+}
+
+export function pack_dhcp_packet(obj: TDhcpPacket): Uint8Array {
+  const pack = new Uint8Array(240 + 312);
+  const $ = new DataView(pack.buffer);
+
+  $.setUint8(0, obj.header.op);
+  $.setUint8(1, obj.header.htype);
+  $.setUint8(2, obj.header.hlen);
+  $.setUint8(3, obj.header.hops);
+  $.setUint32(4, obj.header.xid);
+  $.setUint16(8, obj.header.secs);
+  $.setUint16(10, obj.header.flags);
+  $.setUint32(12, obj.header.ciaddr);
+  $.setUint32(16, obj.header.yiaddr);
+  $.setUint32(20, obj.header.siaddr);
+  $.setUint32(24, obj.header.giaddr);
+  pack.set(obj.header.chaddr.slice(0, 16), 28);
+  pack.set(obj.header.sname.slice(0, 64), 44);
+  pack.set(obj.header.file.slice(0, 128), 108);
+  pack.set(new Uint8Array([0x63, 0x82, 0x53, 0x63]), 236);
+  let offset = 240;
+  {
+    let end_found = false;
+    for (const opt of obj.header.options) {
+      $.setUint8(offset, opt.type);
+      offset += 1;
+      $.setUint8(offset, opt.data.length);
+      offset += 1;
+      pack.set(opt.data, offset);
+      offset += opt.data.length;
+      if (opt.type === DHCP_OPTIONS.END) {
+        end_found = true;
+        break;
+      }
+    }
+    if (!end_found) {
+      $.setUint8(offset, DHCP_OPTIONS.END);
+      offset += 1;
+    }
+  }
+  return pack.slice(0, offset);
 }

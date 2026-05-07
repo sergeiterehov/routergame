@@ -13,6 +13,12 @@ export function prefixToMask(prefix: number) {
   return 0xffffffff - Number((1n << (32n - BigInt(prefix))) - 1n);
 }
 
+export function maskToPrefix(mask: number) {
+  let prefix = 0;
+  for (let i = 0; i < 32; i++) prefix += (mask >> i) & 1;
+  return prefix;
+}
+
 export function testSameNetwork(test_ip: number, ip: number, prefix: number) {
   const mask = prefixToMask(prefix);
   return (ip & mask) === (test_ip & mask);
@@ -27,12 +33,14 @@ export function formatMAC(mac: bigint) {
 }
 
 export function formatIPv4(ip: number) {
-  return ip
-    .toString(16)
-    .padStart(8, "0")
-    .match(/(..)/g)
-    ?.map((d) => parseInt(d, 16))
-    .join(".");
+  return (
+    ip
+      .toString(16)
+      .padStart(8, "0")
+      .match(/(..)/g)
+      ?.map((d) => parseInt(d, 16))
+      .join(".") || ""
+  );
 }
 
 export function parseIPv4(ip: string) {

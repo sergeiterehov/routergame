@@ -285,7 +285,6 @@ export function br(os: OS, args: string[]) {
         if (slave.mac !== undefined && br.mac === 0n) br.mac = slave.mac;
       }
 
-      os.print("created\n");
       return;
     }
 

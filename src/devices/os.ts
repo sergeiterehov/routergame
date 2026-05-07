@@ -2,6 +2,7 @@ import { testSameNetwork } from "./format";
 import {
   ARP_OPCODES,
   ETHER_TYPES,
+  IP_BROADCAST,
   IP_PROTOCOLS,
   MAC_BROADCAST,
   pack_arp_packet,
@@ -89,9 +90,9 @@ export type TRoute = { network: number; prefix: number; gateway?: number; iInter
 export type TSocket = {
   ip: number;
 } & (
-  | { protocol: "raw"; on_data: (data: Uint8Array, ip: number) => void }
-  | { protocol: "icmp"; on_data: (data: Uint8Array, ip: number) => void }
-  | { protocol: "udp"; port: number; on_data: (data: Uint8Array, ip: number, port: number) => void }
+  | { protocol: "raw"; on_data: (data: Uint8Array, ip: number, iface: TInterface) => void }
+  | { protocol: "icmp"; on_data: (data: Uint8Array, ip: number, iface: TInterface) => void }
+  | { protocol: "udp"; port: number; on_data: (data: Uint8Array, ip: number, port: number, iface: TInterface) => void }
 );
 
 export class OS {
@@ -277,7 +278,7 @@ export class OS {
     }
 
     // reject if not our mac or broadcast
-    if (dstMac !== iface.mac && dstMac !== 0xffffffffffffn) return;
+    if (dstMac !== iface.mac && dstMac !== MAC_BROADCAST) return;
 
     const etherType = view.getUint16(12);
 
@@ -304,6 +305,8 @@ export class OS {
     const pack_view = new DataView(packet.buffer, packet.byteOffset);
     const ttl = pack_view.getUint8(8);
     const dst = pack_view.getUint32(16);
+
+    if (dst === IP_BROADCAST) return this.net_ip4_handle_protocol(iInterface, packet);
 
     // Own IP
     for (const _iface of this._netInterfaces) {
@@ -337,16 +340,18 @@ export class OS {
       this.net_ip4_icmp_handle(iInterface, packet);
     }
 
+    const iface = this._netInterfaces[iInterface];
+
     for (const socket of this._netSockets) {
       if (socket.ip !== 0 && socket.ip !== ip_struct.header.dst) continue;
       if (socket.protocol === "raw") {
-        socket.on_data(packet, ip_struct.header.src);
+        socket.on_data(packet, ip_struct.header.src, iface);
       } else if (ip_struct.header.protocol === IP_PROTOCOLS.ICMP && socket.protocol === "icmp") {
-        socket.on_data(ip_struct.payload, ip_struct.header.src);
+        socket.on_data(ip_struct.payload, ip_struct.header.src, iface);
       } else if (socket.protocol === "udp" && ip_struct.header.protocol === IP_PROTOCOLS.UDP) {
         const udp_struct = unpack_udp_packet(ip_struct.payload);
         if (socket.port === udp_struct.header.dst) {
-          socket.on_data(udp_struct.payload, ip_struct.header.src, udp_struct.header.src);
+          socket.on_data(udp_struct.payload, ip_struct.header.src, udp_struct.header.src, iface);
         }
       }
     }
@@ -368,7 +373,7 @@ export class OS {
 
     const payload = pack_udp_packet({ header: { dst: port, src: socket.port, length: 0, checksum: 0 }, payload: data });
 
-    return this.net_ip4_send(ip, IP_PROTOCOLS.UDP, payload);
+    return this.net_ip4_send(ip, IP_PROTOCOLS.UDP, payload, -1);
   }
 
   net_ip4_icmp_handle(iInterface: number, ip_packet: Uint8Array) {
@@ -386,7 +391,7 @@ export class OS {
         payload: icmp_struct.payload,
       });
 
-      this.net_ip4_send(ip_struct.header.src, IP_PROTOCOLS.ICMP, reply);
+      this.net_ip4_send(ip_struct.header.src, IP_PROTOCOLS.ICMP, reply, ip_struct.header.dst);
     }
   }
 
@@ -491,7 +496,7 @@ export class OS {
     }
   }
 
-  net_ip4_send(ip: number, protocol: number, payload: Uint8Array) {
+  net_ip4_send(ip: number, protocol: number, payload: Uint8Array, src_ip: number) {
     const route = this.net_ip4_route(ip);
     if (!route) return;
 
@@ -499,7 +504,7 @@ export class OS {
       header: {
         version: 4,
         dst: ip,
-        src: route.src,
+        src: src_ip >= 0 ? src_ip : route.src,
         protocol,
         ttl: this._netDefaultTTL,
         flags: 0,
