@@ -26,9 +26,16 @@ export const Props = observer(function Props(props: { id: string }) {
               const ext = c.a_id === id ? c.b_pid : c.a_pid;
               for (const ext_node of store.arch.node) {
                 if (ext_node.id === (c.a_id === id ? c.b_id : c.a_id)) {
+                  const metrics = store.connection_metrics[c.id];
                   return (
                     <div key={p.id}>
-                      {p.id} &rarr; {ext_node.name}: {ext}
+                      {p.id} &rarr; {ext_node.name}: {ext}{" "}
+                      {(() => {
+                        const { ab, ba } = metrics || { ab: 0, ba: 0 };
+                        const tx = c.a_id === id ? ab : ba;
+                        const rx = c.a_id === id ? ba : ab;
+                        return `[${tx}/${rx}]`;
+                      })()}
                     </div>
                   );
                 }

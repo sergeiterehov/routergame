@@ -132,6 +132,7 @@ class Store {
   arch: TArchitecture = initial_arch;
   instances: { [key: string]: Worker } = {};
   consoles: { [key: string]: string } = {};
+  connection_metrics: { [key: string]: { ab: number; ba: number } } = {};
 
   active_id?: string;
 
@@ -211,6 +212,16 @@ class Store {
     }
   }
 
+  private _connection_metrics_update(src: TArchNode, via: TArchConnection, size: number) {
+    let m = this.connection_metrics[via.id];
+    if (!m) m = this.connection_metrics[via.id] = { ab: 0, ba: 0 };
+    if (via.a_id === src.id) {
+      m.ab += size;
+    } else {
+      m.ba += size;
+    }
+  }
+
   private _handle_node_message(node: TArchNode, data: any) {
     if (data.$ === "ethernet_frame") {
       const port = node.ports[data.port];
@@ -239,7 +250,10 @@ class Store {
         console.log(`[${node.id}:${data.port}] => [${targetNode.id}:${targetPort}]\n${hexdump(data.frame)}`);
 
         const time = c.delay + (1000 * data.frame.length) / c.speed;
-        setTimeout(() => target.postMessage({ $: "ethernet_frame", port: targetPort, frame: data.frame }), time);
+        setTimeout(() => {
+          target.postMessage({ $: "ethernet_frame", port: targetPort, frame: data.frame });
+          this._connection_metrics_update(node, c, data.frame.length);
+        }, time);
         break;
       }
     } else if (data.$ === "print") {
