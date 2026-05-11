@@ -53,7 +53,7 @@ export class Store {
 
   connecting_tool = new ConnectionTool(this);
 
-  active_id?: string;
+  selected: { $: "node" | "connection"; id: string }[] = [];
 
   grid = 50;
   sidebar_visible = true;
@@ -90,9 +90,18 @@ export class Store {
     this.viewport_position.y = y;
   }
 
-  get active_node() {
-    if (!this.active_id) return undefined;
-    return this.arch.node.find((n) => n.id === this.active_id);
+  get selected_node_ids() {
+    return this.selected.filter((s) => s.$ === "node").map((s) => s.id);
+  }
+
+  get selected_node() {
+    if (this.selected.length !== 1) return;
+    const selected = this.selected[0];
+    if (selected.$ !== "node") return;
+    const { id } = selected;
+    for (const n of this.arch.node) {
+      if (n.id === id) return n;
+    }
   }
 
   constructor() {
@@ -106,8 +115,17 @@ export class Store {
     const current = this.consoles[id];
     this.consoles[id] = (current || "") + text;
   }
-  active_id_set(id?: string) {
-    this.active_id = id;
+  selected_node_set(id?: string) {
+    this.selected = id ? [{ $: "node", id }] : [];
+  }
+  selected_nodes_toggle(id: string) {
+    for (let i = 0; i < this.selected.length; i += 1) {
+      if (this.selected[i].id === id) {
+        this.selected.splice(i, 1);
+        return;
+      }
+    }
+    this.selected.push({ $: "node", id });
   }
 
   node_rename(id: string, name: string) {
@@ -293,7 +311,7 @@ export class Store {
 
     this.node_terminate(id);
 
-    if (this.active_id === id) this.active_id_set();
+    this.selected = this.selected.filter((s) => s.$ !== "node" || s.id !== id);
 
     for (let i = this.arch.connections.length - 1; i >= 0; i -= 1) {
       const c = this.arch.connections[i];
@@ -317,7 +335,7 @@ export class Store {
     });
 
     this.arch.node.push(node);
-    this.active_id_set(node.id);
+    this.selected_node_set(node.id);
 
     return node;
   }
@@ -340,7 +358,7 @@ export class Store {
     }
 
     this.arch.node.push(node);
-    this.active_id_set(node.id);
+    this.selected_node_set(node.id);
 
     return node;
   }
@@ -363,7 +381,7 @@ export class Store {
     });
 
     this.arch.node.push(node);
-    this.active_id_set(node.id);
+    this.selected_node_set(node.id);
 
     return node;
   }
@@ -378,7 +396,7 @@ export class Store {
     });
 
     this.arch.node.push(node);
-    this.active_id_set(node.id);
+    this.selected_node_set(node.id);
 
     return node;
   }
@@ -388,5 +406,5 @@ export const store = new Store();
 
 (function init() {
   for (const n of store.arch.node) store.node_reboot(n.id);
-  store.active_id = store.arch.node.at(0)?.id;
+  store.selected_node_set(store.arch.node.at(0)?.id);
 })();

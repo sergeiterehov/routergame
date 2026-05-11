@@ -2,7 +2,7 @@ import { observer } from "mobx-react-lite";
 import { store, type TArchNode, TOOL } from "./state/store.ts";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { autorun } from "mobx";
-import { IconDeviceImac, IconServer2, IconSwitch3, IconTopologyStar } from "@tabler/icons-react";
+import { IconDeviceImac, IconServer2, IconTopologyBus, IconSwitch3 } from "@tabler/icons-react";
 
 const itemSize = 64;
 
@@ -14,9 +14,9 @@ const Type2Color: { [key in TArchNode["type"]]?: string } = {
 };
 const Type2Icon: { [key in TArchNode["type"]]?: typeof IconDeviceImac } = {
   pc: IconDeviceImac,
-  router: IconTopologyStar,
   server: IconServer2,
-  l2: IconSwitch3,
+  router: IconSwitch3,
+  l2: IconTopologyBus,
 };
 
 const ConnectionPortSelector = observer(function ConnectionPortSelector() {
@@ -49,10 +49,12 @@ const ConnectionPortSelector = observer(function ConnectionPortSelector() {
 });
 
 export const Canvas = observer(function Canvas() {
-  const { active_id, tool, grid } = store;
+  const { selected_node_ids, tool, grid } = store;
 
-  const connections = store.arch.connections.filter((c) => c.a_id === active_id || c.b_id === active_id);
-  const siblings_ids = connections.map((c) => (c.a_id === active_id ? c.b_id : c.a_id));
+  const connections = store.arch.connections.filter(
+    (c) => selected_node_ids.includes(c.a_id) || selected_node_ids.includes(c.b_id),
+  );
+  const siblings_ids = connections.map((c) => (selected_node_ids.includes(c.a_id) ? c.b_id : c.a_id));
 
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -118,7 +120,11 @@ export const Canvas = observer(function Canvas() {
         if (drug.current.x === drug.start.x && drug.current.y === drug.start.y) {
           e.preventDefault();
           e.stopPropagation();
-          store.active_id_set(drug.id);
+          if (e.shiftKey) {
+            store.selected_nodes_toggle(drug.id);
+          } else {
+            store.selected_node_set(drug.id);
+          }
         }
 
         drug_set(undefined);
@@ -142,7 +148,7 @@ export const Canvas = observer(function Canvas() {
       onMouseDown={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        store.active_id_set();
+        if (!e.shiftKey) store.selected_node_set();
       }}
     >
       <div ref={canvasRef} className="absolute">
@@ -155,7 +161,7 @@ export const Canvas = observer(function Canvas() {
             return (
               <line
                 key={c.id}
-                className={`stroke-2 ${connections.includes(c) ? "stroke-sky-700" : "stroke-sky-500"}`}
+                className={`stroke-2 ${connections.includes(c) ? "stroke-gray-700" : "stroke-gray-400"}`}
                 x1={a.ui.x + itemSize / 2}
                 y1={a.ui.y + itemSize / 2}
                 x2={b.ui.x + itemSize / 2}
@@ -173,10 +179,10 @@ export const Canvas = observer(function Canvas() {
               className={[
                 "absolute cursor-pointer flex text-center text-xs justify-center items-center overflow-hidden rounded-lg border-2",
                 "flex flex-col",
-                n.id === active_id
+                selected_node_ids.includes(n.id)
                   ? "border-black"
                   : siblings_ids.includes(n.id)
-                    ? `border-gray-500 border-dashed`
+                    ? `border-black/50 border-dashed`
                     : "border-transparent",
                 !store.instances[n.id] ? "outline-2 outline-red-300" : "",
                 tool === TOOL.CONNECT && store.connecting_tool.a_id === n.id ? "outline-4 outline-indigo-500!" : "",

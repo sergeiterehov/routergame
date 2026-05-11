@@ -4,9 +4,9 @@ import {
   IconLayoutSidebarRight,
   IconPlugConnected,
   IconServer2,
-  IconSwitch3,
+  IconTopologyBus,
   IconTerminal2,
-  IconTopologyStar,
+  IconSwitch3,
 } from "@tabler/icons-react";
 import { observer } from "mobx-react-lite";
 import { store, TOOL } from "./state/store";
@@ -83,7 +83,7 @@ export const Tools = observer(function Tools() {
           store.node_create_l2({ name });
         }}
       >
-        <IconSwitch3 stroke="1" size="24" />
+        <IconTopologyBus stroke="1" size="24" />
       </Btn>
       <Btn
         title="Add Router"
@@ -95,7 +95,7 @@ export const Tools = observer(function Tools() {
           store.node_create_router({ name });
         }}
       >
-        <IconTopologyStar stroke="1" size="24" />
+        <IconSwitch3 stroke="1" size="24" />
       </Btn>
       <Separator />
       <Btn

@@ -5,9 +5,10 @@ import { store } from "./state/store";
 import { useState } from "react";
 import { Props } from "./Props";
 import { Tools } from "./Tools";
+import { MultiProps } from "./MultiProps";
 
 export const Root = observer(function Root() {
-  const { active_node, sidebar_visible, console_visible } = store;
+  const { selected_node, selected, sidebar_visible, console_visible } = store;
 
   const [props_width, props_width_set] = useState(350);
   const [console_height, console_height_set] = useState(420);
@@ -24,7 +25,7 @@ export const Root = observer(function Root() {
           </div>
           {console_visible && (
             <div className="shrink-0 flex bg-gray-100" style={{ height: console_height }}>
-              {active_node && active_node.type !== "l2" ? <Console id={active_node.id} /> : null}
+              {selected_node && selected_node.type !== "l2" ? <Console id={selected_node.id} /> : null}
             </div>
           )}
         </div>
@@ -33,7 +34,7 @@ export const Root = observer(function Root() {
             className="shrink-0 bg-gray-50 top-2 bottom-2 right-2 p-2 overflow-x-hidden overflow-y-auto *:grow"
             style={{ width: props_width }}
           >
-            {active_node ? <Props id={active_node.id} /> : null}
+            {selected_node ? <Props id={selected_node.id} /> : selected.length ? <MultiProps /> : null}
           </div>
         )}
       </div>
