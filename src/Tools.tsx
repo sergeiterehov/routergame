@@ -23,7 +23,6 @@ function Btn({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
         "p-2 rounded-md hover:bg-black/5 cursor-pointer",
         "data-active:bg-indigo-500 data-active:hover:bg-indigo-600 data-active:text-white",
         "data-active:data-gray:bg-gray-200 data-active:data-gray:text-black data-active:data-gray:hover:bg-gray-300",
-        "data-active:data-strong:bg-gray-700 data-active:data-strong:hover:bg-gray-800",
         className,
       ]
         .filter(Boolean)
@@ -100,18 +99,6 @@ export const Tools = observer(function Tools() {
       </Btn>
       <Separator />
       <Btn
-        data-strong
-        title="Console"
-        data-active={console_visible || undefined}
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          store.console_visible_set(!console_visible);
-        }}
-      >
-        <IconTerminal2 stroke="1" size="24" />
-      </Btn>
-      <Btn
         data-gray
         title="Align by grid"
         data-active={grid > 1 || undefined}
@@ -122,6 +109,18 @@ export const Tools = observer(function Tools() {
         }}
       >
         <IconGrid3x3 stroke="1" size="24" />
+      </Btn>
+      <Btn
+        data-gray
+        title="Console"
+        data-active={console_visible || undefined}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          store.console_visible_set(!console_visible);
+        }}
+      >
+        <IconTerminal2 stroke="1" size="24" />
       </Btn>
       <Btn
         data-gray
