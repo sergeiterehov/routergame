@@ -118,6 +118,7 @@ export function route(os: OS, args: string[]) {
       const iface = os._netInterfaces[route.iInterface];
       os.print(
         [
+          `${i + 1})`,
           route.prefix === 0 ? "default" : `${formatIPv4(route.network)}/${route.prefix}`,
           route.gateway !== undefined && `via ${formatIPv4(route.gateway)}`,
           `dev ${iface.name}`,
@@ -189,7 +190,15 @@ export function route(os: OS, args: string[]) {
         }
       }
 
-      os._netRoutes.push({
+      const _before = find_arg(args, "before");
+      let index = Number.parseInt(_before, 10) - 1;
+      if (Number.isNaN(index)) {
+        index = os._netRoutes.length;
+      } else if (index < 0 || index >= os._netRoutes.length) {
+        throw new Error("Invalid index");
+      }
+
+      os._netRoutes.splice(index, 0, {
         network: network_ip,
         prefix: network_prefix,
         iInterface: iface.index,
@@ -197,7 +206,7 @@ export function route(os: OS, args: string[]) {
         src: _src ? parseIPv4(_src) : undefined,
       });
     } else {
-      throw new Error("Usage: add <network/prefix> [dev <interface>] [src <ip>]");
+      throw new Error("Usage: add <network/prefix> [dev <interface>] [src <ip>] [before <number>]");
     }
   } else if (op === "del") {
     if (test_args(args, "default") || test_args(args, validate_address)) {
@@ -210,7 +219,7 @@ export function route(os: OS, args: string[]) {
       }
 
       const network_parts = _network.split("/");
-      const network_prefix = parseInt(network_parts[1]);
+      const network_prefix = Number.parseInt(network_parts[1], 10);
       const network_ip = (parseIPv4(network_parts[0]) & prefixToMask(network_prefix)) >>> 0;
 
       for (let i = 0; i < os._netRoutes.length; i++) {
@@ -224,8 +233,28 @@ export function route(os: OS, args: string[]) {
     } else {
       throw new Error("Usage: del <network/prefix>");
     }
+  } else if (op === "move") {
+    if (test_args(args, Boolean, "before", Boolean)) {
+      const _from = Number.parseInt(args[0], 10);
+      const _to = Number.parseInt(args[2], 10);
+      if (Number.isNaN(_from) || Number.isNaN(_to)) throw new Error("Invalid number");
+      if (_from < 1 || _from > os._netRoutes.length || _to < 1 || _to > os._netRoutes.length) {
+        throw new Error(`Index out of range 1..${os._netRoutes.length}`);
+      }
+
+      if (_from === _to) return;
+      if (_from < _to) {
+        os._netRoutes.splice(_to - 1, 0, os._netRoutes[_from - 1]);
+        os._netRoutes.splice(_from - 1, 1);
+      } else {
+        os._netRoutes.splice(_to - 1, 0, os._netRoutes[_from - 1]);
+        os._netRoutes.splice(_from, 1);
+      }
+    } else {
+      throw new Error("Usage: move <number> before <number>");
+    }
   } else {
-    throw new Error("Usage:\nadd ...\ndel ...");
+    throw new Error("Usage:\nadd ...\ndel ...\nmove ...");
   }
 }
 
