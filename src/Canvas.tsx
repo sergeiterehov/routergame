@@ -2,6 +2,7 @@ import { observer } from "mobx-react-lite";
 import { store, type TArchNode, TOOL } from "./state/store.ts";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { autorun } from "mobx";
+import { IconDeviceImac, IconServer2, IconTopologyBus, IconTopologyStar } from "@tabler/icons-react";
 
 const itemSize = 64;
 
@@ -10,6 +11,12 @@ const Type2Color: { [key in TArchNode["type"]]?: string } = {
   router: "bg-violet-200",
   server: "bg-green-200",
   l2: "bg-gray-200",
+};
+const Type2Icon: { [key in TArchNode["type"]]?: typeof IconDeviceImac } = {
+  pc: IconDeviceImac,
+  router: IconTopologyStar,
+  server: IconServer2,
+  l2: IconTopologyBus,
 };
 
 const ConnectionPortSelector = observer(function ConnectionPortSelector() {
@@ -159,11 +166,13 @@ export const Canvas = observer(function Canvas() {
         </svg>
         {store.arch.node.map((n) => {
           const color = Type2Color[n.type];
+          const Icon = Type2Icon[n.type];
           return (
             <div
               key={n.id}
               className={[
-                "absolute cursor-pointer flex text-center justify-center items-center overflow-hidden rounded-lg border-2",
+                "absolute cursor-pointer flex text-center text-xs justify-center items-center overflow-hidden rounded-lg border-2",
+                "flex flex-col",
                 n.id === active_id
                   ? "border-black"
                   : siblings_ids.includes(n.id)
@@ -197,7 +206,8 @@ export const Canvas = observer(function Canvas() {
                 }
               }}
             >
-              {n.name}
+              {Icon && <Icon className="opacity-50" size={24} stroke="1" />}
+              <div>{n.name}</div>
             </div>
           );
         })}
