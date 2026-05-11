@@ -110,20 +110,20 @@ export class Store {
     this.active_id = id;
   }
 
-  rename_node(id: string, name: string) {
+  node_rename(id: string, name: string) {
     const node = this.arch.node.find((n) => n.id === id);
     if (!node) return;
     node.name = name;
   }
 
-  move_node(id: string, x: number, y: number) {
+  node_move(id: string, x: number, y: number) {
     const node = this.arch.node.find((n) => n.id === id);
     if (!node) return;
     node.ui.x = x;
     node.ui.y = y;
   }
 
-  terminate_node(id: string) {
+  node_terminate(id: string) {
     const node = this.arch.node.find((n) => n.id === id);
     if (!node) return;
 
@@ -136,11 +136,11 @@ export class Store {
     this.console_append(node.id, "\n[Terminated]\n");
   }
 
-  reboot_node(id: string) {
+  node_reboot(id: string) {
     const node = this.arch.node.find((n) => n.id === id);
     if (!node) return;
 
-    this.terminate_node(id);
+    this.node_terminate(id);
 
     const WorkerClass = Type2Worker[node.type];
     if (!WorkerClass) throw new Error("Unknown node type");
@@ -287,6 +287,24 @@ export class Store {
     return connection;
   }
 
+  node_delete(id: string) {
+    const index = this.arch.node.findIndex((n) => n.id === id);
+    if (index === -1) return;
+
+    this.node_terminate(id);
+
+    if (this.active_id === id) this.active_id_set();
+
+    for (let i = this.arch.connections.length - 1; i >= 0; i -= 1) {
+      const c = this.arch.connections[i];
+      if (c.a_id === id || c.b_id === id) {
+        this.arch.connections.splice(i, 1);
+      }
+    }
+
+    this.arch.node.splice(index, 1);
+  }
+
   node_create_pc(config: Partial<Pick<TArchNode, "ui" | "name">>) {
     const node: TArchNode = makeAutoObservable({
       type: "pc",
@@ -369,6 +387,6 @@ export class Store {
 export const store = new Store();
 
 (function init() {
-  for (const n of store.arch.node) store.reboot_node(n.id);
+  for (const n of store.arch.node) store.node_reboot(n.id);
   store.active_id = store.arch.node.at(0)?.id;
 })();

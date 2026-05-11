@@ -104,7 +104,7 @@ export const Canvas = observer(function Canvas() {
       "mousemove",
       (e) => {
         drug.current = { x: e.clientX, y: e.clientY };
-        store.move_node(
+        store.node_move(
           drug.id,
           wrap_grid(drug.ui.x + (drug.current.x - drug.start.x)),
           wrap_grid(drug.ui.y + (drug.current.y - drug.start.y)),

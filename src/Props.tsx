@@ -11,7 +11,7 @@ export const Props = observer(function Props(props: { id: string }) {
     e.stopPropagation();
     const name = prompt("New name", node.name);
     if (!name) return;
-    store.rename_node(id, name);
+    store.node_rename(id, name);
   };
 
   return (
@@ -68,7 +68,7 @@ export const Props = observer(function Props(props: { id: string }) {
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            store.terminate_node(id);
+            store.node_terminate(id);
           }}
         >
           Power off
@@ -79,12 +79,25 @@ export const Props = observer(function Props(props: { id: string }) {
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            store.reboot_node(id);
+            store.node_reboot(id);
           }}
         >
           Power on
         </div>
       )}
+      <div
+        className="cursor-pointer text-center rounded-lg p-2 text-red-400 border border-red-400 hover:bg-red-400 hover:text-white select-none"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+
+          if (confirm("Are you sure?")) {
+            store.node_delete(id);
+          }
+        }}
+      >
+        Delete
+      </div>
       <div className="h-25 shrink-0"></div>
     </div>
   );
