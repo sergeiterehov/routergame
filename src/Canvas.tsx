@@ -1,6 +1,7 @@
 import { observer } from "mobx-react-lite";
 import { store, type TArchNode } from "./store.ts";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { autorun } from "mobx";
 
 const itemSize = 64;
 
@@ -17,6 +18,9 @@ export const Canvas = observer(function Canvas() {
   const connections = store.arch.connections.filter((c) => c.a_id === active_id || c.b_id === active_id);
   const siblings_ids = connections.map((c) => (c.a_id === active_id ? c.b_id : c.a_id));
 
+  const rootRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
+
   const [grid, grid_set] = useState(50);
   const [drug, drug_set] = useState<{
     id: string;
@@ -26,6 +30,35 @@ export const Canvas = observer(function Canvas() {
   }>();
 
   useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const controller = new AbortController();
+
+    root.addEventListener(
+      "wheel",
+      (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        store.viewport_position_set(store.viewport_position.x - e.deltaX, store.viewport_position.y - e.deltaY);
+      },
+      { passive: false, signal: controller.signal },
+    );
+
+    autorun(
+      () => {
+        canvas.style.left = `${store.viewport_position.x}px`;
+        canvas.style.top = `${store.viewport_position.y}px`;
+      },
+      { signal: controller.signal },
+    );
+
+    return () => controller.abort();
+  }, []);
+
+  useLayoutEffect(() => {
     if (!drug) return;
 
     const controller = new AbortController();
@@ -44,68 +77,86 @@ export const Canvas = observer(function Canvas() {
       },
       { signal: controller.signal },
     );
-    document.body.addEventListener("mouseup", () => drug_set(undefined), { signal: controller.signal });
+    document.body.addEventListener(
+      "mouseup",
+      (e) => {
+        if (drug.current.x === drug.start.x && drug.current.y === drug.start.y) {
+          e.preventDefault();
+          e.stopPropagation();
+          store.active_id_set(drug.id);
+        }
+
+        drug_set(undefined);
+      },
+      { signal: controller.signal },
+    );
 
     return () => controller.abort();
   }, [drug, grid]);
 
+  const canvas_size = { w: 0, h: 0 };
+  for (const n of store.arch.node) {
+    canvas_size.w = Math.max(canvas_size.w, n.ui.x + itemSize);
+    canvas_size.h = Math.max(canvas_size.h, n.ui.y + itemSize);
+  }
+
   return (
     <div
+      ref={rootRef}
       className="relative w-full h-full overflow-hidden select-none"
-      onClick={(e) => {
+      onMouseDown={(e) => {
         e.preventDefault();
         e.stopPropagation();
         store.active_id_set();
       }}
     >
-      <svg className="absolute w-full h-full">
-        {store.arch.connections.map((c) => {
-          const a = store.arch.node.find((n) => n.id === c.a_id);
-          const b = store.arch.node.find((n) => n.id === c.b_id);
-          if (!a || !b) return null;
+      <div ref={canvasRef} className="absolute">
+        <svg className="absolute" width={canvas_size.w} height={canvas_size.h}>
+          {store.arch.connections.map((c) => {
+            const a = store.arch.node.find((n) => n.id === c.a_id);
+            const b = store.arch.node.find((n) => n.id === c.b_id);
+            if (!a || !b) return null;
 
+            return (
+              <line
+                key={c.id}
+                className={`stroke-2 ${connections.includes(c) ? "stroke-sky-700" : "stroke-sky-500"}`}
+                x1={a.ui.x + itemSize / 2}
+                y1={a.ui.y + itemSize / 2}
+                x2={b.ui.x + itemSize / 2}
+                y2={b.ui.y + itemSize / 2}
+              />
+            );
+          })}
+        </svg>
+        {store.arch.node.map((n) => {
+          const color = Type2Color[n.type];
           return (
-            <line
-              key={c.id}
-              className={`stroke-2 ${connections.includes(c) ? "stroke-sky-700" : "stroke-sky-500"}`}
-              x1={a.ui.x + itemSize / 2}
-              y1={a.ui.y + itemSize / 2}
-              x2={b.ui.x + itemSize / 2}
-              y2={b.ui.y + itemSize / 2}
-            />
+            <div
+              key={n.id}
+              className={`absolute cursor-pointer flex text-center justify-center items-center overflow-hidden rounded-lg border-2 ${n.id === active_id ? "border-black" : siblings_ids.includes(n.id) ? `border-gray-500 border-dashed` : "border-transparent"} ${store.instances[n.id] ? "" : "outline-2 outline-red-300"} ${color ?? "bg-gray-500 text-gray-400"}`}
+              style={{
+                left: n.ui.x,
+                top: n.ui.y,
+                width: itemSize,
+                height: itemSize,
+              }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                drug_set({
+                  id: n.id,
+                  ui: { x: n.ui.x, y: n.ui.y },
+                  start: { x: e.clientX, y: e.clientY },
+                  current: { x: e.clientX, y: e.clientY },
+                });
+              }}
+            >
+              {n.name}
+            </div>
           );
         })}
-      </svg>
-      {store.arch.node.map((n) => {
-        const color = Type2Color[n.type];
-        return (
-          <div
-            key={n.id}
-            className={`absolute cursor-pointer flex text-center justify-center items-center overflow-hidden rounded-lg border-2 ${n.id === active_id ? "border-black" : siblings_ids.includes(n.id) ? `border-gray-500 border-dashed` : "border-transparent"} ${store.instances[n.id] ? "" : "outline-2 outline-red-300"} ${color ?? "bg-gray-500 text-gray-400"}`}
-            style={{
-              left: n.ui.x,
-              top: n.ui.y,
-              width: itemSize,
-              height: itemSize,
-            }}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              store.active_id_set(n.id);
-            }}
-            onMouseDown={(e) => {
-              drug_set({
-                id: n.id,
-                ui: { x: n.ui.x, y: n.ui.y },
-                start: { x: e.clientX, y: e.clientY },
-                current: { x: e.clientX, y: e.clientY },
-              });
-            }}
-          >
-            {n.name}
-          </div>
-        );
-      })}
+      </div>
     </div>
   );
 });

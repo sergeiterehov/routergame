@@ -4,9 +4,10 @@ import { Console } from "./Console";
 import { store } from "./store";
 import { useState } from "react";
 import { Props } from "./Props";
+import { Tools } from "./Tools";
 
 export const Root = observer(function Root() {
-  const { active_node } = store;
+  const { active_node, sidebar_visible, console_visible } = store;
 
   const [props_width, props_width_set] = useState(350);
   const [console_height, console_height_set] = useState(420);
@@ -14,23 +15,28 @@ export const Root = observer(function Root() {
   return (
     <div className="flex flex-col h-svh">
       <div className="grow overflow-hidden flex">
-        <div className="grow overflow-hidden">
-          <Canvas />
+        <div className="grow overflow-hidden flex flex-col">
+          <div className="relative grow overflow-hidden">
+            <Canvas />
+            <div className="absolute shadow-lg outline outline-black/5 rounded-xl bg-white top-2 left-1/2 -translate-x-1/2">
+              <Tools />
+            </div>
+          </div>
+          {console_visible && (
+            <div className="shrink-0 flex bg-gray-100" style={{ height: console_height }}>
+              {active_node && active_node.type !== "l2" ? <Console id={active_node.id} /> : null}
+            </div>
+          )}
         </div>
-        {active_node ? (
+        {sidebar_visible && (
           <div
-            className="shrink-0 flex bg-gray-100 p-2 overflow-x-hidden overflow-y-auto *:grow"
+            className="shrink-0 bg-gray-50 top-2 bottom-2 right-2 p-2 overflow-x-hidden overflow-y-auto *:grow"
             style={{ width: props_width }}
           >
-            <Props id={active_node.id} />
+            {active_node ? <Props id={active_node.id} /> : null}
           </div>
-        ) : null}
+        )}
       </div>
-      {active_node && active_node.type !== "l2" ? (
-        <div className="shrink-0 flex" style={{ height: console_height }}>
-          <Console id={active_node.id} />
-        </div>
-      ) : null}
     </div>
   );
 });

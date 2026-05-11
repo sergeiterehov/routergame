@@ -71,7 +71,7 @@ export const Console = observer(function Console(props: { id: string }) {
   }, [text]);
 
   return (
-    <div className="grow flex flex-col bg-gray-900 text-gray-100">
+    <div className="grow flex flex-col">
       <pre
         ref={consoleRef}
         className="p-2 grow overflow-x-hidden overflow-y-scroll whitespace-pre-wrap wrap-break-word"
@@ -79,7 +79,8 @@ export const Console = observer(function Console(props: { id: string }) {
         {text}
       </pre>
       <input
-        className="block font-mono border-0 outline-0 px-3 py-2 placeholder-gray-400 shadow-sm invalid:bg-pink-900 invalid:text-pink-500 focus:bg-gray-800 focus:invalid:bg-pink-500 disabled:bg-gray-50 disabled:text-gray-500 disabled:shadow-none sm:text-sm"
+        autoFocus
+        className="block font-mono border-0 outline-0 px-3 py-2 placeholder-gray-400 bg-gray-900/5 focus:bg-indigo-500/10"
         placeholder="#"
         disabled={!id}
         value={state.actualCmd}

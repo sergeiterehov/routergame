@@ -73,14 +73,14 @@ const initial_arch: TArchitecture = {
         "route add 10.0.0.0/24 dev br0",
         "dhcpd br0 10.0.0.10 10.0.0.20 -g 10.0.0.1",
       ],
-      ui: { x: 150, y: 50 },
+      ui: { x: 150, y: 100 },
     },
     {
       id: "sw",
       type: "l2",
-      ui: { x: 250, y: 50 },
       name: "Switch",
       ports: new Array(16).fill(0).map((_, i) => ({ id: `eth${i}`, type: "ethernet" })),
+      ui: { x: 250, y: 100 },
     },
     {
       id: "server",
@@ -99,7 +99,7 @@ const initial_arch: TArchitecture = {
         "route add 192.168.0.0/24 dev eth0",
         "route add default via 192.168.0.1",
       ],
-      ui: { x: 150, y: 150 },
+      ui: { x: 150, y: 200 },
     },
     {
       id: "pc_a",
@@ -108,7 +108,7 @@ const initial_arch: TArchitecture = {
       ports: [{ id: "eth0", type: "ethernet" }],
       ethernetPorts: [{ id: "eth0", mac: "00:00:00:aa:00:00" }],
       init: ["dhcp eth0"],
-      ui: { x: 50, y: 50 },
+      ui: { x: 50, y: 100 },
     },
     {
       id: "pc_b",
@@ -117,7 +117,7 @@ const initial_arch: TArchitecture = {
       ports: [{ id: "eth0", type: "ethernet" }],
       ethernetPorts: [{ id: "eth0", mac: "00:00:00:aa:01:00" }],
       init: ["dhcp eth0"],
-      ui: { x: 350, y: 50 },
+      ui: { x: 350, y: 100 },
     },
   ],
   connections: [
@@ -135,6 +135,24 @@ class Store {
   connection_metrics: { [key: string]: { ab: number; ba: number } } = {};
 
   active_id?: string;
+
+  sidebar_visible = true;
+  console_visible = true;
+
+  viewport_position = { x: 0, y: 0 };
+
+  sidebar_visible_set(value: boolean) {
+    this.sidebar_visible = value;
+  }
+
+  console_visible_set(value: boolean) {
+    this.console_visible = value;
+  }
+
+  viewport_position_set(x: number, y: number) {
+    this.viewport_position.x = x;
+    this.viewport_position.y = y;
+  }
 
   get active_node() {
     if (!this.active_id) return undefined;
