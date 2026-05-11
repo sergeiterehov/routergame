@@ -1,7 +1,7 @@
 import { observer } from "mobx-react-lite";
 import { Canvas } from "./Canvas";
 import { Console } from "./Console";
-import { store } from "./store";
+import { store } from "./state/store";
 import { useState } from "react";
 import { Props } from "./Props";
 import { Tools } from "./Tools";

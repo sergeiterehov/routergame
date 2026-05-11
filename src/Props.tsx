@@ -1,5 +1,5 @@
 import { observer } from "mobx-react-lite";
-import { store } from "./store";
+import { store } from "./state/store";
 
 export const Props = observer(function Props(props: { id: string }) {
   const { id } = props;

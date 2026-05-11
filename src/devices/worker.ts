@@ -5,17 +5,25 @@ import * as ifconfig from "./apps/ifconfig.app";
 import * as arp from "./apps/arp.app";
 import * as ping from "./apps/ping.app";
 import * as dhcp from "./apps/dhcp.app";
+import type { Bus } from "./bus";
+
+function onMessage(handler: (message: Bus.Message.Master) => void, options: AddEventListenerOptions = {}) {
+  self.addEventListener("message", (e: MessageEvent<Bus.Message.Master>) => handler(e.data), options);
+}
+
+function sendMessage(message: Bus.Message.Slave) {
+  self.postMessage(message);
+}
 
 export function expose(port: number, devicePort: Port) {
   devicePort.connect(({ tx }) => {
     const controller = new AbortController();
 
-    self.addEventListener(
-      "message",
-      (e: MessageEvent<{ $: "ethernet_frame"; port: number; frame: Uint8Array }>) => {
-        if (e.data.$ === "ethernet_frame") {
-          if (e.data.port !== port) return;
-          tx(e.data.frame);
+    onMessage(
+      (msg) => {
+        if (msg.$ === "ethernet_frame") {
+          if (msg.port !== port) return;
+          tx(msg.frame);
         }
       },
       { signal: controller.signal },
@@ -23,7 +31,7 @@ export function expose(port: number, devicePort: Port) {
 
     return {
       rx: (frame) => {
-        self.postMessage({ $: "ethernet_frame", port, frame });
+        sendMessage({ $: "ethernet_frame", port, frame });
       },
       link: (connected) => {
         if (!connected) controller.abort();
@@ -44,7 +52,7 @@ export function beginWorker(config: { type: string; ethernet?: { mac: bigint }[]
   }
 
   const os = new OS(system);
-  os.on_print = (text) => self.postMessage({ $: "print", text });
+  os.on_print = (text) => sendMessage({ $: "print", text });
 
   for (let i = 0; i < system._devices.length; i += 1) {
     const dev = system._devices[i];
@@ -58,9 +66,9 @@ export function beginWorker(config: { type: string; ethernet?: { mac: bigint }[]
   os.print(`Host ${self.name}\n`);
   os.install({ ...ifconfig, ...arp, ...ping, ...dhcp });
 
-  self.addEventListener("message", (e: MessageEvent<{ $: "exec"; app: string; args: string[] }>) => {
-    if (e.data.$ === "exec") {
-      os.exec(e.data.app, e.data.args);
+  onMessage((msg) => {
+    if (msg.$ === "exec") {
+      os.exec(msg.app, msg.args);
     }
   });
 

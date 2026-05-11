@@ -1,5 +1,5 @@
 import { observer } from "mobx-react-lite";
-import { store, type TArchNode } from "./store.ts";
+import { store, type TArchNode, TOOL } from "./state/store.ts";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { autorun } from "mobx";
 
@@ -12,8 +12,37 @@ const Type2Color: { [key in TArchNode["type"]]?: string } = {
   l2: "bg-gray-200",
 };
 
+const ConnectionPortSelector = observer(function ConnectionPortSelector() {
+  const { port_selector } = store.connecting_tool;
+  if (!port_selector) return;
+
+  const { node, free_ports } = port_selector;
+
+  return (
+    <div
+      className="absolute rounded-lg bg-white outline outline-black/5 p-1 shadow-md ml-2 min-w-25 select-none"
+      style={{ left: node.ui.x + itemSize, top: node.ui.y }}
+    >
+      {free_ports.map((p) => {
+        return (
+          <div
+            className="px-2 py-1 rounded-md cursor-pointer hover:bg-black/5"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              store.connecting_tool.select_port(p.id);
+            }}
+          >
+            {p.id}
+          </div>
+        );
+      })}
+    </div>
+  );
+});
+
 export const Canvas = observer(function Canvas() {
-  const { active_id } = store;
+  const { active_id, tool, grid } = store;
 
   const connections = store.arch.connections.filter((c) => c.a_id === active_id || c.b_id === active_id);
   const siblings_ids = connections.map((c) => (c.a_id === active_id ? c.b_id : c.a_id));
@@ -21,7 +50,6 @@ export const Canvas = observer(function Canvas() {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
 
-  const [grid, grid_set] = useState(50);
   const [drug, drug_set] = useState<{
     id: string;
     ui: { x: number; y: number };
@@ -134,7 +162,19 @@ export const Canvas = observer(function Canvas() {
           return (
             <div
               key={n.id}
-              className={`absolute cursor-pointer flex text-center justify-center items-center overflow-hidden rounded-lg border-2 ${n.id === active_id ? "border-black" : siblings_ids.includes(n.id) ? `border-gray-500 border-dashed` : "border-transparent"} ${store.instances[n.id] ? "" : "outline-2 outline-red-300"} ${color ?? "bg-gray-500 text-gray-400"}`}
+              className={[
+                "absolute cursor-pointer flex text-center justify-center items-center overflow-hidden rounded-lg border-2",
+                n.id === active_id
+                  ? "border-black"
+                  : siblings_ids.includes(n.id)
+                    ? `border-gray-500 border-dashed`
+                    : "border-transparent",
+                !store.instances[n.id] ? "outline-2 outline-red-300" : "",
+                tool === TOOL.CONNECT && store.connecting_tool.a_id === n.id ? "outline-4 outline-indigo-500!" : "",
+                color ?? "bg-gray-500 text-gray-400",
+              ]
+                .filter(Boolean)
+                .join(" ")}
               style={{
                 left: n.ui.x,
                 top: n.ui.y,
@@ -144,18 +184,24 @@ export const Canvas = observer(function Canvas() {
               onMouseDown={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                drug_set({
-                  id: n.id,
-                  ui: { x: n.ui.x, y: n.ui.y },
-                  start: { x: e.clientX, y: e.clientY },
-                  current: { x: e.clientX, y: e.clientY },
-                });
+
+                if (tool === TOOL.NONE) {
+                  drug_set({
+                    id: n.id,
+                    ui: { x: n.ui.x, y: n.ui.y },
+                    start: { x: e.clientX, y: e.clientY },
+                    current: { x: e.clientX, y: e.clientY },
+                  });
+                } else if (tool === TOOL.CONNECT) {
+                  store.connecting_tool.select_node(n);
+                }
               }}
             >
               {n.name}
             </div>
           );
         })}
+        {tool === TOOL.CONNECT && <ConnectionPortSelector />}
       </div>
     </div>
   );

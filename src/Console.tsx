@@ -1,6 +1,6 @@
 import { observer } from "mobx-react-lite";
 import { useRef, useEffect } from "react";
-import { store } from "./store";
+import { store } from "./state/store";
 import { makeAutoObservable } from "mobx";
 
 class State {
