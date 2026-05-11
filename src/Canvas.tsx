@@ -2,7 +2,7 @@ import { observer } from "mobx-react-lite";
 import { store, type TArchNode, TOOL } from "./state/store.ts";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { autorun } from "mobx";
-import { IconDeviceImac, IconServer2, IconTopologyBus, IconTopologyStar } from "@tabler/icons-react";
+import { IconDeviceImac, IconServer2, IconSwitch3, IconTopologyStar } from "@tabler/icons-react";
 
 const itemSize = 64;
 
@@ -16,7 +16,7 @@ const Type2Icon: { [key in TArchNode["type"]]?: typeof IconDeviceImac } = {
   pc: IconDeviceImac,
   router: IconTopologyStar,
   server: IconServer2,
-  l2: IconTopologyBus,
+  l2: IconSwitch3,
 };
 
 const ConnectionPortSelector = observer(function ConnectionPortSelector() {
