@@ -1,7 +1,7 @@
 import { observer } from "mobx-react-lite";
 import { store } from "./state/store";
 
-export const Props = observer(function Props(props: { id: string }) {
+export const NodeProps = observer(function NodeProps(props: { id: string }) {
   const { id } = props;
 
   const node = store.arch.node.find((n) => n.id === id)!;

@@ -94,6 +94,10 @@ export class Store {
     return this.selected.filter((s) => s.$ === "node").map((s) => s.id);
   }
 
+  get selected_connection_ids() {
+    return this.selected.filter((s) => s.$ === "connection").map((s) => s.id);
+  }
+
   get selected_node() {
     if (this.selected.length !== 1) return;
     const selected = this.selected[0];
@@ -101,6 +105,16 @@ export class Store {
     const { id } = selected;
     for (const n of this.arch.node) {
       if (n.id === id) return n;
+    }
+  }
+
+  get selected_connection() {
+    if (this.selected.length !== 1) return;
+    const selected = this.selected[0];
+    if (selected.$ !== "connection") return;
+    const { id } = selected;
+    for (const c of this.arch.connections) {
+      if (c.id === id) return c;
     }
   }
 
@@ -115,17 +129,29 @@ export class Store {
     const current = this.consoles[id];
     this.consoles[id] = (current || "") + text;
   }
-  selected_node_set(id?: string) {
-    this.selected = id ? [{ $: "node", id }] : [];
+  selected_clear() {
+    this.selected = [];
   }
-  selected_nodes_toggle(id: string) {
+  selected_set(type: (typeof this.selected)[0]["$"], id: string) {
+    this.selected = [{ $: type, id }];
+  }
+  selected_exclude(type: (typeof this.selected)[0]["$"], id: string) {
+    for (let i = this.selected.length - 1; i >= 0; i -= 1) {
+      const s = this.selected[i];
+      if (s.id === id && s.$ === type) {
+        this.selected.splice(i, 1);
+      }
+    }
+  }
+  selected_toggle(type: (typeof this.selected)[0]["$"], id: string) {
     for (let i = 0; i < this.selected.length; i += 1) {
-      if (this.selected[i].id === id) {
+      const selected = this.selected[i];
+      if (selected.id === id && selected.$ === type) {
         this.selected.splice(i, 1);
         return;
       }
     }
-    this.selected.push({ $: "node", id });
+    this.selected.push({ $: type, id });
   }
 
   node_rename(id: string, name: string) {
@@ -305,17 +331,29 @@ export class Store {
     return connection;
   }
 
+  connection_delete(id: string) {
+    this.selected_exclude("connection", id);
+
+    for (let i = this.arch.connections.length - 1; i >= 0; i -= 1) {
+      if (this.arch.connections[i].id === id) {
+        this.arch.connections.splice(i, 1);
+        return;
+      }
+    }
+  }
+
   node_delete(id: string) {
     const index = this.arch.node.findIndex((n) => n.id === id);
     if (index === -1) return;
 
     this.node_terminate(id);
 
-    this.selected = this.selected.filter((s) => s.$ !== "node" || s.id !== id);
+    this.selected_exclude("node", id);
 
     for (let i = this.arch.connections.length - 1; i >= 0; i -= 1) {
       const c = this.arch.connections[i];
       if (c.a_id === id || c.b_id === id) {
+        this.selected_exclude("connection", id);
         this.arch.connections.splice(i, 1);
       }
     }
@@ -335,7 +373,7 @@ export class Store {
     });
 
     this.arch.node.push(node);
-    this.selected_node_set(node.id);
+    this.selected_set("node", node.id);
 
     return node;
   }
@@ -358,7 +396,7 @@ export class Store {
     }
 
     this.arch.node.push(node);
-    this.selected_node_set(node.id);
+    this.selected_set("node", node.id);
 
     return node;
   }
@@ -381,7 +419,7 @@ export class Store {
     });
 
     this.arch.node.push(node);
-    this.selected_node_set(node.id);
+    this.selected_set("node", node.id);
 
     return node;
   }
@@ -396,7 +434,7 @@ export class Store {
     });
 
     this.arch.node.push(node);
-    this.selected_node_set(node.id);
+    this.selected_set("node", node.id);
 
     return node;
   }
@@ -406,5 +444,6 @@ export const store = new Store();
 
 (function init() {
   for (const n of store.arch.node) store.node_reboot(n.id);
-  store.selected_node_set(store.arch.node.at(0)?.id);
+  const some_node = store.arch.node.at(0);
+  if (some_node) store.selected_set("node", some_node.id);
 })();

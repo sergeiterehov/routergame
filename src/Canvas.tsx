@@ -49,7 +49,7 @@ const ConnectionPortSelector = observer(function ConnectionPortSelector() {
 });
 
 export const Canvas = observer(function Canvas() {
-  const { selected_node_ids, tool, grid } = store;
+  const { selected_node_ids, selected_connection_ids, tool, grid } = store;
 
   const connections = store.arch.connections.filter(
     (c) => selected_node_ids.includes(c.a_id) || selected_node_ids.includes(c.b_id),
@@ -121,9 +121,9 @@ export const Canvas = observer(function Canvas() {
           e.preventDefault();
           e.stopPropagation();
           if (e.shiftKey) {
-            store.selected_nodes_toggle(drug.id);
+            store.selected_toggle("node", drug.id);
           } else {
-            store.selected_node_set(drug.id);
+            store.selected_set("node", drug.id);
           }
         }
 
@@ -148,7 +148,7 @@ export const Canvas = observer(function Canvas() {
       onMouseDown={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (!e.shiftKey) store.selected_node_set();
+        if (!e.shiftKey) store.selected_clear();
       }}
     >
       <div ref={canvasRef} className="absolute">
@@ -161,11 +161,23 @@ export const Canvas = observer(function Canvas() {
             return (
               <line
                 key={c.id}
-                className={`stroke-2 ${connections.includes(c) ? "stroke-gray-700" : "stroke-gray-400"}`}
+                className={`cursor-pointer stroke-2 ${selected_connection_ids.includes(c.id) ? "stroke-black stroke-4" : connections.includes(c) ? "stroke-gray-700" : "stroke-gray-400"}`}
                 x1={a.ui.x + itemSize / 2}
                 y1={a.ui.y + itemSize / 2}
                 x2={b.ui.x + itemSize / 2}
                 y2={b.ui.y + itemSize / 2}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+
+                  if (tool === TOOL.NONE) {
+                    if (e.shiftKey) {
+                      store.selected_toggle("connection", c.id);
+                    } else {
+                      store.selected_set("connection", c.id);
+                    }
+                  }
+                }}
               />
             );
           })}

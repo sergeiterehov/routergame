@@ -3,12 +3,13 @@ import { Canvas } from "./Canvas";
 import { Console } from "./Console";
 import { store } from "./state/store";
 import { useState } from "react";
-import { Props } from "./Props";
+import { NodeProps } from "./NodeProps";
 import { Tools } from "./Tools";
 import { MultiProps } from "./MultiProps";
+import { ConnectionProps } from "./ConnectionProps";
 
 export const Root = observer(function Root() {
-  const { selected_node, selected, sidebar_visible, console_visible } = store;
+  const { selected_node, selected_connection, selected, sidebar_visible, console_visible } = store;
 
   const [props_width, props_width_set] = useState(350);
   const [console_height, console_height_set] = useState(420);
@@ -34,7 +35,13 @@ export const Root = observer(function Root() {
             className="shrink-0 bg-gray-50 top-2 bottom-2 right-2 p-2 overflow-x-hidden overflow-y-auto *:grow"
             style={{ width: props_width }}
           >
-            {selected_node ? <Props id={selected_node.id} /> : selected.length ? <MultiProps /> : null}
+            {selected_node ? (
+              <NodeProps id={selected_node.id} />
+            ) : selected_connection ? (
+              <ConnectionProps id={selected_connection.id} />
+            ) : selected.length ? (
+              <MultiProps />
+            ) : null}
           </div>
         )}
       </div>
