@@ -73,6 +73,10 @@ export type TInterface = {
   index: number;
   type: "bridge" | "ethernet";
   name: string;
+  flags: {
+    UP?: boolean;
+    LOWER_UP?: boolean;
+  };
   mac?: bigint;
   iDriver: number;
   iMasterInterface?: number;
@@ -177,7 +181,6 @@ export class OS {
       await app(this, args);
     } catch (e) {
       this.print(`[${name} exit error] ${e}\n`);
-      console.error(e);
     }
   }
 
@@ -188,7 +191,7 @@ export class OS {
 
   net_add_interface(type: TInterface["type"], name: string, iDriver: number) {
     const index = this._netInterfaces.length;
-    this._netInterfaces.push({ index, type, name, iDriver, ips: [] });
+    this._netInterfaces.push({ index, type, name, iDriver, ips: [], flags: {} });
     return index;
   }
 
@@ -246,6 +249,8 @@ export class OS {
 
   net_send_frame(iInterface: number, frame: Uint8Array) {
     const iface = this._netInterfaces[iInterface];
+
+    if (!iface.flags.UP) return;
 
     if (iface.type === "bridge") {
       const mac_dst = new DataView(frame.buffer, frame.byteOffset).getBigUint64(0) >> 16n;

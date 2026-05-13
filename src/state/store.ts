@@ -154,6 +154,28 @@ export class Store {
     this.selected.push({ $: type, id });
   }
 
+  private _node_worker_send(id: string, msg: Bus.Message.Master) {
+    const w = this.instances[id];
+    if (!w) return;
+
+    w.postMessage(msg);
+  }
+
+  private _node_worker_link_set(node: TArchNode, pid: string, up: boolean) {
+    for (let i = 0; i < node.ports.length; i += 1) {
+      if (node.ports[i].id === pid) {
+        this._node_worker_send(node.id, { $: up ? "link/up" : "link/down", port: i });
+        return;
+      }
+    }
+  }
+
+  node_by_id(id: string) {
+    for (const n of this.arch.node) {
+      if (n.id === id) return n;
+    }
+  }
+
   node_rename(id: string, name: string) {
     const node = this.arch.node.find((n) => n.id === id);
     if (!node) return;
@@ -196,16 +218,23 @@ export class Store {
 
     w.addEventListener("message", (e) => this._handle_node_message(node, e.data));
 
+    for (const c of this.arch.connections) {
+      const pid = c.a_id === node.id ? c.a_pid : c.b_id === node.id ? c.b_pid : undefined;
+      if (!pid) continue;
+
+      this._node_worker_link_set(node, pid, true);
+    }
+
     if ("ethernetPorts" in node) {
       for (const eth of node.ethernetPorts) {
-        w.postMessage({ $: "exec", app: "iface", args: [eth.id, "mac", eth.mac] });
+        this._node_worker_send(node.id, { $: "exec", app: "iface", args: [eth.id, "mac", eth.mac] });
       }
     }
 
     if ("init" in node) {
       for (const cmd of node.init) {
         const [app, ...args] = cmd.split(/\s+/);
-        w.postMessage({ $: "exec", app, args });
+        this._node_worker_send(node.id, { $: "exec", app, args });
       }
     }
   }
@@ -247,13 +276,20 @@ export class Store {
 
         console.log(`[${node.id}:${data.port}] => [${targetNode.id}:${targetPort}]\n${hexdump(data.frame)}`);
 
+        if (c.speed <= 0) {
+          console.log(`[${node.id}:${data.port}] => [${targetNode.id}:${targetPort}] DROP, speed=0`);
+          return;
+        }
+
         const time = c.delay + (1000 * data.frame.length) / c.speed;
         setTimeout(() => {
           target.postMessage({ $: "ethernet_frame", port: targetPort, frame: data.frame });
           this._connection_metrics_update(node, c, data.frame.length);
         }, time);
-        break;
+        return;
       }
+
+      console.log(`[${node.id}:${data.port}] => [X] DROP`);
     } else if (data.$ === "print") {
       this.console_append(node.id, data.text);
     }
@@ -306,6 +342,9 @@ export class Store {
     config: Partial<Omit<TArchConnection, "id">> & Pick<TArchConnection, "a_id" | "b_id" | "a_pid" | "b_pid">,
   ) {
     const { a_id, a_pid, b_id, b_pid, ...rest_config } = config;
+    const a = this.node_by_id(a_id);
+    const b = this.node_by_id(b_id);
+    if (!a || !b) return;
 
     for (const c of this.arch.connections) {
       if (
@@ -328,6 +367,10 @@ export class Store {
     };
 
     this.arch.connections.push(connection);
+
+    this._node_worker_link_set(a, a_pid, true);
+    this._node_worker_link_set(b, b_pid, true);
+
     return connection;
   }
 
@@ -335,10 +378,17 @@ export class Store {
     this.selected_exclude("connection", id);
 
     for (let i = this.arch.connections.length - 1; i >= 0; i -= 1) {
-      if (this.arch.connections[i].id === id) {
-        this.arch.connections.splice(i, 1);
-        return;
-      }
+      const c = this.arch.connections[i];
+      if (c.id !== id) continue;
+
+      const a = this.node_by_id(c.a_id);
+      const b = this.node_by_id(c.a_id);
+
+      if (a) this._node_worker_link_set(a, c.a_pid, false);
+      if (b) this._node_worker_link_set(b, c.b_pid, false);
+
+      this.arch.connections.splice(i, 1);
+      return;
     }
   }
 

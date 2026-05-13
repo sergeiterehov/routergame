@@ -33,7 +33,7 @@ export const ConnectionProps = observer(function ConnectionProps(props: { id: st
         </div>
       </div>
       <div
-        className="btn btn-outline btn-danger"
+        className="btn btn-outline btn-error"
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();

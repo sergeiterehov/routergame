@@ -75,13 +75,19 @@ export class SimpleEthernet extends Device {
 
   private _handle_link(connected: boolean) {
     this._link = connected;
+    this._interrupt();
   }
 
   change_mac(mac: bigint) {
     this.mac = mac;
   }
 
+  get_link() {
+    return this._link;
+  }
+
   tx(frame: Uint8Array) {
+    if (!this._link) return;
     this._tx(frame);
   }
 }

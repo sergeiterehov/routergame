@@ -43,9 +43,17 @@ function _print_interface(os: OS, name: string) {
     return;
   }
 
+  const flags = [
+    iface.flags.UP ? "UP" : "DOWN",
+    iface.flags.LOWER_UP && "LOWER_UP",
+    iface.iMasterInterface !== undefined && "SLAVE",
+  ]
+    .filter(Boolean)
+    .join(",");
+
   os.print(
     [
-      `${iface.name}: <${["UP", iface.type.toUpperCase(), iface.iMasterInterface ? "SLAVE" : undefined].filter(Boolean).join(",")}>`,
+      `${iface.name}: <${flags}>`,
       iface.mac && `ether ${formatMAC(iface.mac)}`,
       iface.ips?.map((ip) => `inet ${formatIPv4(ip.address)}/${ip.prefix}`).join("\n\t"),
       ...os._netInterfaces
@@ -70,7 +78,16 @@ export function iface(os: OS, args: string[]) {
   if (!name) return _print_interfaces(os);
 
   const iface = _get_iface(os, name);
-  if (!iface) throw new Error(`Interface ${name} not found`);
+  if (!iface)
+    throw new Error(
+      [
+        `Interface ${name} not found`,
+        "Usage:",
+        "\t<interface> (up|down)",
+        "\t<interface> (add|del) <ip/prefix>",
+        "\t<interface> flush",
+      ].join("\n"),
+    );
 
   const op = args.shift();
   if (!op) return _print_interface(os, name);
@@ -103,10 +120,41 @@ export function iface(os: OS, args: string[]) {
     if (!validate_mac(mac)) throw new Error("Mac is invalid");
 
     os.net_change_mac(iface.index, parseMAC(mac));
+  } else if (op === "up") {
+    iface.flags.UP = true;
   } else if (op === "flush") {
     iface.ips = [];
-  } else {
-    throw new Error(["Usage:", "\t<interface> (add|del) <ip/prefix>", "\t<interface> flush"].join("\n"));
+  } else if (op === "down") {
+    // clear routes
+    for (let i = os._netRoutes.length - 1; i >= 0; i--) {
+      if (os._netRoutes[i].iInterface === iface.index) {
+        os._netRoutes.splice(i, 1);
+      }
+    }
+
+    // clear arp
+    for (let i = os._netARPTable.length - 1; i >= 0; i--) {
+      if (os._netARPTable[i].iInterface === iface.index) {
+        os._netARPTable.splice(i, 1);
+      }
+    }
+
+    // clear fdb
+    if (iface.type === "bridge") {
+      for (let i = os._netBridgeFDB.length - 1; i >= 0; i--) {
+        if (os._netBridgeFDB[i].iBridge === iface.index) {
+          os._netBridgeFDB.splice(i, 1);
+        }
+      }
+    } else {
+      for (let i = os._netBridgeFDB.length - 1; i >= 0; i--) {
+        if (os._netBridgeFDB[i].iPort === iface.index) {
+          os._netBridgeFDB.splice(i, 1);
+        }
+      }
+    }
+
+    iface.flags.UP = false;
   }
 }
 

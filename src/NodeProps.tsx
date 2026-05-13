@@ -64,7 +64,7 @@ export const NodeProps = observer(function NodeProps(props: { id: string }) {
       ) : null}
       {store.instances[node.id] ? (
         <div
-          className="btn btn-outline btn-danger"
+          className="btn btn-outline btn-error"
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -86,7 +86,7 @@ export const NodeProps = observer(function NodeProps(props: { id: string }) {
         </div>
       )}
       <div
-        className="btn btn-outline btn-danger"
+        className="btn btn-outline btn-error"
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();

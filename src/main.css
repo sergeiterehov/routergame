@@ -1,24 +1,2 @@
 @import "tailwindcss";
-
-@layer components {
-  .btn {
-    --bg: var(--color-black);
-    --fg: var(--color-white);
-    --bg-hover: color-mix(in oklab, var(--bg), #000 7%);
-    @apply cursor-pointer text-center rounded-lg p-2 border border-transparent select-none text-(--fg) bg-(--bg) hover:bg-(--bg-hover);
-  }
-
-  .btn-outline {
-    @apply text-(--bg) border border-(--bg) bg-transparent hover:bg-(--bg) hover:text-(--fg) select-none;
-  }
-
-  .btn-danger {
-    --bg: var(--color-red-500);
-    --fg: var(--color-white);
-  }
-
-  .btn-success {
-    --bg: var(--color-green-500);
-    --fg: var(--color-white);
-  }
-}
+@plugin "daisyui";

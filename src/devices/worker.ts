@@ -7,11 +7,11 @@ import * as ping from "./apps/ping.app";
 import * as dhcp from "./apps/dhcp.app";
 import type { Bus } from "./bus";
 
-function onMessage(handler: (message: Bus.Message.Master) => void, options: AddEventListenerOptions = {}) {
+export function onMessage(handler: (message: Bus.Message.Master) => void, options: AddEventListenerOptions = {}) {
   self.addEventListener("message", (e: MessageEvent<Bus.Message.Master>) => handler(e.data), options);
 }
 
-function sendMessage(message: Bus.Message.Slave) {
+export function sendMessage(message: Bus.Message.Slave) {
   self.postMessage(message);
 }
 
@@ -57,9 +57,9 @@ export function beginWorker(config: { type: string; ethernet?: { mac: bigint }[]
   for (let i = 0; i < system._devices.length; i += 1) {
     const dev = system._devices[i];
 
+    // Устанавливаем драйверы
     if (dev instanceof SimpleEthernet) {
       new SimpleEthernetDriver(os, i);
-      expose(i, dev.port);
     }
   }
 
@@ -69,6 +69,17 @@ export function beginWorker(config: { type: string; ethernet?: { mac: bigint }[]
   onMessage((msg) => {
     if (msg.$ === "exec") {
       os.exec(msg.app, msg.args);
+    } else if (msg.$ === "link/up") {
+      const dev = system._devices.at(msg.port);
+      if (!(dev instanceof SimpleEthernet)) return;
+      if (dev.port._outsides.length) return;
+
+      expose(msg.port, dev.port);
+    } else if (msg.$ === "link/down") {
+      const dev = system._devices.at(msg.port);
+      if (!(dev instanceof SimpleEthernet)) return;
+
+      dev.port.disconnect();
     }
   });
 

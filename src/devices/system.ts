@@ -53,12 +53,20 @@ export class SimpleEthernetDriver extends Driver {
     this._iInterface = this._os.net_add_interface("ethernet", `eth${iDevice}`, this._iDriver);
     const iface = this._os._netInterfaces[this._iInterface];
     iface.mac = this._device.mac;
+    iface.flags.LOWER_UP = this._device.get_link();
+    iface.flags.UP = true;
   }
 
   _handleInterrupt() {
     const dev = this._device;
-    if (!dev.received) return;
-    this._os.net_handle_frame(this._iInterface, dev.received);
+
+    if (dev.received) {
+      this._os.net_handle_frame(this._iInterface, dev.received);
+      dev.received = undefined;
+    }
+
+    const iface = this._os._netInterfaces[this._iInterface];
+    iface.flags.LOWER_UP = dev.get_link();
   }
 
   net_send_frame = (iInterface: number, data: Uint8Array) => {

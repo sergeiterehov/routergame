@@ -31,6 +31,7 @@ export const initial_arch: TArchitecture = {
         "iface eth0 add 192.168.0.1/24",
         "route add 192.168.0.0/24 dev eth0",
         "br add br0 eth1 eth2",
+        "iface br0 up",
         "iface br0 add 10.0.0.1/24",
         "route add 10.0.0.0/24 dev br0",
         "dhcpd br0 10.0.0.10 10.0.0.20 -g 10.0.0.1",

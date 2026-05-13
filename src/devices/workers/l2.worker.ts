@@ -1,6 +1,6 @@
 import { Device, Port } from "../device";
 import { System } from "../system";
-import { expose } from "../worker";
+import { expose, onMessage } from "../worker";
 
 const EXPIRE_INTERVAL_MS = 1_000;
 const TTL_MS = 30_000;
@@ -35,9 +35,12 @@ class HardwareEthernet extends Device {
 
 class L2 extends System {
   private _learned: Map<bigint, { port: number; expires_at: number }> = new Map();
+  private _links: boolean[];
 
   constructor(ports: number) {
     super();
+
+    this._links = new Array(ports).fill(false);
 
     for (let i = 0; i < ports; i++) {
       const port = i;
@@ -51,7 +54,9 @@ class L2 extends System {
     setInterval(this._timer_expire_learned.bind(this), EXPIRE_INTERVAL_MS);
   }
 
-  private _handle_link(port: number, connected: boolean) {}
+  private _handle_link(port: number, connected: boolean) {
+    this._links[port] = connected;
+  }
 
   private _handle_rx(port: number, frame: Uint8Array) {
     const view = new DataView(frame.buffer, frame.byteOffset);
@@ -62,12 +67,15 @@ class L2 extends System {
     if (known === undefined) {
       for (let i = 0; i < this._devices.length; i++) {
         if (i === port) continue;
+        if (!this._links[i]) continue;
         const dev = this._devices[i] as HardwareEthernet;
         dev.tx(frame);
       }
     } else if (known.port !== port) {
-      const dev = this._devices[known.port] as HardwareEthernet;
-      dev.tx(frame);
+      if (this._links[known.port]) {
+        const dev = this._devices[known.port] as HardwareEthernet;
+        dev.tx(frame);
+      }
     }
 
     this._learn(src, port);
@@ -94,9 +102,18 @@ function begin() {
 
   const sys = new L2(16);
 
-  for (let i = 0; i < sys._devices.length; i++) {
-    expose(i, (sys._devices[i] as HardwareEthernet).port);
-  }
+  onMessage((msg) => {
+    if (msg.$ === "link/up") {
+      const dev = sys._devices[msg.port];
+      if (!(dev instanceof HardwareEthernet)) return;
+      if (dev.port._outsides.length) return;
+      expose(msg.port, dev.port);
+    } else if (msg.$ === "link/down") {
+      const dev = sys._devices[msg.port];
+      if (!(dev instanceof HardwareEthernet)) return;
+      dev.port.disconnect();
+    }
+  });
 }
 
 begin();

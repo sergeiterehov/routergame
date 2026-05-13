@@ -10,7 +10,7 @@ export const MultiProps = observer(function MultiProps() {
       {selected_node_ids.length > 0 && (
         <div className="flex gap-2 *:grow">
           <div
-            className="btn btn-danger"
+            className="btn btn-error"
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -34,7 +34,7 @@ export const MultiProps = observer(function MultiProps() {
         </div>
       )}
       <div
-        className="btn btn-outline btn-danger"
+        className="btn btn-outline btn-error"
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
