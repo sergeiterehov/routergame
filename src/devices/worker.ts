@@ -1,10 +1,12 @@
 import { SimpleEthernet, Port } from "./device";
 import { System, SimpleEthernetDriver } from "./system";
 import { OS } from "./os";
+import { init } from "./apps/init.app";
 import * as ifconfig from "./apps/ifconfig.app";
 import * as arp from "./apps/arp.app";
 import * as ping from "./apps/ping.app";
 import * as dhcp from "./apps/dhcp.app";
+import * as cat from "./apps/cat.app";
 import type { Bus } from "./bus";
 
 export function onMessage(handler: (message: Bus.Message.Master) => void, options: AddEventListenerOptions = {}) {
@@ -53,6 +55,7 @@ export function beginWorker(config: { type: string; ethernet?: { mac: bigint }[]
 
   const os = new OS(system);
   os.on_print = (text) => sendMessage({ $: "print", text });
+  os.on_fs = (fs) => sendMessage({ $: "fs", fs });
 
   for (let i = 0; i < system._devices.length; i += 1) {
     const dev = system._devices[i];
@@ -64,7 +67,7 @@ export function beginWorker(config: { type: string; ethernet?: { mac: bigint }[]
   }
 
   os.print(`Host ${self.name}\n`);
-  os.install({ ...ifconfig, ...arp, ...ping, ...dhcp });
+  os.install({ init, ...ifconfig, ...arp, ...ping, ...dhcp, ...cat });
 
   onMessage((msg) => {
     if (msg.$ === "exec") {
@@ -80,6 +83,14 @@ export function beginWorker(config: { type: string; ethernet?: { mac: bigint }[]
       if (!(dev instanceof SimpleEthernet)) return;
 
       dev.port.disconnect();
+    } else if (msg.$ === "fs") {
+      for (const [key, value] of Object.entries(msg.fs)) {
+        if (typeof value === "string") {
+          os._fs[key] = value;
+        } else {
+          delete os._fs[key];
+        }
+      }
     }
   });
 

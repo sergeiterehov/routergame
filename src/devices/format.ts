@@ -7,6 +7,14 @@ export function formatTime(ms: number) {
   return `${(ms / 1000 / 60 / 60 / 24 / 365).toFixed(2)}y`;
 }
 
+export function formatValue(value: number, precision = 2) {
+  if (value < 1000) return `${value}`;
+  if (value < 1000 * 1000) return `${(value / 1000).toFixed(precision)}K`;
+  if (value < 1000 * 1000 * 1000) return `${(value / 1000 / 1000).toFixed(precision)}M`;
+  if (value < 1000 * 1000 * 1000 * 1000) return `${(value / 1000 / 1000 / 1000).toFixed(precision)}G`;
+  return `${(value / 1000 / 1000 / 1000 / 1000).toFixed(precision)}T`;
+}
+
 export function prefixToMask(prefix: number) {
   if (prefix === 24) return 0xffffff00;
   if (prefix === 0) return 0;

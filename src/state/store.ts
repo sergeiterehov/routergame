@@ -1,4 +1,4 @@
-import { makeAutoObservable } from "mobx";
+import { makeAutoObservable, toJS } from "mobx";
 import * as Workers from "../devices/workers";
 import { hexdump } from "../devices/format";
 import type { Bus } from "../devices/bus";
@@ -10,10 +10,8 @@ export type TArchNode = {
   name: string;
   ports: { id: string; type: "ethernet" }[];
   ui: { x: number; y: number };
-} & (
-  | { type: "pc" | "router" | "server"; ethernetPorts: { id: string; mac: string }[]; init: string[] }
-  | { type: "l2" }
-);
+  fs: { [key: string]: string };
+} & ({ type: "pc" | "router" | "server"; ethernetPorts: { id: string; mac: string }[] } | { type: "l2" });
 
 export type TArchConnection = {
   id: string;
@@ -231,12 +229,8 @@ export class Store {
       }
     }
 
-    if ("init" in node) {
-      for (const cmd of node.init) {
-        const [app, ...args] = cmd.split(/\s+/);
-        this._node_worker_send(node.id, { $: "exec", app, args });
-      }
-    }
+    this._node_worker_send(node.id, { $: "fs", fs: toJS(node.fs) });
+    this._node_worker_send(node.id, { $: "exec", app: "init", args: [] });
   }
 
   private _connection_metrics_update(src: TArchNode, via: TArchConnection, size: number) {
@@ -249,9 +243,11 @@ export class Store {
     }
   }
 
-  private _handle_node_message(node: TArchNode, data: Bus.Message.Slave) {
-    if (data.$ === "ethernet_frame") {
-      const port = node.ports[data.port];
+  private _handle_node_message(node: TArchNode, msg: Bus.Message.Slave) {
+    if (msg.$ === "print") {
+      this.console_append(node.id, msg.text);
+    } else if (msg.$ === "ethernet_frame") {
+      const port = node.ports[msg.port];
       if (!port) return;
 
       const pid = port.id;
@@ -274,24 +270,36 @@ export class Store {
         const target = this.instances[targetNode.id];
         if (!target) continue;
 
-        console.log(`[${node.id}:${data.port}] => [${targetNode.id}:${targetPort}]\n${hexdump(data.frame)}`);
-
         if (c.speed <= 0) {
-          console.log(`[${node.id}:${data.port}] => [${targetNode.id}:${targetPort}] DROP, speed=0`);
+          console.log(`[${node.id}:${msg.port}] => [${targetNode.id}:${targetPort}] DROP, speed=0`);
           return;
         }
 
-        const time = c.delay + (1000 * data.frame.length) / c.speed;
+        console.log(`[${node.id}:${msg.port}] => [${targetNode.id}:${targetPort}]\n${hexdump(msg.frame)}`);
+
+        const time = c.delay + (1000 * msg.frame.length) / c.speed;
         setTimeout(() => {
-          target.postMessage({ $: "ethernet_frame", port: targetPort, frame: data.frame });
-          this._connection_metrics_update(node, c, data.frame.length);
+          target.postMessage({ $: "ethernet_frame", port: targetPort, frame: msg.frame });
+          this._connection_metrics_update(node, c, msg.frame.length);
         }, time);
         return;
       }
 
-      console.log(`[${node.id}:${data.port}] => [X] DROP`);
-    } else if (data.$ === "print") {
-      this.console_append(node.id, data.text);
+      console.log(`[${node.id}:${msg.port}] => [X] DROP`);
+    } else if (msg.$ === "fs") {
+      this.node_fs_set(node.id, msg.fs);
+    }
+  }
+
+  node_fs_set(id: string, fs: { [key: string]: string | undefined }) {
+    const node = this.node_by_id(id);
+    if (!node) return;
+    for (const [key, value] of Object.entries(fs)) {
+      if (typeof value === "string") {
+        node.fs[key] = value;
+      } else {
+        delete node.fs[key];
+      }
     }
   }
 
@@ -338,6 +346,12 @@ export class Store {
     return mac;
   }
 
+  connection_by_id(id: string) {
+    for (const c of this.arch.connections) {
+      if (c.id === id) return c;
+    }
+  }
+
   connection_create(
     config: Partial<Omit<TArchConnection, "id">> & Pick<TArchConnection, "a_id" | "b_id" | "a_pid" | "b_pid">,
   ) {
@@ -362,7 +376,7 @@ export class Store {
       b_pid,
       ...rest_config,
       delay: config.delay ?? 0,
-      speed: config.speed ?? 100_000_000,
+      speed: config.speed ?? 1_000_000,
       id: this.randomize_id(),
     };
 
@@ -382,7 +396,7 @@ export class Store {
       if (c.id !== id) continue;
 
       const a = this.node_by_id(c.a_id);
-      const b = this.node_by_id(c.a_id);
+      const b = this.node_by_id(c.b_id);
 
       if (a) this._node_worker_link_set(a, c.a_pid, false);
       if (b) this._node_worker_link_set(b, c.b_pid, false);
@@ -390,6 +404,13 @@ export class Store {
       this.arch.connections.splice(i, 1);
       return;
     }
+  }
+
+  connection_speed_set(id: string, speed: number) {
+    const c = this.connection_by_id(id);
+    if (!c) return;
+
+    c.speed = speed;
   }
 
   node_delete(id: string) {
@@ -417,7 +438,7 @@ export class Store {
       id: this.randomize_id(),
       ethernetPorts: [{ id: "eth0", mac: this.randomize_mac() }],
       ports: [{ id: "eth0", type: "ethernet" }],
-      init: [],
+      fs: {},
       name: config.name || "New PC",
       ui: config.ui || { x: 0, y: 0 },
     });
@@ -434,7 +455,7 @@ export class Store {
       id: this.randomize_id(),
       ports: [],
       ethernetPorts: [],
-      init: [],
+      fs: {},
       name: config.name || "Router",
       ui: config.ui || { x: 0, y: 0 },
     });
@@ -463,7 +484,7 @@ export class Store {
         { id: "eth0", type: "ethernet" },
         { id: "eth1", type: "ethernet" },
       ],
-      init: [],
+      fs: {},
       name: config.name || "New Server",
       ui: config.ui || { x: 0, y: 0 },
     });
@@ -481,6 +502,7 @@ export class Store {
       ports: new Array(16).fill(0).map((_, i) => ({ id: `eth${i}`, type: "ethernet" })),
       name: config.name || "New Switch",
       ui: config.ui || { x: 0, y: 0 },
+      fs: {},
     });
 
     this.arch.node.push(node);

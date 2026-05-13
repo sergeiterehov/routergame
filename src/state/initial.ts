@@ -27,15 +27,17 @@ export const initial_arch: TArchitecture = {
         { id: "eth6", mac: "00:00:00:ff:00:06" },
         { id: "eth7", mac: "00:00:00:ff:00:07" },
       ],
-      init: [
-        "iface eth0 add 192.168.0.1/24",
-        "route add 192.168.0.0/24 dev eth0",
-        "br add br0 eth1 eth2",
-        "iface br0 up",
-        "iface br0 add 10.0.0.1/24",
-        "route add 10.0.0.0/24 dev br0",
-        "dhcpd br0 10.0.0.10 10.0.0.20 -g 10.0.0.1",
-      ],
+      fs: {
+        "/init": [
+          "iface eth0 add 192.168.0.1/24",
+          "route add 192.168.0.0/24 dev eth0",
+          "br add br0 eth1 eth2",
+          "iface br0 up",
+          "iface br0 add 10.0.0.1/24",
+          "route add 10.0.0.0/24 dev br0",
+          "dhcpd br0 10.0.0.10 10.0.0.20 -g 10.0.0.1",
+        ].join("\n"),
+      },
       ui: { x: 150, y: 100 },
     },
     {
@@ -44,6 +46,7 @@ export const initial_arch: TArchitecture = {
       name: "Switch",
       ports: new Array(16).fill(0).map((_, i) => ({ id: `eth${i}`, type: "ethernet" })),
       ui: { x: 250, y: 100 },
+      fs: {},
     },
     {
       id: "server",
@@ -57,11 +60,13 @@ export const initial_arch: TArchitecture = {
         { id: "eth0", mac: "00:00:00:bb:00:00" },
         { id: "eth1", mac: "00:00:00:bb:00:01" },
       ],
-      init: [
-        "iface eth0 add 192.168.0.100/24",
-        "route add 192.168.0.0/24 dev eth0",
-        "route add default via 192.168.0.1",
-      ],
+      fs: {
+        "/init": [
+          "iface eth0 add 192.168.0.100/24",
+          "route add 192.168.0.0/24 dev eth0",
+          "route add default via 192.168.0.1",
+        ].join("\n"),
+      },
       ui: { x: 150, y: 200 },
     },
     {
@@ -70,7 +75,7 @@ export const initial_arch: TArchitecture = {
       name: "PC A",
       ports: [{ id: "eth0", type: "ethernet" }],
       ethernetPorts: [{ id: "eth0", mac: "00:00:00:aa:00:00" }],
-      init: ["dhcp eth0"],
+      fs: { "/init": ["dhcp eth0"].join("\n") },
       ui: { x: 50, y: 100 },
     },
     {
@@ -79,14 +84,14 @@ export const initial_arch: TArchitecture = {
       name: "PC B",
       ports: [{ id: "eth0", type: "ethernet" }],
       ethernetPorts: [{ id: "eth0", mac: "00:00:00:aa:01:00" }],
-      init: ["dhcp eth0"],
+      fs: { "/init": ["dhcp eth0"].join("\n") },
       ui: { x: 350, y: 100 },
     },
   ],
   connections: [
-    { id: "server-router", a_id: "server", a_pid: "eth0", b_id: "router", b_pid: "eth0", delay: 0, speed: 100_000_000 },
-    { id: "pc_a-router", a_id: "pc_a", a_pid: "eth0", b_id: "router", b_pid: "eth1", delay: 0, speed: 100_000_000 },
-    { id: "router-sw", a_id: "router", a_pid: "eth2", b_id: "sw", b_pid: "eth0", delay: 0, speed: 100_000_000 },
-    { id: "pc_b-sw", a_id: "pc_b", a_pid: "eth0", b_id: "sw", b_pid: "eth1", delay: 0, speed: 100_000_000 },
+    { id: "server-router", a_id: "server", a_pid: "eth0", b_id: "router", b_pid: "eth0", delay: 0, speed: 1_000_000 },
+    { id: "pc_a-router", a_id: "pc_a", a_pid: "eth0", b_id: "router", b_pid: "eth1", delay: 0, speed: 1_000_000 },
+    { id: "router-sw", a_id: "router", a_pid: "eth2", b_id: "sw", b_pid: "eth0", delay: 0, speed: 1_000_000 },
+    { id: "pc_b-sw", a_id: "pc_b", a_pid: "eth0", b_id: "sw", b_pid: "eth1", delay: 0, speed: 1_000_000 },
   ],
 };

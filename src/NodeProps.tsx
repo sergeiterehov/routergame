@@ -50,18 +50,20 @@ export const NodeProps = observer(function NodeProps(props: { id: string }) {
           );
         })}
       </div>
-      {"init" in node ? (
-        <>
-          <div className="text-md font-semibold">Init script</div>
-          <div className="flex flex-col gap-1">
-            {node.init.map((cmd, i) => (
-              <div key={i} className="border border-gray-300 p-1 rounded-lg font-mono text-sm leading-relaxed">
-                <code>{cmd}</code>
-              </div>
-            ))}
-          </div>
-        </>
-      ) : null}
+      <div className="text-md font-semibold">Initial script</div>
+      <textarea
+        className="textarea textarea-sm w-full font-mono"
+        value={node.fs["/init"] || ""}
+        onChange={(e) => {
+          store.node_fs_set(id, { "/init": e.currentTarget.value });
+        }}
+      />
+      <div className="text-md font-semibold">Files</div>
+      <div className="font-mono text-sm">
+        {Object.keys(node.fs).map((path, i) => {
+          return <div key={i}>{path}</div>;
+        })}
+      </div>
       {store.instances[node.id] ? (
         <div
           className="btn btn-outline btn-error"
