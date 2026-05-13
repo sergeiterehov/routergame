@@ -10,7 +10,7 @@ export const MultiProps = observer(function MultiProps() {
       {selected_node_ids.length > 0 && (
         <div className="flex gap-2 *:grow">
           <div
-            className="cursor-pointer text-center rounded-lg p-2 border border-transparent bg-red-400 text-white hover:bg-red-500 select-none"
+            className="btn btn-danger"
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -20,7 +20,7 @@ export const MultiProps = observer(function MultiProps() {
             Power off
           </div>
           <div
-            className="cursor-pointer text-center rounded-lg p-2 border border-transparent bg-green-400 text-white hover:bg-green-500 select-none"
+            className="btn btn-success"
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -34,7 +34,7 @@ export const MultiProps = observer(function MultiProps() {
         </div>
       )}
       <div
-        className="cursor-pointer text-center rounded-lg p-2 text-red-500 border border-red-500 hover:bg-red-500 hover:text-white select-none"
+        className="btn btn-outline btn-danger"
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
