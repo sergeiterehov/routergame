@@ -112,6 +112,7 @@ export class OS {
       await app(this, args);
     } catch (e) {
       this.print(`[${name} exit error] ${e}\n`);
+      console.error(e);
     }
   }
 

@@ -11,12 +11,12 @@ import {
   IP_PROTOCOLS,
   MAC_BROADCAST,
   pack_dhcp_packet,
-  pack_ethernet_frame,
   pack_ip4_packet,
   pack_udp_packet,
   uint32,
   unpack_dhcp_packet,
   type TDhcpPacket,
+  type TEthernetFrame,
 } from "../pack";
 
 const LEASE_TIME_S = 86_400;
@@ -57,11 +57,11 @@ export async function dhcpd(os: OS, args: string[]) {
   const _iface_name = args.shift();
   if (!_iface_name) throw new Error("No interface specified");
 
-  const iface = os.net._interfaces.find((i) => i.name === _iface_name);
+  const iface = os.net._interfaces.find((i) => i.name === _iface_name)!;
   if (!iface) throw new Error(`Interface ${_iface_name} not found`);
 
-  const server_ip = iface.ips.at(0);
-  if (!server_ip) throw new Error(`Interface ${_iface_name} has no IPs`);
+  const server_ip = iface.ips.at(0)!;
+  if (!server_ip) throw new Error(`Interface ${_iface_name} has no IPs`)!;
 
   const pool = {
     start: -1,
@@ -134,100 +134,94 @@ export async function dhcpd(os: OS, args: string[]) {
         if (iface.mac === undefined) return;
         if (!leasing) return;
 
-        os.net.send_frame(
-          iface.index,
-          pack_ethernet_frame({
-            dst: client_mac,
-            src: iface.mac,
-            etherType: ETHER_TYPES.IPv4,
-            payload: pack_ip4_packet({
+        os.net.send_frame(iface.index, {
+          dst: client_mac,
+          src: iface.mac,
+          etherType: ETHER_TYPES.IPv4,
+          payload: pack_ip4_packet({
+            header: {
+              version: 4,
+              dst: IP_BROADCAST,
+              src: server_ip.address,
+              protocol: IP_PROTOCOLS.UDP,
+              ttl: 64,
+              checksum: 0,
+              flags: 0,
+              id: 0,
+              ihl: 0,
+              length: 0,
+              offset: 0,
+              options: [],
+              tos: 0,
+            },
+            payload: pack_udp_packet({
               header: {
-                version: 4,
-                dst: IP_BROADCAST,
-                src: server_ip.address,
-                protocol: IP_PROTOCOLS.UDP,
-                ttl: 64,
-                checksum: 0,
-                flags: 0,
-                id: 0,
-                ihl: 0,
+                src: 67,
+                dst: 68,
                 length: 0,
-                offset: 0,
-                options: [],
-                tos: 0,
+                checksum: 0,
               },
-              payload: pack_udp_packet({
+              payload: pack_dhcp_packet({
                 header: {
-                  src: 67,
-                  dst: 68,
-                  length: 0,
-                  checksum: 0,
+                  ...packet.header,
+                  op: DHCP_OPS.REPLY,
+                  yiaddr: leasing.ip,
+                  options: [
+                    { type: DHCP_OPTIONS.MESSAGE_TYPE, data: new Uint8Array([DHCP_TYPES.OFFER]) },
+                    ...get_options(),
+                  ],
                 },
-                payload: pack_dhcp_packet({
-                  header: {
-                    ...packet.header,
-                    op: DHCP_OPS.REPLY,
-                    yiaddr: leasing.ip,
-                    options: [
-                      { type: DHCP_OPTIONS.MESSAGE_TYPE, data: new Uint8Array([DHCP_TYPES.OFFER]) },
-                      ...get_options(),
-                    ],
-                  },
-                }),
               }),
             }),
           }),
-        );
+        });
       }
 
       function send_ack() {
         if (iface.mac === undefined) return;
         if (!leasing) return;
 
-        os.net.send_frame(
-          iface.index,
-          pack_ethernet_frame({
-            dst: client_mac,
-            src: iface.mac,
-            etherType: ETHER_TYPES.IPv4,
-            payload: pack_ip4_packet({
+        os.net.send_frame(iface.index, {
+          dst: client_mac,
+          src: iface.mac,
+          etherType: ETHER_TYPES.IPv4,
+          payload: pack_ip4_packet({
+            header: {
+              version: 4,
+              dst: IP_BROADCAST,
+              src: server_ip.address,
+              protocol: IP_PROTOCOLS.UDP,
+              ttl: 64,
+              checksum: 0,
+              flags: 0,
+              id: 0,
+              ihl: 0,
+              length: 0,
+              offset: 0,
+              options: [],
+              tos: 0,
+            },
+            payload: pack_udp_packet({
               header: {
-                version: 4,
-                dst: IP_BROADCAST,
-                src: server_ip.address,
-                protocol: IP_PROTOCOLS.UDP,
-                ttl: 64,
-                checksum: 0,
-                flags: 0,
-                id: 0,
-                ihl: 0,
+                src: 67,
+                dst: 68,
                 length: 0,
-                offset: 0,
-                options: [],
-                tos: 0,
+                checksum: 0,
               },
-              payload: pack_udp_packet({
+              payload: pack_dhcp_packet({
                 header: {
-                  src: 67,
-                  dst: 68,
-                  length: 0,
-                  checksum: 0,
+                  ...packet.header,
+                  op: DHCP_OPS.REPLY,
+                  yiaddr: leasing.ip,
+                  options: [
+                    { type: DHCP_OPTIONS.MESSAGE_TYPE, data: new Uint8Array([DHCP_TYPES.ACK]) },
+                    ...get_options(),
+                  ],
                 },
-                payload: pack_dhcp_packet({
-                  header: {
-                    ...packet.header,
-                    op: DHCP_OPS.REPLY,
-                    yiaddr: leasing.ip,
-                    options: [
-                      { type: DHCP_OPTIONS.MESSAGE_TYPE, data: new Uint8Array([DHCP_TYPES.ACK]) },
-                      ...get_options(),
-                    ],
-                  },
-                }),
               }),
             }),
           }),
-        );
+        });
       }
 
       const type = get_option(DHCP_OPTIONS.MESSAGE_TYPE, packet)?.[0];
@@ -267,7 +261,7 @@ export async function dhcp(os: OS, args: string[]) {
   const _iface_name = args.shift();
   if (!_iface_name) throw new Error("No interface specified");
 
-  const iface = os.net._interfaces.find((i) => i.name === _iface_name);
+  const iface = os.net._interfaces.find((i) => i.name === _iface_name)!;
   if (!iface) throw new Error(`Interface ${_iface_name} not found`);
 
   let state: "idle" | "discovering" | "requesting" | "leasing" = "idle";
@@ -301,7 +295,7 @@ export async function dhcp(os: OS, args: string[]) {
       $.setBigUint64(0, iface.mac << 16n);
     }
 
-    const frame = pack_ethernet_frame({
+    const frame: TEthernetFrame = {
       dst: MAC_BROADCAST,
       src: iface.mac,
       etherType: ETHER_TYPES.IPv4,
@@ -349,7 +343,7 @@ export async function dhcp(os: OS, args: string[]) {
           }),
         }),
       }),
-    });
+    };
 
     os.net.send_frame(iface.index, frame);
   }
@@ -363,7 +357,7 @@ export async function dhcp(os: OS, args: string[]) {
       $.setBigUint64(0, iface.mac << 16n);
     }
 
-    const frame = pack_ethernet_frame({
+    const frame: TEthernetFrame = {
       dst: MAC_BROADCAST,
       src: iface.mac,
       etherType: ETHER_TYPES.IPv4,
@@ -415,7 +409,7 @@ export async function dhcp(os: OS, args: string[]) {
           }),
         }),
       }),
-    });
+    };
 
     os.net.send_frame(iface.index, frame);
   }

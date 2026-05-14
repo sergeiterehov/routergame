@@ -1,3 +1,4 @@
+import type { TEthernetFrame } from "../pack";
 import type { Net } from "./net";
 
 const FDB_TTL = 60_000;
@@ -35,7 +36,7 @@ export class Bridge {
     return -1;
   }
 
-  send(iBridge: number, mac: bigint, frame: Uint8Array, iSourcePort: number = -1) {
+  send(iBridge: number, mac: bigint, frame: TEthernetFrame, iSourcePort: number = -1) {
     const iface_learned = this.net._interfaces[this.fdb_resolve(iBridge, mac)];
 
     if (iface_learned) {

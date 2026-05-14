@@ -1,7 +1,7 @@
 import { formatIPv4, formatTime, hexdump, parseIPv4, validate_ip } from "../format";
 import type { OS } from "../os/os";
 import type { TSocket } from "../os/socket";
-import { pack_icmp_packet, pack_ip4_packet, unpack_icmp_packet, unpack_ip4_packet } from "../pack";
+import { pack_icmp_packet, unpack_icmp_packet, type TIP4Packet } from "../pack";
 
 function find_config(args: string[], key: string, initial: string = "") {
   for (let i = 1; i < args.length; i++) {
@@ -44,7 +44,7 @@ export async function ping(os: OS, args: string[]) {
       const seq = i;
       const data = new Uint8Array([id >> 8, id & 0xff, seq >> 8, seq & 0xff]);
 
-      const packet = pack_ip4_packet({
+      const packet: TIP4Packet = {
         header: {
           version: 4,
           dst: ip,
@@ -67,7 +67,7 @@ export async function ping(os: OS, args: string[]) {
           payload: new Uint8Array(size),
           checksum: 0,
         }),
-      });
+      };
 
       os.net.ip4.send_packet(route.iInterface, route.gateway, packet);
 
@@ -85,11 +85,11 @@ export async function ping(os: OS, args: string[]) {
 
         if (msg.direction !== "in") continue;
 
-        const ip_struct = unpack_ip4_packet(msg.packet);
-        if (ip_struct.header.src !== ip) continue;
-        if (ip_struct.header.protocol !== 1) continue;
+        const reply = msg.packet;
+        if (reply.header.src !== ip) continue;
+        if (reply.header.protocol !== 1) continue;
 
-        const icmp_struct = unpack_icmp_packet(ip_struct.payload);
+        const icmp_struct = unpack_icmp_packet(reply.payload);
         if (icmp_struct.type !== 0) continue;
 
         let rest_eq = true;
@@ -102,7 +102,7 @@ export async function ping(os: OS, args: string[]) {
         if (!rest_eq) continue;
 
         os.print(
-          `${ip_struct.payload.length} bytes seq=${seq}/${count - 1} ttl=${ip_struct.header.ttl} time=${formatTime(time)}\n`,
+          `${reply.payload.length} bytes seq=${seq}/${count - 1} ttl=${reply.header.ttl} time=${formatTime(time)}\n`,
         );
         break;
       }
@@ -172,7 +172,7 @@ export async function nc(os: OS, args: string[]) {
     os.print(`Listening ${params.port ? `port ${params.port}` : "RAW"} on ${formatIPv4(ip)}:\n`);
 
     if (!params.port) {
-      os.net.socket._sockets.push({ protocol: "raw", ip: 0, on_data: (data) => print(data) });
+      os.net.socket._sockets.push({ protocol: "raw", ip: 0, on_data: (data) => print(data.payload) });
     } else {
       const port = parseInt(params.port);
 

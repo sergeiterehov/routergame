@@ -1,4 +1,4 @@
-import { ARP_OPCODES, ETHER_TYPES, MAC_BROADCAST, pack_arp_packet, pack_ethernet_frame } from "../pack";
+import { ARP_OPCODES, ETHER_TYPES, MAC_BROADCAST, pack_arp_packet, type TEthernetFrame } from "../pack";
 import type { Net } from "./net";
 import { OSChannel } from "./os";
 
@@ -35,7 +35,7 @@ export class ARP {
     const sender_ip = iface.ips[0];
     if (!sender_ip) return;
 
-    const frame = pack_ethernet_frame({
+    const frame: TEthernetFrame = {
       dst: MAC_BROADCAST,
       src: src_mac,
       etherType: ETHER_TYPES.ARP,
@@ -50,7 +50,7 @@ export class ARP {
         dst_ip: ip,
         dst_mac: 0n,
       }),
-    });
+    };
 
     this.net.send_frame(iInterface, frame);
 
@@ -101,7 +101,7 @@ export class ARP {
       for (const _iface of this.net._interfaces) {
         for (const _ip of _iface.ips) {
           if (_ip.address === who_is_ip) {
-            const frame = pack_ethernet_frame({
+            const frame: TEthernetFrame = {
               dst: remote_mac,
               src: iface.mac,
               etherType: ETHER_TYPES.ARP,
@@ -116,7 +116,7 @@ export class ARP {
                 dst_mac: remote_mac,
                 dst_ip: remote_ip,
               }),
-            });
+            };
 
             this.net.send_frame(iInterface, frame);
 

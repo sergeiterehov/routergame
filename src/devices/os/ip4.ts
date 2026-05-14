@@ -3,11 +3,11 @@ import {
   ETHER_TYPES,
   IP_BROADCAST,
   IP_PROTOCOLS,
-  pack_ethernet_frame,
   pack_icmp_packet,
   pack_ip4_packet,
   unpack_icmp_packet,
-  unpack_ip4_packet,
+  type TEthernetFrame,
+  type TIP4Packet,
 } from "../pack";
 import { OSChannel } from "./os";
 import { testSameNetwork } from "../format";
@@ -19,18 +19,16 @@ export class IP4 {
   _forwarding = true;
   _default_ttl = 64;
 
-  _queue: { iInterface: number; ip: number; frame: Uint8Array }[] = [];
+  _queue: { iInterface: number; ip: number; frame: TEthernetFrame }[] = [];
   _routes: TRoute[] = [];
-  _channel = new OSChannel<{ direction: "in" | "out"; iInterface: number; packet: Uint8Array }>();
+  _channel = new OSChannel<{ direction: "in" | "out"; iInterface: number; packet: TIP4Packet }>();
 
   readonly tracker = new Tracker(this);
 
   constructor(public readonly net: Net) {}
 
-  handle_packet(iInterface: number, packet: Uint8Array) {
-    const pack_view = new DataView(packet.buffer, packet.byteOffset);
-    const ttl = pack_view.getUint8(8);
-    const dst = pack_view.getUint32(16);
+  handle_packet(iInterface: number, packet: TIP4Packet) {
+    const { ttl, dst } = packet.header;
 
     if (dst === IP_BROADCAST) return this.handle_protocol(iInterface, packet);
 
@@ -51,44 +49,41 @@ export class IP4 {
     const route = this.route(dst);
     if (!route) return;
 
-    pack_view.setUint8(8, ttl - 1);
+    packet.header.ttl -= 1;
 
     this.send_packet(route.iInterface, route.gateway, packet);
   }
 
-  handle_protocol(iInterface: number, packet: Uint8Array) {
+  handle_protocol(iInterface: number, packet: TIP4Packet) {
     this._channel.postMessage({ direction: "in", iInterface, packet });
 
-    const ip_struct = unpack_ip4_packet(packet);
-
     // icmp
-    if (ip_struct.header.protocol === IP_PROTOCOLS.ICMP) {
+    if (packet.header.protocol === IP_PROTOCOLS.ICMP) {
       this.icmp_handle(iInterface, packet);
     }
 
     this.net.socket.handle_packet(iInterface, packet);
   }
 
-  icmp_handle(iInterface: number, ip_packet: Uint8Array) {
-    const ip_struct = unpack_ip4_packet(ip_packet);
-    const icmp_struct = unpack_icmp_packet(ip_struct.payload);
+  icmp_handle(iInterface: number, packet: TIP4Packet) {
+    const icmp = unpack_icmp_packet(packet.payload);
 
     // TODO: types 0,3,8
 
-    if (icmp_struct.type === 8) {
+    if (icmp.type === 8) {
       const reply = pack_icmp_packet({
         type: 0,
         code: 0,
         checksum: 0,
-        data: icmp_struct.data,
-        payload: icmp_struct.payload,
+        data: icmp.data,
+        payload: icmp.payload,
       });
 
-      this.send(ip_struct.header.src, IP_PROTOCOLS.ICMP, reply, ip_struct.header.dst);
+      this.send(packet.header.src, IP_PROTOCOLS.ICMP, reply, packet.header.dst);
     }
   }
 
-  send_packet(iInterface: number, ip: number, packet: Uint8Array) {
+  send_packet(iInterface: number, ip: number, packet: TIP4Packet) {
     const route_iface = this.net._interfaces[iInterface];
     if (route_iface.mac === undefined) return;
 
@@ -135,12 +130,12 @@ export class IP4 {
 
     if (dst_mac === -3n) return;
 
-    const frame = pack_ethernet_frame({
+    const frame: TEthernetFrame = {
       dst: dst_mac,
       src: src_mac,
       etherType: ETHER_TYPES.IPv4,
-      payload: packet,
-    });
+      payload: pack_ip4_packet(packet),
+    };
 
     if (dst_mac < 0n) {
       this._queue.push({ iInterface, ip, frame });
@@ -154,7 +149,7 @@ export class IP4 {
     const route = this.route(ip);
     if (!route) return;
 
-    const packet = pack_ip4_packet({
+    const packet: TIP4Packet = {
       header: {
         version: 4,
         dst: ip,
@@ -171,7 +166,7 @@ export class IP4 {
         checksum: 0,
       },
       payload,
-    });
+    };
 
     this.send_packet(route.iInterface, route.gateway, packet);
   }
@@ -208,27 +203,21 @@ export class IP4 {
         const dst_mac = this.net.arp.resolve(iInterface, ip);
         if (dst_mac < 0n) continue;
 
-        const frame = record.frame;
-        const view = new DataView(frame.buffer, frame.byteOffset);
-        view.setBigUint64(0, (view.getBigUint64(0) & 0xffffn) | (dst_mac << 16n));
+        const { frame } = record;
+        frame.dst = dst_mac;
 
         this.net.send_frame(record.iInterface, frame);
       }
     }
   }
 
-  icmp_send_time_exceeded(iInterface: number, origin_packet: Uint8Array) {
-    const origin_view = new DataView(origin_packet.buffer, origin_packet.byteOffset);
-
-    const src = origin_view.getUint32(12);
-    const ihl = (origin_view.getUint8(0) & 0x0f) * 4;
+  icmp_send_time_exceeded(iInterface: number, packet: TIP4Packet) {
+    const { src } = packet.header;
 
     const route = this.route(src);
     if (!route) return;
 
-    const embedded_len = Math.min(origin_packet.length, ihl + 8);
-
-    const response = pack_ip4_packet({
+    const response: TIP4Packet = {
       header: {
         version: 4,
         dst: src,
@@ -249,9 +238,9 @@ export class IP4 {
         code: 0,
         checksum: 0,
         data: new Uint8Array(4),
-        payload: origin_packet.slice(0, embedded_len),
+        payload: pack_ip4_packet({ ...packet, payload: new Uint8Array() }),
       }),
-    });
+    };
 
     this.send_packet(iInterface, route.gateway, response);
   }

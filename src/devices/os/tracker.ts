@@ -53,22 +53,23 @@ export class Tracker {
 
     if (protocol !== IP_PROTOCOLS.ICMP && protocol !== IP_PROTOCOLS.UDP && protocol !== IP_PROTOCOLS.TCP) return;
 
-    const tcp_struct = protocol === IP_PROTOCOLS.TCP ? unpack_tcp_packet(packet.payload) : undefined;
-    const icmp_struct = protocol === IP_PROTOCOLS.ICMP ? unpack_icmp_packet(packet.payload) : undefined;
+    const udp = protocol === IP_PROTOCOLS.UDP ? unpack_udp_packet(packet.payload) : undefined;
+    const tcp = protocol === IP_PROTOCOLS.TCP ? unpack_tcp_packet(packet.payload) : undefined;
+    const icmp = protocol === IP_PROTOCOLS.ICMP ? unpack_icmp_packet(packet.payload) : undefined;
 
     let src_port = 0;
     let dst_port = 0;
     if (protocol === IP_PROTOCOLS.UDP) {
-      const udp_struct = unpack_udp_packet(packet.payload);
-      src_port = udp_struct.header.src;
-      dst_port = udp_struct.header.dst;
+      if (!udp) return;
+      src_port = udp.header.src;
+      dst_port = udp.header.dst;
     } else if (protocol === IP_PROTOCOLS.ICMP) {
       src_port = 1;
       dst_port = 1;
     } else if (protocol === IP_PROTOCOLS.TCP) {
-      if (!tcp_struct) return;
-      src_port = tcp_struct.header.src;
-      dst_port = tcp_struct.header.dst;
+      if (!tcp) return;
+      src_port = tcp.header.src;
+      dst_port = tcp.header.dst;
     } else {
       return;
     }
@@ -93,11 +94,11 @@ export class Tracker {
         continue;
       }
 
-      if (icmp_struct && c.icmp) {
+      if (icmp && c.icmp) {
         if (
           c.icmp.type === ICMP_TYPES.ECHO_REQUEST &&
-          icmp_struct.type === ICMP_TYPES.ECHO_REPLY &&
-          c.icmp.id === ((icmp_struct.data[0] << 8) | icmp_struct.data[1])
+          icmp.type === ICMP_TYPES.ECHO_REPLY &&
+          c.icmp.id === ((icmp.data[0] << 8) | icmp.data[1])
         ) {
           // echo request
         } else {
@@ -125,15 +126,15 @@ export class Tracker {
       };
 
       if (protocol === IP_PROTOCOLS.ICMP) {
-        if (!icmp_struct) return;
+        if (!icmp) return;
         exists.icmp = {
-          type: icmp_struct.type,
-          code: icmp_struct.code,
-          id: (icmp_struct.data[0] << 8) | icmp_struct.data[1],
+          type: icmp.type,
+          code: icmp.code,
+          id: (icmp.data[0] << 8) | icmp.data[1],
         };
       } else if (protocol === IP_PROTOCOLS.TCP) {
-        if (!tcp_struct) return;
-        if (tcp_struct.header.flags !== TCP_FLAGS.SYN) return;
+        if (!tcp) return;
+        if (tcp.header.flags !== TCP_FLAGS.SYN) return;
         exists.tcp = {
           state: "syn-sent",
         };
@@ -145,18 +146,18 @@ export class Tracker {
     exists.has_reply ||= reply;
 
     if (protocol === IP_PROTOCOLS.TCP) {
-      if (!tcp_struct) return;
-      this._update_tcp(exists, reply, tcp_struct);
+      if (!tcp) return;
+      this._update_tcp(exists, reply, tcp);
     }
 
     return exists;
   }
 
-  _update_tcp(c: TConnection, reply: boolean, tcp_struct: TTcpPacket) {
+  _update_tcp(c: TConnection, reply: boolean, packet: TTcpPacket) {
     const { tcp } = c;
     if (!tcp) return;
 
-    const flags = tcp_struct.header.flags;
+    const flags = packet.header.flags;
 
     const { state } = tcp;
 

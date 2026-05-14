@@ -1,10 +1,10 @@
-import { IP_PROTOCOLS, pack_udp_packet, unpack_ip4_packet, unpack_udp_packet } from "../pack";
+import { IP_PROTOCOLS, pack_udp_packet, unpack_udp_packet, type TIP4Packet } from "../pack";
 import type { Net, TInterface } from "./net";
 
 export type TSocket = {
   ip: number;
 } & (
-  | { protocol: "raw"; on_data: (data: Uint8Array, ip: number, iface: TInterface) => void }
+  | { protocol: "raw"; on_data: (packet: TIP4Packet, ip: number, iface: TInterface) => void }
   | { protocol: "icmp"; on_data: (data: Uint8Array, ip: number, iface: TInterface) => void }
   | { protocol: "udp"; port: number; on_data: (data: Uint8Array, ip: number, port: number, iface: TInterface) => void }
 );
@@ -14,15 +14,13 @@ export class Socket {
 
   constructor(public readonly net: Net) {}
 
-  send_raw(socket: TSocket, data: Uint8Array) {
+  send_raw(socket: TSocket, packet: TIP4Packet) {
     if (socket.protocol !== "raw") return;
 
-    const struct = unpack_ip4_packet(data);
-
-    const route = this.net.ip4.route(struct.header.dst);
+    const route = this.net.ip4.route(packet.header.dst);
     if (!route) return;
 
-    return this.net.ip4.send_packet(route.iInterface, route.gateway, data);
+    return this.net.ip4.send_packet(route.iInterface, route.gateway, packet);
   }
 
   send_udp(socket: TSocket, data: Uint8Array, ip: number, port: number) {
@@ -33,20 +31,19 @@ export class Socket {
     return this.net.ip4.send(ip, IP_PROTOCOLS.UDP, payload, -1);
   }
 
-  handle_packet(iInterface: number, packet: Uint8Array) {
+  handle_packet(iInterface: number, packet: TIP4Packet) {
     const iface = this.net._interfaces[iInterface];
-    const ip_struct = unpack_ip4_packet(packet);
 
     for (const socket of this._sockets) {
-      if (socket.ip !== 0 && socket.ip !== ip_struct.header.dst) continue;
+      if (socket.ip !== 0 && socket.ip !== packet.header.dst) continue;
       if (socket.protocol === "raw") {
-        socket.on_data(packet, ip_struct.header.src, iface);
-      } else if (ip_struct.header.protocol === IP_PROTOCOLS.ICMP && socket.protocol === "icmp") {
-        socket.on_data(ip_struct.payload, ip_struct.header.src, iface);
-      } else if (socket.protocol === "udp" && ip_struct.header.protocol === IP_PROTOCOLS.UDP) {
-        const udp_struct = unpack_udp_packet(ip_struct.payload);
+        socket.on_data(packet, packet.header.src, iface);
+      } else if (packet.header.protocol === IP_PROTOCOLS.ICMP && socket.protocol === "icmp") {
+        socket.on_data(packet.payload, packet.header.src, iface);
+      } else if (socket.protocol === "udp" && packet.header.protocol === IP_PROTOCOLS.UDP) {
+        const udp_struct = unpack_udp_packet(packet.payload);
         if (socket.port === udp_struct.header.dst) {
-          socket.on_data(udp_struct.payload, ip_struct.header.src, udp_struct.header.src, iface);
+          socket.on_data(udp_struct.payload, packet.header.src, udp_struct.header.src, iface);
         }
       }
     }
