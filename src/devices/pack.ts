@@ -9,7 +9,7 @@ export const IP_PROTOCOLS = {
   ICMP: 1,
   TCP: 6,
   UDP: 17,
-};
+} as const;
 
 export const MAC_BROADCAST = 0xffffffffffffn;
 export const IP_BROADCAST = 0xffffffff;
@@ -18,17 +18,28 @@ export const ETHER_TYPES = {
   IPv4: 0x0800,
   ARP: 0x0806,
   IPv6: 0x86dd,
-};
+} as const;
 
 export const ARP_OPCODES = {
   REQUEST: 0x0001,
   REPLY: 0x0002,
-};
+} as const;
+
+export const TCP_FLAGS = {
+  FIN: 0x01,
+  SYN: 0x02,
+  ACK: 0x10,
+  PSH: 0x08,
+  URG: 0x20,
+  RST: 0x04,
+  ALL: 0x3f,
+  NONE: 0x00,
+} as const;
 
 export const DHCP_OPS = {
   REQUEST: 1,
   REPLY: 2,
-};
+} as const;
 
 export const DHCP_OPTIONS = {
   PADDING: 0x00,
@@ -41,7 +52,7 @@ export const DHCP_OPTIONS = {
   SERVER_ID: 0x36,
   PARAM_REQUEST: 0x37,
   END: 0xff,
-};
+} as const;
 
 export const DHCP_TYPES = {
   DISCOVER: 1,
@@ -52,7 +63,7 @@ export const DHCP_TYPES = {
   NAK: 6,
   RELEASE: 7,
   INFORM: 8,
-};
+} as const;
 
 export function uint8(n: number) {
   return new Uint8Array([n & 0xff]);
@@ -267,7 +278,7 @@ type TIcmpPacket = {
   type: number;
   code: number;
   checksum: number;
-  rest: Uint8Array;
+  data: Uint8Array;
   payload: Uint8Array;
 };
 
@@ -277,7 +288,7 @@ export function unpack_icmp_packet(packet: Uint8Array): TIcmpPacket {
     type: $.getUint8(0),
     code: $.getUint8(1),
     checksum: $.getUint16(2),
-    rest: packet.subarray(4, 8),
+    data: packet.subarray(4, 8),
     payload: packet.subarray(8),
   };
 }
@@ -289,7 +300,7 @@ export function pack_icmp_packet(obj: TIcmpPacket): Uint8Array {
   $.setUint8(0, obj.type);
   $.setUint8(1, obj.code);
   $.setUint16(2, obj.checksum);
-  packet.set(obj.rest, 4);
+  packet.set(obj.data, 4);
   packet.set(obj.payload, 8);
 
   return packet;
@@ -327,6 +338,60 @@ export function pack_udp_packet(obj: TUdpPacket): Uint8Array {
   $.setUint16(4, 8 + obj.payload.length);
   $.setUint16(6, obj.header.checksum);
   packet.set(obj.payload, 8);
+  return packet;
+}
+
+export type TTcpPacket = {
+  header: {
+    src: number;
+    dst: number;
+    seq: number;
+    ack: number;
+    data_offset: number;
+    flags: number;
+    window: number;
+    checksum: number;
+    urgent: number;
+    options: Uint8Array;
+  };
+  payload: Uint8Array;
+};
+
+export function unpack_tcp_packet(packet: Uint8Array): TTcpPacket {
+  const $ = new DataView(packet.buffer, packet.byteOffset);
+  const data_offset = $.getUint8(12) >> 4;
+  return {
+    header: {
+      src: $.getUint16(0),
+      dst: $.getUint16(2),
+      seq: $.getUint32(4),
+      ack: $.getUint32(8),
+      data_offset,
+      flags: $.getUint16(12) & 0xfff,
+      window: $.getUint16(14),
+      checksum: $.getUint16(16),
+      urgent: $.getUint16(18),
+      options: packet.subarray(20, data_offset * 4),
+    },
+    payload: packet.subarray(data_offset * 4),
+  };
+}
+
+export function pack_tcp_packet(obj: TTcpPacket): Uint8Array {
+  const packet = new Uint8Array(20 + Math.ceil(obj.header.options.length / 4) + obj.payload.length);
+  const $ = new DataView(packet.buffer, packet.byteOffset);
+
+  $.setUint16(0, obj.header.src);
+  $.setUint16(2, obj.header.dst);
+  $.setUint32(4, obj.header.seq);
+  $.setUint32(8, obj.header.ack);
+  $.setUint16(12, (obj.header.data_offset << 12) | (obj.header.flags & 0xfff));
+  $.setUint16(14, obj.header.window);
+  $.setUint16(16, obj.header.checksum);
+  $.setUint16(18, obj.header.urgent);
+  packet.set(obj.header.options, 20);
+  packet.set(obj.payload, 20 + Math.ceil(obj.header.options.length / 4));
+
   return packet;
 }
 

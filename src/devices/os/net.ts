@@ -25,10 +25,10 @@ export type TInterface = {
 export class Net {
   _interfaces: TInterface[] = [];
 
-  br = new Bridge(this);
-  arp = new ARP(this);
-  ip4 = new IP4(this);
-  socket = new Socket(this);
+  readonly br = new Bridge(this);
+  readonly arp = new ARP(this);
+  readonly ip4 = new IP4(this);
+  readonly socket = new Socket(this);
 
   constructor(public readonly os: OS) {}
 

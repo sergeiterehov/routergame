@@ -42,7 +42,7 @@ export async function ping(os: OS, args: string[]) {
 
       const id = Math.floor(Math.random() * 65535);
       const seq = i;
-      const rest = new Uint8Array([id >> 8, id & 0xff, seq >> 8, seq & 0xff]);
+      const data = new Uint8Array([id >> 8, id & 0xff, seq >> 8, seq & 0xff]);
 
       const packet = pack_ip4_packet({
         header: {
@@ -63,7 +63,7 @@ export async function ping(os: OS, args: string[]) {
         payload: pack_icmp_packet({
           type: 8,
           code: 0,
-          rest,
+          data,
           payload: new Uint8Array(size),
           checksum: 0,
         }),
@@ -93,8 +93,8 @@ export async function ping(os: OS, args: string[]) {
         if (icmp_struct.type !== 0) continue;
 
         let rest_eq = true;
-        for (let j = 0; j < rest.length; j++) {
-          if (rest[j] !== icmp_struct.rest[j]) {
+        for (let j = 0; j < data.length; j++) {
+          if (data[j] !== icmp_struct.data[j]) {
             rest_eq = false;
             break;
           }

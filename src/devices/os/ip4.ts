@@ -11,6 +11,7 @@ import {
 } from "../pack";
 import { OSChannel } from "./os";
 import { testSameNetwork } from "../format";
+import { Tracker } from "./tracker";
 
 export type TRoute = { network: number; prefix: number; gateway?: number; iInterface: number; src?: number };
 
@@ -21,6 +22,8 @@ export class IP4 {
   _queue: { iInterface: number; ip: number; frame: Uint8Array }[] = [];
   _routes: TRoute[] = [];
   _channel = new OSChannel<{ direction: "in" | "out"; iInterface: number; packet: Uint8Array }>();
+
+  readonly tracker = new Tracker(this);
 
   constructor(public readonly net: Net) {}
 
@@ -77,7 +80,7 @@ export class IP4 {
         type: 0,
         code: 0,
         checksum: 0,
-        rest: icmp_struct.rest,
+        data: icmp_struct.data,
         payload: icmp_struct.payload,
       });
 
@@ -245,7 +248,7 @@ export class IP4 {
         type: 11,
         code: 0,
         checksum: 0,
-        rest: new Uint8Array(4),
+        data: new Uint8Array(4),
         payload: origin_packet.slice(0, embedded_len),
       }),
     });
