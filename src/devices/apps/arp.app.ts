@@ -3,10 +3,10 @@ import type { OS } from "../os/os";
 
 export async function arp(os: OS, args: string[]) {
   if (!args.length) {
-    if (!os._netARPTable.length) os.print("empty\n");
+    if (!os.net._arp_table.length) os.print("empty\n");
 
-    for (const rec of os._netARPTable) {
-      const iface = os._netInterfaces[rec.iInterface];
+    for (const rec of os.net._arp_table) {
+      const iface = os.net._interfaces[rec.iInterface];
       os.print(`${formatIPv4(rec.ip)} at ${formatMAC(rec.mac)} on ${iface.name} [${rec.state}]\n`);
     }
   } else if (args[0] === "who" && validate_ip(args[1])) {
@@ -15,30 +15,30 @@ export async function arp(os: OS, args: string[]) {
     let iface_index = -1;
 
     if (args[2] === "on" && args[3]) {
-      iface_index = os._netInterfaces.findIndex((i) => i.name === args[3]);
+      iface_index = os.net._interfaces.findIndex((i) => i.name === args[3]);
       if (iface_index === -1) throw new Error("Interface not found");
     } else {
-      const route = os.net_ip4_route(who_ip);
+      const route = os.net.ip4_route(who_ip);
       if (!route) throw new Error("No route to host");
 
       iface_index = route.iInterface;
     }
 
-    const iface = os._netInterfaces[iface_index];
+    const iface = os.net._interfaces[iface_index];
     if (!iface.mac) throw new Error("Interface has no MAC");
     if (!iface.ips.length) throw new Error("Interface has no IPs");
 
     os.print("Request...");
 
-    os.net_arp_send_request(iface_index, who_ip);
+    os.net.arp_send_request(iface_index, who_ip);
 
     let mac: bigint = -1n;
 
     const dl = os.deadline(1000);
     while (dl.left) {
-      mac = os.net_arp_resolve(iface_index, who_ip);
+      mac = os.net.arp_resolve(iface_index, who_ip);
       if (mac !== -1n) break;
-      const [, err] = await os.channel_sync(os._netArpChannel, dl);
+      const [, err] = await os.channel_sync(os.net._arp_channel, dl);
       if (err) throw err;
     }
 

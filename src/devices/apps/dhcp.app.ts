@@ -1,5 +1,6 @@
 import { formatIPv4, formatMAC, formatTime, maskToPrefix, parseIPv4, prefixToMask, validate_ip } from "../format";
-import type { OS, TInterface, TSocket } from "../os/os";
+import type { TInterface, TSocket } from "../os/net";
+import type { OS } from "../os/os";
 import {
   DHCP_OPS,
   DHCP_OPTIONS,
@@ -55,7 +56,7 @@ export async function dhcpd(os: OS, args: string[]) {
   const _iface_name = args.shift();
   if (!_iface_name) throw new Error("No interface specified");
 
-  const iface = os._netInterfaces.find((i) => i.name === _iface_name);
+  const iface = os.net._interfaces.find((i) => i.name === _iface_name);
   if (!iface) throw new Error(`Interface ${_iface_name} not found`);
 
   const server_ip = iface.ips.at(0);
@@ -132,7 +133,7 @@ export async function dhcpd(os: OS, args: string[]) {
         if (iface.mac === undefined) return;
         if (!leasing) return;
 
-        os.net_send_frame(
+        os.net.send_frame(
           iface.index,
           pack_ethernet_frame({
             dst: client_mac,
@@ -182,7 +183,7 @@ export async function dhcpd(os: OS, args: string[]) {
         if (iface.mac === undefined) return;
         if (!leasing) return;
 
-        os.net_send_frame(
+        os.net.send_frame(
           iface.index,
           pack_ethernet_frame({
             dst: client_mac,
@@ -249,7 +250,7 @@ export async function dhcpd(os: OS, args: string[]) {
       }
     },
   };
-  os._netSockets.push(socket);
+  os.net._sockets.push(socket);
 
   os.print("DHCP server started\n");
   await new Promise(() => null);
@@ -265,7 +266,7 @@ export async function dhcp(os: OS, args: string[]) {
   const _iface_name = args.shift();
   if (!_iface_name) throw new Error("No interface specified");
 
-  const iface = os._netInterfaces.find((i) => i.name === _iface_name);
+  const iface = os.net._interfaces.find((i) => i.name === _iface_name);
   if (!iface) throw new Error(`Interface ${_iface_name} not found`);
 
   let state: "idle" | "discovering" | "requesting" | "leasing" = "idle";
@@ -349,7 +350,7 @@ export async function dhcp(os: OS, args: string[]) {
       }),
     });
 
-    os.net_send_frame(iface.index, frame);
+    os.net.send_frame(iface.index, frame);
   }
 
   function send_request() {
@@ -415,7 +416,7 @@ export async function dhcp(os: OS, args: string[]) {
       }),
     });
 
-    os.net_send_frame(iface.index, frame);
+    os.net.send_frame(iface.index, frame);
   }
 
   function save_options(packet: TDhcpPacket) {
@@ -487,7 +488,7 @@ export async function dhcp(os: OS, args: string[]) {
       }
     },
   };
-  os._netSockets.push(socket);
+  os.net._sockets.push(socket);
 
   state = "discovering";
   refresh_xid();

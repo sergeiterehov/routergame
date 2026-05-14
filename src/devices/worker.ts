@@ -1,5 +1,5 @@
-import { SimpleEthernet, Port } from "./device";
-import { System, SimpleEthernetDriver } from "./system";
+import { Port } from "./device";
+import { System } from "./system";
 import { OS } from "./os/os";
 import { init } from "./apps/init.app";
 import * as ifconfig from "./apps/ifconfig.app";
@@ -8,6 +8,7 @@ import * as ping from "./apps/ping.app";
 import * as dhcp from "./apps/dhcp.app";
 import * as cat from "./apps/cat.app";
 import type { Bus } from "./bus";
+import { SimpleEthernet, SimpleEthernetDriver } from "./simpleEthernet";
 
 export function onMessage(handler: (message: Bus.Message.Master) => void, options: AddEventListenerOptions = {}) {
   self.addEventListener("message", (e: MessageEvent<Bus.Message.Master>) => handler(e.data), options);
