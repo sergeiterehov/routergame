@@ -1,5 +1,6 @@
 import {
   ICMP_TYPES,
+  IP_BROADCAST,
   IP_PROTOCOLS,
   TCP_FLAGS,
   unpack_icmp_packet,
@@ -46,10 +47,27 @@ export type TConnection = {
 export class Tracker {
   _table: TConnection[] = [];
 
-  constructor(public readonly ip4: IP4) {}
+  constructor(public readonly ip4: IP4) {
+    setInterval(this._timer_handle_1s.bind(this), 1000);
+  }
+
+  _timer_handle_1s() {
+    this._actualize();
+  }
+
+  _actualize() {
+    const now = Date.now();
+    for (let i = this._table.length - 1; i >= 0; i -= 1) {
+      if (this._table[i].expires_at < now) {
+        this._table.splice(i, 1);
+      }
+    }
+  }
 
   handle_packet(packet: TIP4Packet) {
     const { protocol, src, dst } = packet.header;
+
+    if (src === 0 || dst === 0 || dst === IP_BROADCAST) return;
 
     if (protocol !== IP_PROTOCOLS.ICMP && protocol !== IP_PROTOCOLS.UDP && protocol !== IP_PROTOCOLS.TCP) return;
 
@@ -141,9 +159,10 @@ export class Tracker {
       }
       reply = false;
       this._table.push(exists);
+    } else {
+      exists.has_reply ||= reply;
+      exists.expires_at = Date.now() + TIMEOUT_DEFAULT_MS;
     }
-
-    exists.has_reply ||= reply;
 
     if (protocol === IP_PROTOCOLS.TCP) {
       if (!tcp) return;

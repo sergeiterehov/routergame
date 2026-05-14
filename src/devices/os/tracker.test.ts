@@ -1,7 +1,7 @@
 // tracker.test.ts
 import { describe, it, expect, beforeEach } from "vitest";
 import { Tracker } from "./tracker";
-import { IP_PROTOCOLS, TCP_FLAGS } from "../pack";
+import { IP_BROADCAST, IP_PROTOCOLS, TCP_FLAGS } from "../pack";
 import type { IP4 } from "./ip4";
 
 // ============================================================================
@@ -99,6 +99,38 @@ describe("Tracker", () => {
   // --------------------------------------------------------------------------
   // 🔹 Базовое создание соединений
   // --------------------------------------------------------------------------
+
+  it("запросы с IP=0.0.0.0 не попадают в таблицу", () => {
+    const syn = makePacket({
+      src: 0,
+      dst: SERVER_IP,
+      protocol: IP_PROTOCOLS.UDP,
+      payload: makeUDPPayload({
+        src: CLIENT_PORT,
+        dst: SERVER_PORT,
+      }),
+    });
+
+    const conn = tracker.handle_packet(syn);
+
+    expect(conn).toBeUndefined();
+  });
+
+  it("широковещательный пакет не попадает в таблицу", () => {
+    const syn = makePacket({
+      src: CLIENT_IP,
+      dst: IP_BROADCAST,
+      protocol: IP_PROTOCOLS.UDP,
+      payload: makeUDPPayload({
+        src: CLIENT_PORT,
+        dst: SERVER_PORT,
+      }),
+    });
+
+    const conn = tracker.handle_packet(syn);
+
+    expect(conn).toBeUndefined();
+  });
 
   it("создаёт запись для нового TCP-соединения (SYN)", () => {
     const syn = makePacket({

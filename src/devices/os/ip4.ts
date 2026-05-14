@@ -28,6 +28,8 @@ export class IP4 {
   constructor(public readonly net: Net) {}
 
   handle_packet(iInterface: number, packet: TIP4Packet) {
+    this.tracker.handle_packet(packet);
+
     const { ttl, dst } = packet.header;
 
     if (dst === IP_BROADCAST) return this.handle_protocol(iInterface, packet);
