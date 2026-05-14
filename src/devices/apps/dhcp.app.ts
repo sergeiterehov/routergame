@@ -1,6 +1,7 @@
 import { formatIPv4, formatMAC, formatTime, maskToPrefix, parseIPv4, prefixToMask, validate_ip } from "../format";
-import type { TInterface, TSocket } from "../os/net";
+import type { TInterface } from "../os/net";
 import type { OS } from "../os/os";
+import type { TSocket } from "../os/socket";
 import {
   DHCP_OPS,
   DHCP_OPTIONS,
@@ -250,7 +251,7 @@ export async function dhcpd(os: OS, args: string[]) {
       }
     },
   };
-  os.net._sockets.push(socket);
+  os.net.socket._sockets.push(socket);
 
   os.print("DHCP server started\n");
   await new Promise(() => null);
@@ -488,7 +489,7 @@ export async function dhcp(os: OS, args: string[]) {
       }
     },
   };
-  os.net._sockets.push(socket);
+  os.net.socket._sockets.push(socket);
 
   state = "discovering";
   refresh_xid();

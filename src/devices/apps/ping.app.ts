@@ -1,6 +1,6 @@
 import { formatIPv4, formatTime, hexdump, parseIPv4, validate_ip } from "../format";
-import type { TSocket } from "../os/net";
 import type { OS } from "../os/os";
+import type { TSocket } from "../os/socket";
 import { pack_icmp_packet, pack_ip4_packet, unpack_icmp_packet, unpack_ip4_packet } from "../pack";
 
 function find_config(args: string[], key: string, initial: string = "") {
@@ -34,7 +34,7 @@ export async function ping(os: OS, args: string[]) {
 
     os.print(`PING ${formatIPv4(ip)}: ${size} data bytes\n`);
 
-    const route = os.net.ip4_route(ip);
+    const route = os.net.ip4.route(ip);
     if (!route) throw new Error("No route to host");
 
     for (let i = 0; i < count; i++) {
@@ -69,13 +69,13 @@ export async function ping(os: OS, args: string[]) {
         }),
       });
 
-      os.net.ip4_send_packet(route.iInterface, route.gateway, packet);
+      os.net.ip4.send_packet(route.iInterface, route.gateway, packet);
 
       const start = Date.now();
 
       const dl = os.deadline(timeout);
       while (dl.left) {
-        const [msg, err] = await os.channel_sync(os.net._ip4_channel, dl);
+        const [msg, err] = await os.channel_sync(os.net.ip4._channel, dl);
         if (err || !msg) {
           os.print(`timeout for seq=${seq}/${count - 1}\n`);
           break;
@@ -172,13 +172,13 @@ export async function nc(os: OS, args: string[]) {
     os.print(`Listening ${params.port ? `port ${params.port}` : "RAW"} on ${formatIPv4(ip)}:\n`);
 
     if (!params.port) {
-      os.net._sockets.push({ protocol: "raw", ip: 0, on_data: (data) => print(data) });
+      os.net.socket._sockets.push({ protocol: "raw", ip: 0, on_data: (data) => print(data) });
     } else {
       const port = parseInt(params.port);
 
       if (!flags.u) throw new Error("Only UDP is supported for listening");
 
-      os.net._sockets.push({
+      os.net.socket._sockets.push({
         protocol: "udp",
         ip,
         port,
@@ -204,10 +204,10 @@ export async function nc(os: OS, args: string[]) {
       port: source_port,
       on_data: () => null,
     };
-    os.net._sockets.push(sock);
+    os.net.socket._sockets.push(sock);
 
-    os.net.socket_send_udp(sock, new TextEncoder().encode(config.w), ip, port);
+    os.net.socket.send_udp(sock, new TextEncoder().encode(config.w), ip, port);
 
-    os.net._sockets.splice(os.net._sockets.indexOf(sock), 1);
+    os.net.socket._sockets.splice(os.net.socket._sockets.indexOf(sock), 1);
   }
 }

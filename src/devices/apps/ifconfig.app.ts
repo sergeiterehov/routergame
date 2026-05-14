@@ -126,30 +126,30 @@ export function iface(os: OS, args: string[]) {
     iface.ips = [];
   } else if (op === "down") {
     // clear routes
-    for (let i = os.net._routes.length - 1; i >= 0; i--) {
-      if (os.net._routes[i].iInterface === iface.index) {
-        os.net._routes.splice(i, 1);
+    for (let i = os.net.ip4._routes.length - 1; i >= 0; i--) {
+      if (os.net.ip4._routes[i].iInterface === iface.index) {
+        os.net.ip4._routes.splice(i, 1);
       }
     }
 
     // clear arp
-    for (let i = os.net._arp_table.length - 1; i >= 0; i--) {
-      if (os.net._arp_table[i].iInterface === iface.index) {
-        os.net._arp_table.splice(i, 1);
+    for (let i = os.net.arp._table.length - 1; i >= 0; i--) {
+      if (os.net.arp._table[i].iInterface === iface.index) {
+        os.net.arp._table.splice(i, 1);
       }
     }
 
     // clear fdb
     if (iface.type === "bridge") {
-      for (let i = os.net._bridge_fdb.length - 1; i >= 0; i--) {
-        if (os.net._bridge_fdb[i].iBridge === iface.index) {
-          os.net._bridge_fdb.splice(i, 1);
+      for (let i = os.net.br._fdb.length - 1; i >= 0; i--) {
+        if (os.net.br._fdb[i].iBridge === iface.index) {
+          os.net.br._fdb.splice(i, 1);
         }
       }
     } else {
-      for (let i = os.net._bridge_fdb.length - 1; i >= 0; i--) {
-        if (os.net._bridge_fdb[i].iPort === iface.index) {
-          os.net._bridge_fdb.splice(i, 1);
+      for (let i = os.net.br._fdb.length - 1; i >= 0; i--) {
+        if (os.net.br._fdb[i].iPort === iface.index) {
+          os.net.br._fdb.splice(i, 1);
         }
       }
     }
@@ -161,8 +161,8 @@ export function iface(os: OS, args: string[]) {
 export function route(os: OS, args: string[]) {
   const op = args.shift();
   if (!op) {
-    for (let i = 0; i < os.net._routes.length; i++) {
-      const route = os.net._routes[i];
+    for (let i = 0; i < os.net.ip4._routes.length; i++) {
+      const route = os.net.ip4._routes[i];
       const iface = os.net._interfaces[route.iInterface];
       os.print(
         [
@@ -191,7 +191,7 @@ export function route(os: OS, args: string[]) {
 
       if (_via) {
         if (!validate_ip(_via)) throw new Error("Invalid gateway");
-        const _via_route = os.net.ip4_route(parseIPv4(_via));
+        const _via_route = os.net.ip4.route(parseIPv4(_via));
         if (!_via_route) throw new Error("Gateway is unreachable");
 
         if (!_dev) _dev = os.net._interfaces[_via_route.iInterface].name;
@@ -232,7 +232,7 @@ export function route(os: OS, args: string[]) {
         if (_ip === -1) throw new Error(`Interface ${_dev} has not IP ${_src}`);
       }
 
-      for (const route of os.net._routes) {
+      for (const route of os.net.ip4._routes) {
         if (route.network === network_ip && route.prefix === network_prefix) {
           throw new Error("Route already exists");
         }
@@ -241,12 +241,12 @@ export function route(os: OS, args: string[]) {
       const _before = find_arg(args, "before");
       let index = Number.parseInt(_before, 10) - 1;
       if (Number.isNaN(index)) {
-        index = os.net._routes.length;
-      } else if (index < 0 || index >= os.net._routes.length) {
+        index = os.net.ip4._routes.length;
+      } else if (index < 0 || index >= os.net.ip4._routes.length) {
         throw new Error("Invalid index");
       }
 
-      os.net._routes.splice(index, 0, {
+      os.net.ip4._routes.splice(index, 0, {
         network: network_ip,
         prefix: network_prefix,
         iInterface: iface.index,
@@ -270,10 +270,10 @@ export function route(os: OS, args: string[]) {
       const network_prefix = Number.parseInt(network_parts[1], 10);
       const network_ip = (parseIPv4(network_parts[0]) & prefixToMask(network_prefix)) >>> 0;
 
-      for (let i = 0; i < os.net._routes.length; i++) {
-        const route = os.net._routes[i];
+      for (let i = 0; i < os.net.ip4._routes.length; i++) {
+        const route = os.net.ip4._routes[i];
         if (route.network === network_ip && route.prefix === network_prefix) {
-          os.net._routes.splice(i, 1);
+          os.net.ip4._routes.splice(i, 1);
           os.print("deleted\n");
           break;
         }
@@ -286,17 +286,17 @@ export function route(os: OS, args: string[]) {
       const _from = Number.parseInt(args[0], 10);
       const _to = Number.parseInt(args[2], 10);
       if (Number.isNaN(_from) || Number.isNaN(_to)) throw new Error("Invalid number");
-      if (_from < 1 || _from > os.net._routes.length || _to < 1 || _to > os.net._routes.length) {
-        throw new Error(`Index out of range 1..${os.net._routes.length}`);
+      if (_from < 1 || _from > os.net.ip4._routes.length || _to < 1 || _to > os.net.ip4._routes.length) {
+        throw new Error(`Index out of range 1..${os.net.ip4._routes.length}`);
       }
 
       if (_from === _to) return;
       if (_from < _to) {
-        os.net._routes.splice(_to - 1, 0, os.net._routes[_from - 1]);
-        os.net._routes.splice(_from - 1, 1);
+        os.net.ip4._routes.splice(_to - 1, 0, os.net.ip4._routes[_from - 1]);
+        os.net.ip4._routes.splice(_from - 1, 1);
       } else {
-        os.net._routes.splice(_to - 1, 0, os.net._routes[_from - 1]);
-        os.net._routes.splice(_from, 1);
+        os.net.ip4._routes.splice(_to - 1, 0, os.net.ip4._routes[_from - 1]);
+        os.net.ip4._routes.splice(_from, 1);
       }
     } else {
       throw new Error("Usage: move <number> before <number>");
@@ -345,15 +345,15 @@ export function br(os: OS, args: string[]) {
       for (const slave of slaves) {
         slave.ips.splice(0);
 
-        for (let r = 0; r < os.net._routes.length; r += 1) {
-          if (os.net._routes[r].iInterface !== slave.index) continue;
-          os.net._routes.splice(r, 1);
+        for (let r = 0; r < os.net.ip4._routes.length; r += 1) {
+          if (os.net.ip4._routes[r].iInterface !== slave.index) continue;
+          os.net.ip4._routes.splice(r, 1);
           r -= 1;
         }
 
-        for (let a = 0; a < os.net._arp_table.length; a += 1) {
-          if (os.net._arp_table[a].iInterface !== slave.index) continue;
-          os.net._arp_table.splice(a, 1);
+        for (let a = 0; a < os.net.arp._table.length; a += 1) {
+          if (os.net.arp._table[a].iInterface !== slave.index) continue;
+          os.net.arp._table.splice(a, 1);
           a -= 1;
         }
 
