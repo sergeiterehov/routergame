@@ -1,10 +1,12 @@
 import {
+  ICMP_TYPES,
   IP_PROTOCOLS,
   TCP_FLAGS,
   unpack_icmp_packet,
   unpack_tcp_packet,
   unpack_udp_packet,
   type TIP4Packet,
+  type TTcpPacket,
 } from "../pack";
 import type { IP4 } from "./ip4";
 
@@ -51,6 +53,9 @@ export class Tracker {
 
     if (protocol !== IP_PROTOCOLS.ICMP && protocol !== IP_PROTOCOLS.UDP && protocol !== IP_PROTOCOLS.TCP) return;
 
+    const tcp_struct = protocol === IP_PROTOCOLS.TCP ? unpack_tcp_packet(packet.payload) : undefined;
+    const icmp_struct = protocol === IP_PROTOCOLS.ICMP ? unpack_icmp_packet(packet.payload) : undefined;
+
     let src_port = 0;
     let dst_port = 0;
     if (protocol === IP_PROTOCOLS.UDP) {
@@ -61,7 +66,7 @@ export class Tracker {
       src_port = 1;
       dst_port = 1;
     } else if (protocol === IP_PROTOCOLS.TCP) {
-      const tcp_struct = unpack_tcp_packet(packet.payload);
+      if (!tcp_struct) return;
       src_port = tcp_struct.header.src;
       dst_port = tcp_struct.header.dst;
     } else {
@@ -88,6 +93,18 @@ export class Tracker {
         continue;
       }
 
+      if (icmp_struct && c.icmp) {
+        if (
+          c.icmp.type === ICMP_TYPES.ECHO_REQUEST &&
+          icmp_struct.type === ICMP_TYPES.ECHO_REPLY &&
+          c.icmp.id === ((icmp_struct.data[0] << 8) | icmp_struct.data[1])
+        ) {
+          // echo request
+        } else {
+          continue;
+        }
+      }
+
       exists = c;
       break;
     }
@@ -108,13 +125,15 @@ export class Tracker {
       };
 
       if (protocol === IP_PROTOCOLS.ICMP) {
-        const icmp_struct = unpack_icmp_packet(packet.payload);
+        if (!icmp_struct) return;
         exists.icmp = {
           type: icmp_struct.type,
           code: icmp_struct.code,
           id: (icmp_struct.data[0] << 8) | icmp_struct.data[1],
         };
       } else if (protocol === IP_PROTOCOLS.TCP) {
+        if (!tcp_struct) return;
+        if (tcp_struct.header.flags !== TCP_FLAGS.SYN) return;
         exists.tcp = {
           state: "syn-sent",
         };
@@ -125,27 +144,27 @@ export class Tracker {
 
     exists.has_reply ||= reply;
 
-    if (protocol === IP_PROTOCOLS.ICMP) {
-      this._update_tcp(exists, reply, packet);
+    if (protocol === IP_PROTOCOLS.TCP) {
+      if (!tcp_struct) return;
+      this._update_tcp(exists, reply, tcp_struct);
     }
 
     return exists;
   }
 
-  _update_tcp(c: TConnection, reply: boolean, packet: TIP4Packet) {
+  _update_tcp(c: TConnection, reply: boolean, tcp_struct: TTcpPacket) {
     const { tcp } = c;
     if (!tcp) return;
 
-    const tcp_struct = unpack_tcp_packet(packet.payload);
     const flags = tcp_struct.header.flags;
 
     const { state } = tcp;
 
-    if (state === "syn-sent") {
-      if (flags & TCP_FLAGS.RST) {
-        tcp.state = "close";
-      } else if (!reply && flags & TCP_FLAGS.SYN) {
-        tcp.state = "syn-recv";
+    if (flags & TCP_FLAGS.RST) {
+      tcp.state = "close";
+    } else if (state === "syn-sent") {
+      if (!reply && flags & TCP_FLAGS.SYN) {
+        tcp.state = "syn-sent";
       } else if (!reply && flags & TCP_FLAGS.ACK) {
         tcp.state = "established";
       } else if (reply && flags & TCP_FLAGS.SYN && flags & TCP_FLAGS.ACK) {
@@ -154,61 +173,49 @@ export class Tracker {
         tcp.state = "established";
       }
     } else if (state === "syn-recv") {
-      if (flags & TCP_FLAGS.RST) {
-        tcp.state = "close";
-      } else if (!reply && flags & TCP_FLAGS.ACK) {
-        tcp.state = "established";
+      if (reply && flags & TCP_FLAGS.FIN) {
+        tcp.state = "close-wait";
       } else if (!reply && flags & TCP_FLAGS.SYN) {
         tcp.state = "syn-recv";
+      } else if (!reply && flags & TCP_FLAGS.ACK) {
+        tcp.state = "established";
       } else if (reply && flags & TCP_FLAGS.ACK) {
         tcp.state = "established";
-      } else if (reply && flags & TCP_FLAGS.FIN) {
-        tcp.state = "close-wait";
       }
     } else if (state === "established") {
-      if (flags & TCP_FLAGS.RST) {
-        tcp.state = "close";
-      } else if (flags & (TCP_FLAGS.PSH | TCP_FLAGS.ACK)) {
-        tcp.state = "established";
-      } else if (!reply && flags & TCP_FLAGS.FIN) {
+      if (!reply && flags & TCP_FLAGS.FIN) {
         tcp.state = "fin-wait";
       } else if (reply && flags & TCP_FLAGS.FIN) {
         tcp.state = "close-wait";
+      } else if (flags & TCP_FLAGS.ACK) {
+        tcp.state = "established";
       }
     } else if (state === "fin-wait") {
-      if (flags & TCP_FLAGS.RST) {
-        tcp.state = "close";
-      } else if (!reply && flags & TCP_FLAGS.ACK) {
-        tcp.state = "fin-wait";
-      } else if (!reply && flags & TCP_FLAGS.FIN) {
+      if (!reply && flags & TCP_FLAGS.FIN) {
         tcp.state = "time-wait";
-      } else if (reply && flags & TCP_FLAGS.ACK) {
-        tcp.state = "close-wait";
       } else if (reply && flags & TCP_FLAGS.FIN) {
         tcp.state = "last-ack";
+      } else if (reply && flags & TCP_FLAGS.ACK) {
+        tcp.state = "close-wait";
+      } else if (!reply && flags & TCP_FLAGS.ACK) {
+        tcp.state = "fin-wait";
       }
     } else if (state === "close-wait") {
-      if (flags & TCP_FLAGS.RST) {
-        tcp.state = "close";
+      if (!reply && flags & TCP_FLAGS.FIN) {
+        tcp.state = "last-ack";
       } else if (!reply && flags & TCP_FLAGS.ACK) {
         tcp.state = "close-wait";
-      } else if (!reply && flags & TCP_FLAGS.FIN) {
-        tcp.state = "last-ack";
       } else if (reply && flags & (TCP_FLAGS.ACK | TCP_FLAGS.FIN)) {
         tcp.state = "close-wait";
       }
     } else if (state === "last-ack") {
-      if (flags & TCP_FLAGS.RST) {
-        tcp.state = "close";
-      } else if (!reply && flags & TCP_FLAGS.ACK) {
+      if (!reply && flags & TCP_FLAGS.ACK) {
         tcp.state = "close";
       } else if (reply && flags & TCP_FLAGS.ACK) {
         tcp.state = "last-ack";
       }
     } else if (state === "time-wait") {
-      if (flags & TCP_FLAGS.RST) {
-        tcp.state = "close";
-      } else if ((reply && flags & TCP_FLAGS.SYN) || flags & (TCP_FLAGS.ACK | TCP_FLAGS.FIN)) {
+      if ((reply && flags & TCP_FLAGS.SYN) || flags & (TCP_FLAGS.ACK | TCP_FLAGS.FIN)) {
         tcp.state = "time-wait";
       }
     }

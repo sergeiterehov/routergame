@@ -25,6 +25,13 @@ export const ARP_OPCODES = {
   REPLY: 0x0002,
 } as const;
 
+export const ICMP_TYPES = {
+  ECHO_REPLY: 0,
+  ECHO_REQUEST: 8,
+  DEST_UNREACHABLE: 3,
+  TIME_EXCEEDED: 11,
+} as const;
+
 export const TCP_FLAGS = {
   FIN: 0x01,
   SYN: 0x02,
@@ -122,16 +129,21 @@ export type TArpPacket = {
 export function unpack_arp_packet(packet: Uint8Array): TArpPacket {
   const $ = new DataView(packet.buffer, packet.byteOffset);
 
+  const hwSize = $.getUint8(4);
+  const protoSize = $.getUint8(5);
+
+  if (hwSize !== 6 || protoSize !== 4) throw new Error("Unsupported ARP packet");
+
   return {
     hwType: $.getUint16(0),
     protoType: $.getUint16(2),
-    hwSize: $.getUint8(4),
-    protoSize: $.getUint8(5),
+    hwSize,
+    protoSize,
     opcode: $.getUint16(6),
     src_mac: $.getBigUint64(8) >> 16n,
     src_ip: $.getUint32(14),
     dst_mac: $.getBigUint64(18) >> 16n,
-    dst_ip: $.getUint32(22),
+    dst_ip: $.getUint32(24),
   };
 }
 
@@ -194,18 +206,18 @@ export function unpack_ip4_packet(packet: Uint8Array): TIP4Packet {
   };
   obj.payload = packet.subarray(obj.header.ihl * 4);
 
-  for (let i = 0; i < obj.header.ihl * 4; ) {
-    const opt = $.getUint8(20 + i);
+  for (let i = 20; i < obj.header.ihl * 4; ) {
+    const opt = $.getUint8(i);
     i += 1;
     if (opt === 0) break;
     if (opt === 1) continue;
 
-    const len = $.getUint8(20 + i);
+    const len = $.getUint8(i);
     i += 1;
 
     obj.header.options.push({
       type: opt,
-      data: new Uint8Array(packet.buffer, 20 + i, len),
+      data: new Uint8Array(packet.buffer, i, len),
     });
     i += len;
   }
@@ -218,8 +230,7 @@ export function pack_ip4_packet(obj: TIP4Packet): Uint8Array {
   {
     let ihl = 5;
     for (const option of obj.header.options) {
-      ihl += 1;
-      ihl += Math.ceil(option.data.length / 4);
+      ihl += Math.ceil((option.data.length + 2) / 4);
     }
     obj.header.ihl = ihl;
   }
@@ -274,7 +285,7 @@ export function pack_ip4_packet(obj: TIP4Packet): Uint8Array {
   return packet;
 }
 
-type TIcmpPacket = {
+export type TIcmpPacket = {
   type: number;
   code: number;
   checksum: number;
@@ -367,7 +378,7 @@ export function unpack_tcp_packet(packet: Uint8Array): TTcpPacket {
       seq: $.getUint32(4),
       ack: $.getUint32(8),
       data_offset,
-      flags: $.getUint16(12) & 0xfff,
+      flags: $.getUint16(12) & 0x1ff,
       window: $.getUint16(14),
       checksum: $.getUint16(16),
       urgent: $.getUint16(18),
@@ -378,19 +389,20 @@ export function unpack_tcp_packet(packet: Uint8Array): TTcpPacket {
 }
 
 export function pack_tcp_packet(obj: TTcpPacket): Uint8Array {
-  const packet = new Uint8Array(20 + Math.ceil(obj.header.options.length / 4) + obj.payload.length);
+  const header_len = Math.ceil((20 + obj.header.options.length) / 4) * 4;
+  const packet = new Uint8Array(header_len + obj.payload.length);
   const $ = new DataView(packet.buffer, packet.byteOffset);
 
   $.setUint16(0, obj.header.src);
   $.setUint16(2, obj.header.dst);
   $.setUint32(4, obj.header.seq);
   $.setUint32(8, obj.header.ack);
-  $.setUint16(12, (obj.header.data_offset << 12) | (obj.header.flags & 0xfff));
+  $.setUint16(12, ((header_len / 4) << 12) | (obj.header.flags & 0x1ff));
   $.setUint16(14, obj.header.window);
   $.setUint16(16, obj.header.checksum);
   $.setUint16(18, obj.header.urgent);
   packet.set(obj.header.options, 20);
-  packet.set(obj.payload, 20 + Math.ceil(obj.header.options.length / 4));
+  packet.set(obj.payload, header_len);
 
   return packet;
 }
@@ -498,5 +510,5 @@ export function pack_dhcp_packet(obj: TDhcpPacket): Uint8Array {
       offset += 1;
     }
   }
-  return pack.slice(0, offset);
+  return pack.slice(0, Math.max(300, offset));
 }
