@@ -287,11 +287,11 @@ export class Store {
 
       console.log(`[${node.id}:${msg.port}] => [X] DROP`);
     } else if (msg.$ === "fs") {
-      this.node_fs_set(node.id, msg.fs);
+      this._node_fs_set(node.id, msg.fs);
     }
   }
 
-  node_fs_set(id: string, fs: { [key: string]: string | undefined }) {
+  private _node_fs_set(id: string, fs: { [key: string]: string | undefined }) {
     const node = this.node_by_id(id);
     if (!node) return;
     for (const [key, value] of Object.entries(fs)) {
@@ -301,6 +301,10 @@ export class Store {
         delete node.fs[key];
       }
     }
+  }
+  node_fs_set(id: string, fs: { [key: string]: string | undefined }) {
+    this._node_fs_set(id, fs);
+    this._node_worker_send(id, { $: "fs", fs: toJS(fs) });
   }
 
   get_node_connections(id: string) {

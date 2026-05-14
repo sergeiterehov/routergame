@@ -1,6 +1,6 @@
 import { SimpleEthernet, Port } from "./device";
 import { System, SimpleEthernetDriver } from "./system";
-import { OS } from "./os";
+import { OS } from "./os/os";
 import { init } from "./apps/init.app";
 import * as ifconfig from "./apps/ifconfig.app";
 import * as arp from "./apps/arp.app";
@@ -55,7 +55,7 @@ export function beginWorker(config: { type: string; ethernet?: { mac: bigint }[]
 
   const os = new OS(system);
   os.on_print = (text) => sendMessage({ $: "print", text });
-  os.on_fs = (fs) => sendMessage({ $: "fs", fs });
+  os.fs.on_change = (fs) => sendMessage({ $: "fs", fs });
 
   for (let i = 0; i < system._devices.length; i += 1) {
     const dev = system._devices[i];
@@ -86,9 +86,9 @@ export function beginWorker(config: { type: string; ethernet?: { mac: bigint }[]
     } else if (msg.$ === "fs") {
       for (const [key, value] of Object.entries(msg.fs)) {
         if (typeof value === "string") {
-          os._fs[key] = value;
+          os.fs._fs[key] = value;
         } else {
-          delete os._fs[key];
+          delete os.fs._fs[key];
         }
       }
     }

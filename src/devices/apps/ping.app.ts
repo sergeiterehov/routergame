@@ -1,5 +1,5 @@
 import { formatIPv4, formatTime, hexdump, parseIPv4, validate_ip } from "../format";
-import type { OS, TSocket } from "../os";
+import type { OS, TSocket } from "../os/os";
 import { pack_icmp_packet, pack_ip4_packet, unpack_icmp_packet, unpack_ip4_packet } from "../pack";
 
 function find_config(args: string[], key: string, initial: string = "") {

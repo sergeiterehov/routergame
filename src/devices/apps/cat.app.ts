@@ -1,4 +1,4 @@
-import type { OS } from "../os";
+import type { OS } from "../os/os";
 
 export async function cat(os: OS, args: string[]) {
   if (!args.length) {
@@ -6,9 +6,9 @@ export async function cat(os: OS, args: string[]) {
   }
 
   for (const path of args) {
-    if (!os.fs_exists(path)) throw new Error(`File ${path} not found`);
-    const data = os.fs_read(path);
-    os.print(data);
+    if (!os.fs.exists(path)) throw new Error(`File ${path} not found`);
+    const data = os.fs.read(path);
+    os.print(data, "\n");
   }
 }
 
@@ -18,11 +18,11 @@ export async function ls(os: OS, args: string[]) {
   }
 
   const path = args[0];
-  if (!os.fs_is_dir(path)) throw new Error(`Path ${path} is not a directory`);
+  if (!os.fs.is_dir(path)) throw new Error(`Path ${path} is not a directory`);
 
-  for (const name of os.fs_list(path)) {
+  for (const name of os.fs.list(path)) {
     const file = path + (path.endsWith("/") ? "" : "/") + name;
-    if (os.fs_is_dir(file)) {
+    if (os.fs.is_dir(file)) {
       os.print(`[${name}]`, "\n");
     } else {
       os.print(name, "\n");
@@ -36,9 +36,9 @@ export async function touch(os: OS, args: string[]) {
   }
 
   const path = args[0];
-  if (os.fs_exists(path)) return;
+  if (os.fs.exists(path)) return;
 
-  os.fs_write(path, "");
+  os.fs.write(path, "");
 }
 
 export async function rm(os: OS, args: string[]) {
@@ -47,7 +47,7 @@ export async function rm(os: OS, args: string[]) {
   }
 
   const path = args[0];
-  if (!os.fs_exists(path)) throw new Error(`File ${path} not found`);
+  if (!os.fs.exists(path)) throw new Error(`File ${path} not found`);
 
-  os.fs_rm(path);
+  os.fs.rm(path);
 }

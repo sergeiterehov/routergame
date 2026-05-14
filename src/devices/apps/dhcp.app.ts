@@ -1,5 +1,5 @@
 import { formatIPv4, formatMAC, formatTime, maskToPrefix, parseIPv4, prefixToMask, validate_ip } from "../format";
-import type { OS, TInterface, TSocket } from "../os";
+import type { OS, TInterface, TSocket } from "../os/os";
 import {
   DHCP_OPS,
   DHCP_OPTIONS,

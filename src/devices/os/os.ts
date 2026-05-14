@@ -1,4 +1,5 @@
-import { testSameNetwork } from "./format";
+import { testSameNetwork } from "../format";
+import { FS } from "./fs";
 import {
   ARP_OPCODES,
   ETHER_TYPES,
@@ -13,8 +14,8 @@ import {
   unpack_icmp_packet,
   unpack_ip4_packet,
   unpack_udp_packet,
-} from "./pack";
-import type { System, Driver } from "./system";
+} from "../pack";
+import type { System, Driver } from "../system";
 
 const CAM_TTL = 60_000;
 
@@ -105,8 +106,6 @@ export class OS {
   _drivers: Driver[] = [];
   _apps: { [key: string]: (os: OS, args: string[]) => void } = {};
 
-  _fs: { [key: string]: string } = {};
-
   _netForwarding = true;
   _netDefaultTTL = 64;
 
@@ -122,7 +121,8 @@ export class OS {
   _netSockets: TSocket[] = [];
 
   on_print?: (text: string) => void;
-  on_fs?: (fs: { [key: string]: string | undefined }) => void;
+
+  readonly fs = new FS(this);
 
   constructor(system: System) {
     this._system = system;
@@ -190,63 +190,6 @@ export class OS {
   _interruptHandlers: { [key: number]: () => void } = {};
   interrupt_register(iDevice: number, handler: () => void) {
     this._interruptHandlers[iDevice] = handler;
-  }
-
-  fs_read(path: string) {
-    if (!path.startsWith("/")) path = "/" + path;
-    return this._fs[path];
-  }
-  fs_write(path: string, data: string) {
-    if (!path.startsWith("/")) path = "/" + path;
-    this._fs[path] = data;
-    this.on_fs?.({ [path]: data });
-  }
-  fs_rm(path: string) {
-    const keys: string[] = [];
-
-    if (!path.startsWith("/")) path = "/" + path;
-    delete this._fs[path];
-    keys.push(path);
-
-    if (!path.endsWith("/")) path += "/";
-    for (const key of Object.keys(this._fs)) {
-      if (key.startsWith(path)) {
-        delete this._fs[key];
-        keys.push(key);
-      }
-    }
-
-    this.on_fs?.(Object.fromEntries(keys.map((key) => [key, undefined])));
-  }
-  fs_exists(path: string) {
-    if (!path.startsWith("/")) path = "/" + path;
-    if (path in this._fs) return true;
-    if (!path.endsWith("/")) path += "/";
-    for (const key of Object.keys(this._fs)) {
-      if (key.startsWith(path)) return true;
-    }
-    return false;
-  }
-  fs_list(path: string) {
-    if (!path.startsWith("/")) path = "/" + path;
-    if (!path.endsWith("/")) path += "/";
-
-    const result: string[] = [];
-    for (const key of Object.keys(this._fs)) {
-      if (!key.startsWith(path)) continue;
-      const inner = key.substring(path.length);
-      const index = inner.indexOf("/");
-      result.push(index === -1 ? inner : inner.substring(0, index));
-    }
-
-    return result;
-  }
-  fs_is_dir(path: string) {
-    if (!path.startsWith("/")) path = "/" + path;
-    if (!path.endsWith("/")) path += "/";
-    for (const key of Object.keys(this._fs)) {
-      if (key.startsWith(path)) return true;
-    }
   }
 
   net_add_interface(type: TInterface["type"], name: string, iDriver: number) {

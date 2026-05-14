@@ -1,5 +1,5 @@
 import { formatIPv4, formatMAC, parseIPv4, validate_ip } from "../format";
-import type { OS } from "../os";
+import type { OS } from "../os/os";
 
 export async function arp(os: OS, args: string[]) {
   if (!args.length) {

@@ -8,7 +8,7 @@ import {
   validate_ip,
   validate_mac,
 } from "../format";
-import type { OS } from "../os";
+import type { OS } from "../os/os";
 
 function test_args(args: string[], ...ps: unknown[]) {
   if (ps.length > args.length) return false;

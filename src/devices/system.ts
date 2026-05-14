@@ -1,5 +1,5 @@
 import type { Device, SimpleEthernet } from "./device";
-import type { OS } from "./os";
+import type { OS } from "./os/os";
 
 export class System {
   _devices: Device[] = [];
