@@ -11,8 +11,8 @@ import {
 } from "../pack";
 import { OSChannel } from "./os";
 import { testSameNetwork } from "../format";
-import { Tracker, type TConnection } from "./tracker";
-import { Firewall, FW_CHAINS } from "./fw";
+import { Tracker } from "./tracker";
+import { Firewall, FW_CHAINS, type TPacketContext } from "./fw";
 
 export type TRoute = { network: number; prefix: number; gateway?: number; iInterface: number; src?: number };
 
@@ -30,18 +30,10 @@ export class IP4 {
   constructor(public readonly net: Net) {}
 
   handle_packet(iInterface: number, packet: TIP4Packet) {
-    const conn = this.tracker.handle_packet(packet);
+    const fw_context: TPacketContext = { inInterface: iInterface };
 
-    if (!this.fw.handle_chain(FW_CHAINS.PRE_ROUTING, packet, { conn, inInterface: iInterface })) return;
-
-    // TODO: dst-nat
-    if (conn) {
-      if (packet.header.dst === conn.reply_dst && conn.flags.src_nat) {
-        packet.header.dst = conn.src;
-      }
-    }
-
-    if (!this.fw.handle_chain(FW_CHAINS.DST_NAT, packet, { conn, inInterface: iInterface })) return;
+    if (this.fw.handle_chain(FW_CHAINS.PRE_ROUTING, packet, fw_context)) return;
+    if (this.fw.handle_chain(FW_CHAINS.DST_NAT, packet, fw_context)) return;
 
     const { ttl, dst } = packet.header;
 
@@ -61,7 +53,7 @@ export class IP4 {
 
     // Input
     if (_input) {
-      if (!this.fw.handle_chain(FW_CHAINS.INPUT, packet, { conn, inInterface: iInterface })) return;
+      if (this.fw.handle_chain(FW_CHAINS.INPUT, packet, fw_context)) return;
 
       this.handle_protocol(iInterface, packet);
       return;
@@ -70,20 +62,20 @@ export class IP4 {
     // Forwarding
     if (!this._forwarding) return;
 
-    if (!this.fw.handle_chain(FW_CHAINS.FORWARD, packet, { conn, inInterface: iInterface })) return;
+    if (this.fw.handle_chain(FW_CHAINS.FORWARD, packet, fw_context)) return;
 
-    if (ttl <= 1) return this.icmp_send_time_exceeded(iInterface, packet);
+    if (ttl <= 1) return this._icmp_send_time_exceeded(iInterface, packet, fw_context);
 
     const route = this.route(dst);
     if (!route) return;
 
     packet.header.ttl -= 1;
 
-    this._send_packet(route.iInterface, route.gateway, packet, conn);
+    this._send_packet(route.iInterface, route.gateway, packet, fw_context);
   }
 
-  private _send_packet(iInterface: number, ip: number, packet: TIP4Packet, conn?: TConnection) {
-    if (!this.fw.handle_chain(FW_CHAINS.POST_ROUTING, packet, { conn, outInterface: iInterface })) return;
+  private _send_packet(iInterface: number, ip: number, packet: TIP4Packet, fw_context: TPacketContext) {
+    fw_context.outInterface = iInterface;
 
     const route_iface = this.net._interfaces[iInterface];
     if (route_iface.mac === undefined) return;
@@ -103,7 +95,7 @@ export class IP4 {
       return;
     }
 
-    conn ??= this.tracker.handle_packet(packet);
+    if (this.fw.handle_chain(FW_CHAINS.POST_ROUTING, packet, fw_context)) return;
 
     const src_mac = route_iface.mac;
     let dst_mac = -1n; // -1 unknown, -2 pending, -3 fail
@@ -130,7 +122,7 @@ export class IP4 {
 
     if (dst_mac === -3n) return;
 
-    if (!this.fw.handle_chain(FW_CHAINS.SRC_NAT, packet, { conn, outInterface: iInterface })) return;
+    if (this.fw.handle_chain(FW_CHAINS.SRC_NAT, packet, fw_context)) return;
 
     const frame: TEthernetFrame = {
       dst: dst_mac,
@@ -150,14 +142,16 @@ export class IP4 {
   send_raw(dst_ip: number, packet: TIP4Packet) {
     const { src } = packet.header;
 
-    if (!this.fw.handle_chain(FW_CHAINS.OUTPUT, packet, {})) return;
+    const fw_context: TPacketContext = {};
+
+    if (this.fw.handle_chain(FW_CHAINS.OUTPUT, packet, fw_context)) return;
 
     const route = this.route(dst_ip);
     if (!route) return;
 
     if (src <= 0) packet.header.src = route.src;
 
-    this._send_packet(route.iInterface, route.gateway, packet);
+    this._send_packet(route.iInterface, route.gateway, packet, fw_context);
   }
 
   send(dst_ip: number, protocol: number, payload: Uint8Array, src_ip?: number) {
@@ -252,7 +246,7 @@ export class IP4 {
     }
   }
 
-  icmp_send_time_exceeded(iInterface: number, packet: TIP4Packet) {
+  private _icmp_send_time_exceeded(iInterface: number, packet: TIP4Packet, fw_context: TPacketContext) {
     const { src } = packet.header;
 
     const route = this.route(src);
@@ -283,6 +277,6 @@ export class IP4 {
       }),
     };
 
-    this._send_packet(iInterface, route.gateway, response);
+    this._send_packet(iInterface, route.gateway, response, fw_context);
   }
 }

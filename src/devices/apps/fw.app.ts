@@ -1,12 +1,17 @@
 import { formatIPv4, formatTime } from "../format";
-import { FW_ACTIONS, FW_CHAINS, type TPredicate } from "../os/fw";
+import { FW_ACTIONS, FW_CHAINS, FW_TABLES, type TPredicate } from "../os/fw";
 import type { OS } from "../os/os";
 import { IP_PROTOCOLS } from "../pack";
 import { find_arg, run_command_of, test_args } from "./app_utils";
 
+const TABLES = Object.values(FW_TABLES as object);
 const CHAINS = Object.values(FW_CHAINS as object);
 const ACTIONS = Object.values(FW_ACTIONS as object);
 
+const _validate_table = (table: string) => {
+  if (TABLES.includes(table)) return true;
+  throw new Error(`Invalid table "${table}", use: ${TABLES.join(", ")}`);
+};
 const _validate_chain = (chain: string) => {
   if (CHAINS.includes(chain)) return true;
   throw new Error(`Invalid chain "${chain}", use: ${CHAINS.join(", ")}`);
@@ -79,6 +84,7 @@ async function _masquerade(os: OS, args: string[]) {
   if (!iface) throw new Error(`Interface ${iface_name} not found`);
 
   os.net.ip4.fw.add(
+    FW_TABLES.NAT,
     FW_CHAINS.SRC_NAT,
     {
       outInterface: iface.index,
@@ -88,10 +94,11 @@ async function _masquerade(os: OS, args: string[]) {
 }
 
 async function _add(os: OS, args: string[]) {
-  if (!test_args(args, _validate_chain, _validate_action)) {
-    throw new Error("usage: <chain> <action> [-in_interface name] [-out_interface name]");
+  if (!test_args(args, _validate_table, _validate_chain, _validate_action)) {
+    throw new Error("usage: <table> <chain> <action> [-in_interface name] [-out_interface name]");
   }
 
+  const table = args.shift()!;
   const chain = args.shift()!;
   const action = args.shift()!;
 
@@ -103,7 +110,7 @@ async function _add(os: OS, args: string[]) {
   const outInterface = os.net.iface_by_name(find_arg(args, "-out_interface"));
   if (outInterface) predicate.inInterface = outInterface.index;
 
-  os.net.ip4.fw.add(chain, predicate, action);
+  os.net.ip4.fw.add(table, chain, predicate, action);
 }
 
 async function _rm(os: OS, args: string[]) {
