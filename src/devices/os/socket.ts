@@ -17,10 +17,7 @@ export class Socket {
   send_raw(socket: TSocket, packet: TIP4Packet) {
     if (socket.protocol !== "raw") return;
 
-    const route = this.net.ip4.route(packet.header.dst);
-    if (!route) return;
-
-    return this.net.ip4.send_packet(route.iInterface, route.gateway, packet);
+    return this.net.ip4.send_raw(packet.header.dst, packet);
   }
 
   send_udp(socket: TSocket, data: Uint8Array, ip: number, port: number) {
@@ -28,7 +25,7 @@ export class Socket {
 
     const payload = pack_udp_packet({ header: { dst: port, src: socket.port, length: 0, checksum: 0 }, payload: data });
 
-    return this.net.ip4.send(ip, IP_PROTOCOLS.UDP, payload, -1);
+    return this.net.ip4.send(ip, IP_PROTOCOLS.UDP, payload);
   }
 
   handle_packet(iInterface: number, packet: TIP4Packet) {

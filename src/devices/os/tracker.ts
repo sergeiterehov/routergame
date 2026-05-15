@@ -27,7 +27,12 @@ export type TConnection = {
   reply_dst_port: number;
 
   expires_at: number;
-  has_reply: boolean;
+
+  flags: {
+    has_reply?: boolean;
+    src_nat?: boolean;
+    dst_nat?: boolean;
+  };
 
   icmp?: { type: number; code: number; id: number };
   tcp?: {
@@ -93,7 +98,7 @@ export class Tracker {
     }
 
     let reply = false;
-    let exists: TConnection | undefined;
+    let conn: TConnection | undefined;
     for (const c of this._table) {
       if (c.protocol !== protocol) continue;
 
@@ -114,22 +119,21 @@ export class Tracker {
 
       if (icmp && c.icmp) {
         if (
-          c.icmp.type === ICMP_TYPES.ECHO_REQUEST &&
-          icmp.type === ICMP_TYPES.ECHO_REPLY &&
+          (icmp.type === ICMP_TYPES.ECHO_REQUEST || icmp.type === ICMP_TYPES.ECHO_REPLY) &&
           c.icmp.id === ((icmp.data[0] << 8) | icmp.data[1])
         ) {
-          // echo request
+          // echo
         } else {
           continue;
         }
       }
 
-      exists = c;
+      conn = c;
       break;
     }
 
-    if (!exists) {
-      exists = {
+    if (!conn) {
+      conn = {
         protocol,
         src,
         dst,
@@ -140,12 +144,12 @@ export class Tracker {
         reply_src_port: dst_port,
         reply_dst_port: src_port,
         expires_at: Date.now() + TIMEOUT_DEFAULT_MS,
-        has_reply: false,
+        flags: {},
       };
 
       if (protocol === IP_PROTOCOLS.ICMP) {
         if (!icmp) return;
-        exists.icmp = {
+        conn.icmp = {
           type: icmp.type,
           code: icmp.code,
           id: (icmp.data[0] << 8) | icmp.data[1],
@@ -153,23 +157,23 @@ export class Tracker {
       } else if (protocol === IP_PROTOCOLS.TCP) {
         if (!tcp) return;
         if (tcp.header.flags !== TCP_FLAGS.SYN) return;
-        exists.tcp = {
+        conn.tcp = {
           state: "syn-sent",
         };
       }
       reply = false;
-      this._table.push(exists);
+      this._table.push(conn);
     } else {
-      exists.has_reply ||= reply;
-      exists.expires_at = Date.now() + TIMEOUT_DEFAULT_MS;
+      conn.flags.has_reply ||= reply;
+      conn.expires_at = Date.now() + TIMEOUT_DEFAULT_MS;
     }
 
     if (protocol === IP_PROTOCOLS.TCP) {
       if (!tcp) return;
-      this._update_tcp(exists, reply, tcp);
+      this._update_tcp(conn, reply, tcp);
     }
 
-    return exists;
+    return conn;
   }
 
   _update_tcp(c: TConnection, reply: boolean, packet: TTcpPacket) {

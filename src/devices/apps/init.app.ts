@@ -13,6 +13,12 @@ export async function init(os: OS, args: string[]) {
     const [app, ...args] = line.trim().split(/\s+/);
     if (!app) continue;
 
-    await os.exec(app, args);
+    const background = args.at(-1) === "&" && args.pop();
+
+    if (background) {
+      os.exec(app, args);
+    } else {
+      await os.exec(app, args);
+    }
   }
 }

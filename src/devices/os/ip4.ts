@@ -11,7 +11,8 @@ import {
 } from "../pack";
 import { OSChannel } from "./os";
 import { testSameNetwork } from "../format";
-import { Tracker } from "./tracker";
+import { Tracker, type TConnection } from "./tracker";
+import { Firewall, FW_CHAINS } from "./fw";
 
 export type TRoute = { network: number; prefix: number; gateway?: number; iInterface: number; src?: number };
 
@@ -24,27 +25,52 @@ export class IP4 {
   _channel = new OSChannel<{ direction: "in" | "out"; iInterface: number; packet: TIP4Packet }>();
 
   readonly tracker = new Tracker(this);
+  readonly fw = new Firewall(this);
 
   constructor(public readonly net: Net) {}
 
   handle_packet(iInterface: number, packet: TIP4Packet) {
-    this.tracker.handle_packet(packet);
+    const conn = this.tracker.handle_packet(packet);
+
+    if (!this.fw.handle_chain(FW_CHAINS.PRE_ROUTING, packet, { conn, inInterface: iInterface })) return;
+
+    // TODO: dst-nat
+    if (conn) {
+      if (packet.header.dst === conn.reply_dst && conn.flags.src_nat) {
+        packet.header.dst = conn.src;
+      }
+    }
+
+    if (!this.fw.handle_chain(FW_CHAINS.DST_NAT, packet, { conn, inInterface: iInterface })) return;
 
     const { ttl, dst } = packet.header;
 
-    if (dst === IP_BROADCAST) return this.handle_protocol(iInterface, packet);
-
-    // Own IP
-    for (const _iface of this.net._interfaces) {
-      for (const _ip of _iface.ips) {
-        if (_ip.address === dst) {
-          return this.handle_protocol(iInterface, packet);
+    let _input = false;
+    if (dst === IP_BROADCAST) {
+      _input = true;
+    } else {
+      for_interfaces: for (const _iface of this.net._interfaces) {
+        for (const _ip of _iface.ips) {
+          if (_ip.address === dst) {
+            _input = true;
+            break for_interfaces;
+          }
         }
       }
     }
 
+    // Input
+    if (_input) {
+      if (!this.fw.handle_chain(FW_CHAINS.INPUT, packet, { conn, inInterface: iInterface })) return;
+
+      this.handle_protocol(iInterface, packet);
+      return;
+    }
+
     // Forwarding
     if (!this._forwarding) return;
+
+    if (!this.fw.handle_chain(FW_CHAINS.FORWARD, packet, { conn, inInterface: iInterface })) return;
 
     if (ttl <= 1) return this.icmp_send_time_exceeded(iInterface, packet);
 
@@ -53,59 +79,31 @@ export class IP4 {
 
     packet.header.ttl -= 1;
 
-    this.send_packet(route.iInterface, route.gateway, packet);
+    this._send_packet(route.iInterface, route.gateway, packet, conn);
   }
 
-  handle_protocol(iInterface: number, packet: TIP4Packet) {
-    this._channel.postMessage({ direction: "in", iInterface, packet });
+  private _send_packet(iInterface: number, ip: number, packet: TIP4Packet, conn?: TConnection) {
+    if (!this.fw.handle_chain(FW_CHAINS.POST_ROUTING, packet, { conn, outInterface: iInterface })) return;
 
-    // icmp
-    if (packet.header.protocol === IP_PROTOCOLS.ICMP) {
-      this.icmp_handle(iInterface, packet);
-    }
-
-    this.net.socket.handle_packet(iInterface, packet);
-  }
-
-  icmp_handle(iInterface: number, packet: TIP4Packet) {
-    const icmp = unpack_icmp_packet(packet.payload);
-
-    // TODO: types 0,3,8
-
-    if (icmp.type === 8) {
-      const reply = pack_icmp_packet({
-        type: 0,
-        code: 0,
-        checksum: 0,
-        data: icmp.data,
-        payload: icmp.payload,
-      });
-
-      this.send(packet.header.src, IP_PROTOCOLS.ICMP, reply, packet.header.dst);
-    }
-  }
-
-  send_packet(iInterface: number, ip: number, packet: TIP4Packet) {
     const route_iface = this.net._interfaces[iInterface];
     if (route_iface.mac === undefined) return;
 
     this._channel.postMessage({ direction: "out", iInterface, packet });
 
     let local_iface: TInterface | undefined;
-
     for (const _iface of this.net._interfaces) {
       for (const _ip of _iface.ips) {
-        if (_ip.address === ip) {
-          local_iface = _iface;
-          break;
-        }
+        if (_ip.address !== ip) continue;
+        local_iface = _iface;
+        break;
       }
     }
-
     if (local_iface) {
       setTimeout(() => this.handle_packet(local_iface.index, packet));
       return;
     }
+
+    conn ??= this.tracker.handle_packet(packet);
 
     const src_mac = route_iface.mac;
     let dst_mac = -1n; // -1 unknown, -2 pending, -3 fail
@@ -132,6 +130,8 @@ export class IP4 {
 
     if (dst_mac === -3n) return;
 
+    if (!this.fw.handle_chain(FW_CHAINS.SRC_NAT, packet, { conn, outInterface: iInterface })) return;
+
     const frame: TEthernetFrame = {
       dst: dst_mac,
       src: src_mac,
@@ -147,15 +147,25 @@ export class IP4 {
     }
   }
 
-  send(ip: number, protocol: number, payload: Uint8Array, src_ip: number) {
-    const route = this.route(ip);
+  send_raw(dst_ip: number, packet: TIP4Packet) {
+    const { src } = packet.header;
+
+    if (!this.fw.handle_chain(FW_CHAINS.OUTPUT, packet, {})) return;
+
+    const route = this.route(dst_ip);
     if (!route) return;
 
+    if (src <= 0) packet.header.src = route.src;
+
+    this._send_packet(route.iInterface, route.gateway, packet);
+  }
+
+  send(dst_ip: number, protocol: number, payload: Uint8Array, src_ip?: number) {
     const packet: TIP4Packet = {
       header: {
         version: 4,
-        dst: ip,
-        src: src_ip >= 0 ? src_ip : route.src,
+        dst: dst_ip,
+        src: src_ip ?? 0,
         protocol,
         ttl: this._default_ttl,
         flags: 0,
@@ -170,7 +180,7 @@ export class IP4 {
       payload,
     };
 
-    this.send_packet(route.iInterface, route.gateway, packet);
+    this.send_raw(dst_ip, packet);
   }
 
   route(dst: number) {
@@ -213,6 +223,35 @@ export class IP4 {
     }
   }
 
+  handle_protocol(iInterface: number, packet: TIP4Packet) {
+    this._channel.postMessage({ direction: "in", iInterface, packet });
+
+    // icmp
+    if (packet.header.protocol === IP_PROTOCOLS.ICMP) {
+      this.icmp_handle(iInterface, packet);
+    }
+
+    this.net.socket.handle_packet(iInterface, packet);
+  }
+
+  icmp_handle(iInterface: number, packet: TIP4Packet) {
+    const icmp = unpack_icmp_packet(packet.payload);
+
+    // TODO: types 0,3,8
+
+    if (icmp.type === 8) {
+      const reply = pack_icmp_packet({
+        type: 0,
+        code: 0,
+        checksum: 0,
+        data: icmp.data,
+        payload: icmp.payload,
+      });
+
+      this.send(packet.header.src, IP_PROTOCOLS.ICMP, reply, packet.header.dst);
+    }
+  }
+
   icmp_send_time_exceeded(iInterface: number, packet: TIP4Packet) {
     const { src } = packet.header;
 
@@ -244,6 +283,6 @@ export class IP4 {
       }),
     };
 
-    this.send_packet(iInterface, route.gateway, response);
+    this._send_packet(iInterface, route.gateway, response);
   }
 }

@@ -34,13 +34,11 @@ export async function ping(os: OS, args: string[]) {
 
     os.print(`PING ${formatIPv4(ip)}: ${size} data bytes\n`);
 
-    const route = os.net.ip4.route(ip);
-    if (!route) throw new Error("No route to host");
+    const id = Math.floor(Math.random() * 65535);
 
     for (let i = 0; i < count; i++) {
       if (i) await new Promise((resolve) => setTimeout(resolve, wait));
 
-      const id = Math.floor(Math.random() * 65535);
       const seq = i;
       const data = new Uint8Array([id >> 8, id & 0xff, seq >> 8, seq & 0xff]);
 
@@ -48,7 +46,7 @@ export async function ping(os: OS, args: string[]) {
         header: {
           version: 4,
           dst: ip,
-          src: route.src,
+          src: 0,
           protocol: 1,
           ttl,
           flags: 0,
@@ -69,7 +67,7 @@ export async function ping(os: OS, args: string[]) {
         }),
       };
 
-      os.net.ip4.send_packet(route.iInterface, route.gateway, packet);
+      os.net.ip4.send_raw(ip, packet);
 
       const start = Date.now();
 

@@ -39,6 +39,16 @@ export class Net {
 
   constructor(public readonly os: OS) {}
 
+  iface(iInterface: number) {
+    return this._interfaces[iInterface];
+  }
+
+  iface_by_name(name: string) {
+    for (const iface of this._interfaces) {
+      if (iface.name === name) return iface;
+    }
+  }
+
   add_interface(type: TInterface["type"], name: string, iDriver: number) {
     const index = this._interfaces.length;
     this._interfaces.push({ index, type, name, iDriver, ips: [], flags: {} });

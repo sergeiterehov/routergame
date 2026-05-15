@@ -9,27 +9,7 @@ import {
   validate_mac,
 } from "../format";
 import type { OS } from "../os/os";
-
-function test_args(args: string[], ...ps: unknown[]) {
-  if (ps.length > args.length) return false;
-  for (let i = 0; i < ps.length; i++) {
-    const p = ps[i];
-    if (typeof ps[i] === "string" && p === args[i]) continue;
-    if (typeof p === "function" && p(args[i])) continue;
-    return false;
-  }
-  return true;
-}
-
-function find_arg(args: string[], key: string, initial: string = "") {
-  for (let i = 1; i < args.length; i++) {
-    if (args[i] === key && args[i + 1]) {
-      return args[i + 1];
-    }
-  }
-
-  return initial;
-}
+import { find_arg, test_args } from "./app_utils";
 
 function _get_iface(os: OS, name: string) {
   return os.net._interfaces.find((p) => p.name === name);
