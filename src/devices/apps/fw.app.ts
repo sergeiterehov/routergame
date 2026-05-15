@@ -99,8 +99,11 @@ async function _ls(os: OS, args: string[]) {
     os.print(
       `${i + 1}) ${rule.table} ${rule.chain} [${action}]:\n`,
       [
-        rule.in_interface !== undefined && `in_interface=${os.net.iface(rule.in_interface).name}`,
-        rule.out_interface !== undefined && `out_interface=${os.net.iface(rule.out_interface).name}`,
+        rule.in !== undefined && `in=${os.net.iface(rule.in).name}`,
+        rule.out !== undefined && `out=${os.net.iface(rule.out).name}`,
+        rule.src !== undefined && `src=${formatIPv4(rule.src)}`,
+        rule.dst !== undefined && `dst=${formatIPv4(rule.dst)}`,
+        rule.protocol !== undefined && `proto=${rule.protocol}`,
         `PACKETS: ${rule.counters.packets}`,
       ]
         .filter(Boolean)
@@ -122,7 +125,7 @@ async function _masquerade(os: OS, args: string[]) {
     FW_TABLES.NAT,
     FW_CHAINS.SRC_NAT,
     {
-      out_interface: iface.index,
+      out: iface.index,
     },
     { action: FW_ACTIONS.MASQUERADE },
   );
@@ -153,26 +156,26 @@ async function _add(os: OS, args: string[]) {
   if (in_arg) {
     const iface = os.net.iface_by_name(in_arg);
     if (!iface) throw new Error(`Interface ${in_arg} not found`);
-    predicate.in_interface = iface.index;
+    predicate.in = iface.index;
   }
 
   const out_arg = find_arg(args, "-in");
   if (out_arg) {
     const iface = os.net.iface_by_name(out_arg);
     if (!iface) throw new Error(`Interface ${out_arg} not found`);
-    predicate.out_interface = iface.index;
+    predicate.out = iface.index;
   }
 
   const src_arg = find_arg(args, "-src");
   if (src_arg) {
     if (!validate_ip(src_arg)) throw new Error(`Invalid src IP address ${src_arg}`);
-    predicate.in_ip = parseIPv4(src_arg);
+    predicate.src = parseIPv4(src_arg);
   }
 
   const dst_arg = find_arg(args, "-dst");
   if (dst_arg) {
     if (!validate_ip(dst_arg)) throw new Error(`Invalid dst IP address ${dst_arg}`);
-    predicate.in_ip = parseIPv4(dst_arg);
+    predicate.src = parseIPv4(dst_arg);
   }
 
   const protocol_arg = find_arg(args, "-protocol");

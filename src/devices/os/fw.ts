@@ -29,18 +29,15 @@ export const FW_ACTIONS = {
 
 export type TPacketContext = {
   conn?: TConnection;
-  in_interface?: number;
-  out_interface?: number;
-  in_ip?: number;
-  out_ip?: number;
-  protocol?: number;
+  in?: number;
+  out?: number;
 };
 
 export type TPredicate = {
-  in_interface?: number;
-  out_interface?: number;
-  in_ip?: number;
-  out_ip?: number;
+  in?: number;
+  out?: number;
+  src?: number;
+  dst?: number;
   protocol?: number;
 };
 
@@ -55,12 +52,14 @@ export type TRule = {
   counters: TCounters;
 } & TPredicate;
 
-function _test_rule(rule: TRule, props: TPacketContext) {
-  if (rule.in_interface !== undefined && rule.in_interface !== props.in_interface) return false;
-  if (rule.out_interface !== undefined && rule.out_interface !== props.out_interface) return false;
-  if (rule.in_ip !== undefined && rule.in_ip !== props.in_ip) return false;
-  if (rule.out_ip !== undefined && rule.out_ip !== props.out_ip) return false;
-  if (rule.protocol !== undefined && rule.protocol !== props.protocol) return false;
+function _test_rule(rule: TRule, packet: TIP4Packet, ctx: TPacketContext) {
+  if (rule.in !== undefined && rule.in !== ctx.in) return false;
+  if (rule.out !== undefined && rule.out !== ctx.out) return false;
+
+  const { header } = packet;
+  if (rule.src !== undefined && rule.src !== header.src) return false;
+  if (rule.dst !== undefined && rule.dst !== header.dst) return false;
+  if (rule.protocol !== undefined && rule.protocol !== header.protocol) return false;
 
   return true;
 }
@@ -82,9 +81,9 @@ export class Firewall {
     return new_rule;
   }
 
-  private _handle_rules(table: string, chain: string, packet: TIP4Packet, context: TPacketContext): boolean {
+  private _handle_rules(table: string, chain: string, packet: TIP4Packet, ctx: TPacketContext): boolean {
     for (const rule of this._table) {
-      if (rule.table !== table || rule.chain !== chain || !_test_rule(rule, context)) continue;
+      if (rule.table !== table || rule.chain !== chain || !_test_rule(rule, packet, ctx)) continue;
 
       rule.counters.packets += 1;
 
@@ -97,11 +96,11 @@ export class Firewall {
       } else if (act === FW_ACTIONS.PASS) {
         continue;
       } else if (act === FW_ACTIONS.MASQUERADE) {
-        this._masquerade(packet, context);
+        this._masquerade(packet, ctx);
       } else if (act === FW_ACTIONS.SNAT) {
-        this._snat(packet, context, rule.action);
+        this._snat(packet, ctx, rule.action);
       } else if (act === FW_ACTIONS.DNAT) {
-        this._dnat(packet, context, rule.action);
+        this._dnat(packet, ctx, rule.action);
       }
 
       break;
@@ -180,7 +179,7 @@ export class Firewall {
   }
 
   private _masquerade(packet: TIP4Packet, context: TPacketContext) {
-    const { conn, out_interface: outInterface } = context;
+    const { conn, out: outInterface } = context;
     if (!conn || outInterface === undefined) return;
 
     if (!conn.flags.dst_nat) {
