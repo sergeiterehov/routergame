@@ -162,7 +162,7 @@ async function _add(os: OS, args: string[]) {
     predicate.in = iface.index;
   }
 
-  const out_arg = find_arg(args, "-in");
+  const out_arg = find_arg(args, "-out");
   if (out_arg) {
     const iface = os.net.iface_by_name(out_arg);
     if (!iface) throw new Error(`Interface ${out_arg} not found`);
