@@ -1,4 +1,4 @@
-import { formatIPv4, formatTime } from "../format";
+import { formatIPv4, formatTime, parseIPv4, validate_ip } from "../format";
 import { FW_ACTIONS, FW_CHAINS, FW_TABLES, type TPredicate } from "../os/fw";
 import type { OS } from "../os/os";
 import { IP_PROTOCOLS } from "../pack";
@@ -8,6 +8,25 @@ const TABLES = Object.values(FW_TABLES as object);
 const CHAINS = Object.values(FW_CHAINS as object);
 const ACTIONS = Object.values(FW_ACTIONS as object);
 
+const CHAINS_BY_TABLE: Record<string, string[]> = {
+  [FW_TABLES.RAW]: [FW_CHAINS.PRE_ROUTING, FW_CHAINS.OUTPUT],
+  [FW_TABLES.NAT]: [
+    FW_CHAINS.INPUT,
+    FW_CHAINS.OUTPUT,
+    FW_CHAINS.DST_NAT,
+    FW_CHAINS.SRC_NAT,
+    FW_CHAINS.PRE_ROUTING,
+    FW_CHAINS.POST_ROUTING,
+  ],
+  [FW_TABLES.FILTER]: [FW_CHAINS.INPUT, FW_CHAINS.FORWARD, FW_CHAINS.PRE_ROUTING, FW_CHAINS.OUTPUT],
+};
+
+const ACTIONS_BY_TABLE: Record<string, string[]> = {
+  [FW_TABLES.RAW]: [FW_ACTIONS.PASS, FW_ACTIONS.ACCEPT, FW_ACTIONS.DROP],
+  [FW_TABLES.NAT]: [FW_ACTIONS.PASS, FW_ACTIONS.MASQUERADE, FW_ACTIONS.SNAT, FW_ACTIONS.DNAT],
+  [FW_TABLES.FILTER]: [FW_ACTIONS.PASS, FW_ACTIONS.ACCEPT, FW_ACTIONS.DROP],
+};
+
 const _validate_table = (table: string) => {
   if (TABLES.includes(table)) return true;
   throw new Error(`Invalid table "${table}", use: ${TABLES.join(", ")}`);
@@ -16,9 +35,17 @@ const _validate_chain = (chain: string) => {
   if (CHAINS.includes(chain)) return true;
   throw new Error(`Invalid chain "${chain}", use: ${CHAINS.join(", ")}`);
 };
+const _validate_chain_by_table = (table: string) => (chain: string) => {
+  if (CHAINS_BY_TABLE[table].includes(chain)) return true;
+  throw new Error(`Invalid chain "${chain}", use: ${CHAINS_BY_TABLE[table].join(", ")}`);
+};
 const _validate_action = (action: string) => {
   if (ACTIONS.includes(action)) return true;
   throw new Error(`Invalid action "${action}", use: ${ACTIONS.join(", ")}`);
+};
+const _validate_action_by_table = (table: string) => (action: string) => {
+  if (ACTIONS_BY_TABLE[table].includes(action)) return true;
+  throw new Error(`Invalid action "${action}", use: ${ACTIONS_BY_TABLE[table].join(", ")}`);
 };
 const _validate_int = (str: string) => /^\d+$/.test(str);
 
@@ -61,11 +88,19 @@ async function _ls(os: OS, args: string[]) {
   for (let i = 0; i < os.net.ip4.fw._table.length; i += 1) {
     const rule = os.net.ip4.fw._table[i];
 
+    const action = [
+      rule.action.action,
+      rule.action.to_ip !== undefined && `ip=${rule.action.to_ip}`,
+      rule.action.to_port !== undefined && `port=${rule.action.to_port}`,
+    ]
+      .filter(Boolean)
+      .join(" ");
+
     os.print(
-      `${i + 1}) ${rule.chain} [${rule.action}]:\n`,
+      `${i + 1}) ${rule.table} ${rule.chain} [${action}]:\n`,
       [
-        rule.inInterface !== undefined && `in_interface=${os.net.iface(rule.inInterface).name}`,
-        rule.outInterface !== undefined && `out_interface=${os.net.iface(rule.outInterface).name}`,
+        rule.in_interface !== undefined && `in_interface=${os.net.iface(rule.in_interface).name}`,
+        rule.out_interface !== undefined && `out_interface=${os.net.iface(rule.out_interface).name}`,
         `PACKETS: ${rule.counters.packets}`,
       ]
         .filter(Boolean)
@@ -87,15 +122,25 @@ async function _masquerade(os: OS, args: string[]) {
     FW_TABLES.NAT,
     FW_CHAINS.SRC_NAT,
     {
-      outInterface: iface.index,
+      out_interface: iface.index,
     },
-    FW_ACTIONS.MASQUERADE,
+    { action: FW_ACTIONS.MASQUERADE },
   );
 }
 
 async function _add(os: OS, args: string[]) {
-  if (!test_args(args, _validate_table, _validate_chain, _validate_action)) {
-    throw new Error("usage: <table> <chain> <action> [-in_interface name] [-out_interface name]");
+  if (!test_args(args, _validate_table, _validate_chain_by_table(args[0]), _validate_action_by_table(args[0]))) {
+    throw new Error(
+      "usage: <table> <chain> <action> " +
+        [
+          // predicates
+          "[-in name]",
+          "[-out name]",
+          "[-src ip]",
+          "[-dst ip]",
+          "[-protocol icmp|udp|tcp]",
+        ].join(" "),
+    );
   }
 
   const table = args.shift()!;
@@ -104,13 +149,46 @@ async function _add(os: OS, args: string[]) {
 
   const predicate: TPredicate = {};
 
-  const inInterface = os.net.iface_by_name(find_arg(args, "-in_interface"));
-  if (inInterface) predicate.inInterface = inInterface.index;
+  const in_arg = find_arg(args, "-in");
+  if (in_arg) {
+    const iface = os.net.iface_by_name(in_arg);
+    if (!iface) throw new Error(`Interface ${in_arg} not found`);
+    predicate.in_interface = iface.index;
+  }
 
-  const outInterface = os.net.iface_by_name(find_arg(args, "-out_interface"));
-  if (outInterface) predicate.inInterface = outInterface.index;
+  const out_arg = find_arg(args, "-in");
+  if (out_arg) {
+    const iface = os.net.iface_by_name(out_arg);
+    if (!iface) throw new Error(`Interface ${out_arg} not found`);
+    predicate.out_interface = iface.index;
+  }
 
-  os.net.ip4.fw.add(table, chain, predicate, action);
+  const src_arg = find_arg(args, "-src");
+  if (src_arg) {
+    if (!validate_ip(src_arg)) throw new Error(`Invalid src IP address ${src_arg}`);
+    predicate.in_ip = parseIPv4(src_arg);
+  }
+
+  const dst_arg = find_arg(args, "-dst");
+  if (dst_arg) {
+    if (!validate_ip(dst_arg)) throw new Error(`Invalid dst IP address ${dst_arg}`);
+    predicate.in_ip = parseIPv4(dst_arg);
+  }
+
+  const protocol_arg = find_arg(args, "-protocol");
+  if (protocol_arg) {
+    if (protocol_arg === "icmp") {
+      predicate.protocol = IP_PROTOCOLS.ICMP;
+    } else if (protocol_arg === "udp") {
+      predicate.protocol = IP_PROTOCOLS.UDP;
+    } else if (protocol_arg === "tcp") {
+      predicate.protocol = IP_PROTOCOLS.TCP;
+    } else {
+      throw new Error(`Invalid protocol ${protocol_arg}`);
+    }
+  }
+
+  os.net.ip4.fw.add(table, chain, predicate, { action });
 }
 
 async function _rm(os: OS, args: string[]) {

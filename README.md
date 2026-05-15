@@ -22,6 +22,7 @@
 - udp
 - socket в простом исполнении
 - dhcp client + server
+- firewall + nat + masquerade
 
 Все в OS работает на уровне ядра. Доступны некоторые упрощенные аналоги утилит:
 - `iface` аналог ifconfig
@@ -32,4 +33,5 @@
 - `nc` - аналог netcat
 - `dhcp` - клиент
 - `dhcpd` - сервер
+- `fw` - управление firewall
 - `cat`, `ls`, `rm`, `touch` - для работы с файлами

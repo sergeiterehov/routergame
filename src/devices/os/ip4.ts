@@ -30,7 +30,7 @@ export class IP4 {
   constructor(public readonly net: Net) {}
 
   handle_packet(iInterface: number, packet: TIP4Packet) {
-    const fw_context: TPacketContext = { inInterface: iInterface };
+    const fw_context: TPacketContext = { in_interface: iInterface };
 
     if (this.fw.handle_chain(FW_CHAINS.PRE_ROUTING, packet, fw_context)) return;
     if (this.fw.handle_chain(FW_CHAINS.DST_NAT, packet, fw_context)) return;
@@ -75,7 +75,7 @@ export class IP4 {
   }
 
   private _send_packet(iInterface: number, ip: number, packet: TIP4Packet, fw_context: TPacketContext) {
-    fw_context.outInterface = iInterface;
+    fw_context.out_interface = iInterface;
 
     const route_iface = this.net._interfaces[iInterface];
     if (route_iface.mac === undefined) return;

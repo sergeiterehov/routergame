@@ -27,29 +27,41 @@ export const FW_ACTIONS = {
   DNAT: "dnat",
 } as const;
 
-export type TPredicate = { inInterface?: number; outInterface?: number };
+export type TPacketContext = {
+  conn?: TConnection;
+  in_interface?: number;
+  out_interface?: number;
+  in_ip?: number;
+  out_ip?: number;
+  protocol?: number;
+};
+
+export type TPredicate = {
+  in_interface?: number;
+  out_interface?: number;
+  in_ip?: number;
+  out_ip?: number;
+  protocol?: number;
+};
+
+export type TAction = { action: string; to_ip?: number; to_port?: number };
+
+export type TCounters = { packets: number };
 
 export type TRule = {
   table: string;
   chain: string;
-  action: string;
-  counters: { packets: number };
+  action: TAction;
+  counters: TCounters;
 } & TPredicate;
 
-export type TPacketContext = { inInterface?: number; outInterface?: number; conn?: TConnection };
-
-const _TESTING_PROPS: Record<keyof TPredicate, number> = {
-  inInterface: 0,
-  outInterface: 0,
-};
-const _TESTING_PROP_NAMES = Object.keys(_TESTING_PROPS) as (keyof TPredicate)[];
-
 function _test_rule(rule: TRule, props: TPacketContext) {
-  for (const key of _TESTING_PROP_NAMES) {
-    const target = rule[key];
-    if (target === undefined) continue;
-    if (target !== props[key]) return false;
-  }
+  if (rule.in_interface !== undefined && rule.in_interface !== props.in_interface) return false;
+  if (rule.out_interface !== undefined && rule.out_interface !== props.out_interface) return false;
+  if (rule.in_ip !== undefined && rule.in_ip !== props.in_ip) return false;
+  if (rule.out_ip !== undefined && rule.out_ip !== props.out_ip) return false;
+  if (rule.protocol !== undefined && rule.protocol !== props.protocol) return false;
+
   return true;
 }
 
@@ -58,7 +70,7 @@ export class Firewall {
 
   constructor(public readonly ip4: IP4) {}
 
-  add(table: string, chain: string, predicate: TPredicate, action: string) {
+  add(table: string, chain: string, predicate: TPredicate, action: TAction) {
     const new_rule: TRule = {
       table,
       chain,
@@ -76,16 +88,20 @@ export class Firewall {
 
       rule.counters.packets += 1;
 
-      const { action } = rule;
+      const { action: act } = rule.action;
 
-      if (action === FW_ACTIONS.ACCEPT) {
+      if (act === FW_ACTIONS.ACCEPT) {
         break;
-      } else if (action === FW_ACTIONS.DROP) {
+      } else if (act === FW_ACTIONS.DROP) {
         return true;
-      } else if (action === FW_ACTIONS.PASS) {
+      } else if (act === FW_ACTIONS.PASS) {
         continue;
-      } else if (action === FW_ACTIONS.MASQUERADE) {
+      } else if (act === FW_ACTIONS.MASQUERADE) {
         this._masquerade(packet, context);
+      } else if (act === FW_ACTIONS.SNAT) {
+        this._snat(packet, context, rule.action);
+      } else if (act === FW_ACTIONS.DNAT) {
+        this._dnat(packet, context, rule.action);
       }
 
       break;
@@ -95,29 +111,29 @@ export class Firewall {
   }
 
   /** @returns true if drop needed */
-  handle_chain(chain: string, packet: TIP4Packet, context: TPacketContext): boolean {
+  handle_chain(chain: string, packet: TIP4Packet, ctx: TPacketContext): boolean {
     if (chain === FW_CHAINS.PRE_ROUTING) {
-      if (this._handle_rules(FW_TABLES.RAW, chain, packet, context)) return true;
-      context.conn = this.ip4.tracker.handle_packet(packet);
-      if (this._handle_rules(FW_TABLES.NAT, chain, packet, context)) return true;
-      if (this._handle_rules(FW_TABLES.FILTER, chain, packet, context)) return true;
+      if (this._handle_rules(FW_TABLES.RAW, chain, packet, ctx)) return true;
+      ctx.conn = this.ip4.tracker.handle_packet(packet);
+      if (this._handle_rules(FW_TABLES.NAT, chain, packet, ctx)) return true;
+      if (this._handle_rules(FW_TABLES.FILTER, chain, packet, ctx)) return true;
     } else if (chain === FW_CHAINS.DST_NAT) {
-      if (context.conn) this._reverse_nat(packet, context.conn);
-      if (this._handle_rules(FW_TABLES.NAT, chain, packet, context)) return true;
+      if (ctx.conn) this._reverse_nat(packet, ctx.conn);
+      if (this._handle_rules(FW_TABLES.NAT, chain, packet, ctx)) return true;
     } else if (chain === FW_CHAINS.INPUT) {
-      if (this._handle_rules(FW_TABLES.NAT, chain, packet, context)) return true;
-      if (this._handle_rules(FW_TABLES.FILTER, chain, packet, context)) return true;
+      if (this._handle_rules(FW_TABLES.NAT, chain, packet, ctx)) return true;
+      if (this._handle_rules(FW_TABLES.FILTER, chain, packet, ctx)) return true;
     } else if (chain === FW_CHAINS.FORWARD) {
-      if (this._handle_rules(FW_TABLES.FILTER, chain, packet, context)) return true;
+      if (this._handle_rules(FW_TABLES.FILTER, chain, packet, ctx)) return true;
     } else if (chain === FW_CHAINS.OUTPUT) {
-      if (this._handle_rules(FW_TABLES.RAW, chain, packet, context)) return true;
-      context.conn = this.ip4.tracker.handle_packet(packet);
-      if (this._handle_rules(FW_TABLES.NAT, chain, packet, context)) return true;
-      if (this._handle_rules(FW_TABLES.FILTER, chain, packet, context)) return true;
+      if (this._handle_rules(FW_TABLES.RAW, chain, packet, ctx)) return true;
+      ctx.conn = this.ip4.tracker.handle_packet(packet);
+      if (this._handle_rules(FW_TABLES.NAT, chain, packet, ctx)) return true;
+      if (this._handle_rules(FW_TABLES.FILTER, chain, packet, ctx)) return true;
     } else if (chain === FW_CHAINS.POST_ROUTING) {
-      if (this._handle_rules(FW_TABLES.NAT, chain, packet, context)) return true;
+      if (this._handle_rules(FW_TABLES.NAT, chain, packet, ctx)) return true;
     } else if (chain === FW_CHAINS.SRC_NAT) {
-      if (this._handle_rules(FW_TABLES.NAT, chain, packet, context)) return true;
+      if (this._handle_rules(FW_TABLES.NAT, chain, packet, ctx)) return true;
     }
 
     return false;
@@ -127,10 +143,44 @@ export class Firewall {
     if (packet.header.dst === conn.reply_dst && conn.flags.src_nat) {
       packet.header.dst = conn.src;
     }
+
+    // FIXME: port!
+
+    if (packet.header.src === conn.reply_src && conn.flags.dst_nat) {
+      packet.header.src = conn.dst;
+    }
+
+    // FIXME: port!
+  }
+
+  private _snat(packet: TIP4Packet, context: TPacketContext, action: TAction) {
+    if (action.to_ip !== undefined) {
+      packet.header.src = action.to_ip;
+
+      if (context.conn) {
+        context.conn.reply_dst = action.to_ip;
+        context.conn.flags.src_nat = true;
+      }
+    }
+
+    // FIXME: port!
+  }
+
+  private _dnat(packet: TIP4Packet, context: TPacketContext, action: TAction) {
+    if (action.to_ip !== undefined) {
+      packet.header.dst = action.to_ip;
+
+      if (context.conn) {
+        context.conn.reply_src = action.to_ip;
+        context.conn.flags.dst_nat = true;
+      }
+    }
+
+    // FIXME: port!
   }
 
   private _masquerade(packet: TIP4Packet, context: TPacketContext) {
-    const { conn, outInterface } = context;
+    const { conn, out_interface: outInterface } = context;
     if (!conn || outInterface === undefined) return;
 
     if (!conn.flags.dst_nat) {
@@ -138,6 +188,8 @@ export class Firewall {
 
       const [ip] = iface.ips;
       if (!ip) return;
+
+      // FIXME: port!
 
       conn.reply_dst = ip.address;
       conn.flags.src_nat = true;
