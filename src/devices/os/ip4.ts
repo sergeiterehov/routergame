@@ -95,8 +95,6 @@ export class IP4 {
       return;
     }
 
-    if (this.fw.handle_chain(FW_CHAINS.POST_ROUTING, packet, fw_context)) return;
-
     const src_mac = route_iface.mac;
     let dst_mac = -1n; // -1 unknown, -2 pending, -3 fail
 
@@ -122,6 +120,7 @@ export class IP4 {
 
     if (dst_mac === -3n) return;
 
+    if (this.fw.handle_chain(FW_CHAINS.POST_ROUTING, packet, fw_context)) return;
     if (this.fw.handle_chain(FW_CHAINS.SRC_NAT, packet, fw_context)) return;
 
     const frame: TEthernetFrame = {

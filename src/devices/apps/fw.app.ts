@@ -1,5 +1,5 @@
 import { formatIPv4, formatTime, parseIPv4, validate_ip } from "../format";
-import { FW_ACTIONS, FW_CHAINS, FW_TABLES, type TPredicate } from "../os/fw";
+import { FW_ACTIONS, FW_CHAINS, FW_TABLES, type TAction, type TPredicate } from "../os/fw";
 import type { OS } from "../os/os";
 import { IP_PROTOCOLS } from "../pack";
 import { find_arg, run_command_of, test_args } from "./app_utils";
@@ -90,7 +90,7 @@ async function _ls(os: OS, args: string[]) {
 
     const action = [
       rule.action.action,
-      rule.action.to_ip !== undefined && `ip=${rule.action.to_ip}`,
+      rule.action.to_ip !== undefined && `ip=${formatIPv4(rule.action.to_ip)}`,
       rule.action.to_port !== undefined && `port=${rule.action.to_port}`,
     ]
       .filter(Boolean)
@@ -142,15 +142,18 @@ async function _add(os: OS, args: string[]) {
           "[-src ip]",
           "[-dst ip]",
           "[-protocol icmp|udp|tcp]",
+          "[-to-ip ip]",
+          "[-to-port ip]",
         ].join(" "),
     );
   }
 
   const table = args.shift()!;
   const chain = args.shift()!;
-  const action = args.shift()!;
+  const action_action = args.shift()!;
 
   const predicate: TPredicate = {};
+  const action: TAction = { action: action_action };
 
   const in_arg = find_arg(args, "-in");
   if (in_arg) {
@@ -178,6 +181,19 @@ async function _add(os: OS, args: string[]) {
     predicate.src = parseIPv4(dst_arg);
   }
 
+  const to_ip = find_arg(args, "-to-ip");
+  if (to_ip) {
+    if (!validate_ip(to_ip)) throw new Error(`Invalid target IP address ${dst_arg}`);
+    action.to_ip = parseIPv4(to_ip);
+  }
+
+  const to_port = find_arg(args, "-to-port");
+  if (to_port) {
+    const port = Number.parseInt(to_port, 10);
+    if (port <= 0 || port > 0xffff) throw new Error(`Invalid target port ${to_port}`);
+    action.to_port = parseIPv4(to_port);
+  }
+
   const protocol_arg = find_arg(args, "-protocol");
   if (protocol_arg) {
     if (protocol_arg === "icmp") {
@@ -191,7 +207,7 @@ async function _add(os: OS, args: string[]) {
     }
   }
 
-  os.net.ip4.fw.add(table, chain, predicate, { action });
+  os.net.ip4.fw.add(table, chain, predicate, action);
 }
 
 async function _rm(os: OS, args: string[]) {
