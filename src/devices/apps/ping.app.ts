@@ -191,7 +191,7 @@ export async function nc(os: OS, args: string[]) {
     if (!flags.u) throw new Error("Only UDP is supported");
 
     const source_ip = config.s ? parseIPv4(config.s) : 0;
-    const source_port = config.s ? parseInt(config.p) : 0;
+    const source_port = config.p ? parseInt(config.p) : 0;
 
     const ip = params.ip ? parseIPv4(params.ip) : 0;
     const port = parseInt(params.port);

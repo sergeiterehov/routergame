@@ -98,6 +98,22 @@ export function mac_to_bytes(mac: bigint) {
   ]);
 }
 
+export function extract_ip_ports(packet: TIP4Packet) {
+  const $ = new DataView(packet.payload.buffer, packet.payload.byteOffset);
+
+  return {
+    src: $.getUint16(0),
+    dst: $.getUint16(2),
+  };
+}
+
+export function inject_ip_ports(packet: TIP4Packet, ports: { src?: number; dst?: number }) {
+  const $ = new DataView(packet.payload.buffer, packet.payload.byteOffset);
+
+  if (ports.src !== undefined) $.setUint16(0, ports.src);
+  if (ports.dst !== undefined) $.setUint16(2, ports.dst);
+}
+
 export function unpack_ethernet_frame(frame: Uint8Array): TEthernetFrame {
   const $ = new DataView(frame.buffer, frame.byteOffset);
 
