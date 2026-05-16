@@ -36,6 +36,10 @@ export function hexdump(data: Uint8Array) {
   return [...data].map((d) => d.toString(16).padStart(2, "0")).join(" ");
 }
 
+export function parse_hexdump(data: string) {
+  return new Uint8Array(data.split(/\s+/).map((d) => parseInt(d, 16)));
+}
+
 export function formatMAC(mac: bigint) {
   return mac.toString(16).padStart(12, "0").match(/(..)/g)?.join(":");
 }

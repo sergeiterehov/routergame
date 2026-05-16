@@ -4,3 +4,4 @@
 - Утилита trace
 - TCP socket
 - Полноценный net socket
+- Туннель: IPIP, EoIP, ?WireGuard

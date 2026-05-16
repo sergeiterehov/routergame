@@ -1,6 +1,11 @@
 export type TEthernetFrame = {
   dst: bigint;
   src: bigint;
+  tag?: {
+    pcp: number;
+    dei: number;
+    vid: number;
+  };
   etherType: number;
   payload: Uint8Array;
 };
@@ -13,6 +18,8 @@ export const IP_PROTOCOLS = {
 
 export const MAC_BROADCAST = 0xffffffffffffn;
 export const IP_BROADCAST = 0xffffffff;
+
+const ETHER_TAG = 0x8100;
 
 export const ETHER_TYPES = {
   IPv4: 0x0800,
@@ -94,22 +101,47 @@ export function mac_to_bytes(mac: bigint) {
 export function unpack_ethernet_frame(frame: Uint8Array): TEthernetFrame {
   const $ = new DataView(frame.buffer, frame.byteOffset);
 
-  return {
+  const obj: TEthernetFrame = {
     dst: $.getBigUint64(0) >> 16n,
     src: $.getBigUint64(6) >> 16n,
-    etherType: $.getUint16(12),
-    payload: frame.subarray(14),
+    etherType: 0,
+    payload: null as unknown as Uint8Array,
   };
+
+  const type = $.getUint16(12);
+  let offset = 12;
+
+  if (type === ETHER_TAG) {
+    offset += 2;
+    const tag = $.getUint16(offset);
+    offset += 2;
+
+    obj.tag = {
+      pcp: (tag >> 13) & 0b111,
+      dei: (tag >> 12) & 0b1,
+      vid: tag & 0xfff,
+    };
+  }
+
+  obj.etherType = $.getUint16(offset);
+  obj.payload = frame.subarray(offset + 2);
+
+  return obj;
 }
 
 export function pack_ethernet_frame(obj: TEthernetFrame): Uint8Array {
-  const frame = new Uint8Array(14 + obj.payload.length);
+  const tag_shift = obj.tag !== undefined ? 4 : 0;
+  const frame = new Uint8Array(14 + tag_shift + obj.payload.length);
   const $ = new DataView(frame.buffer);
 
   $.setBigUint64(0, obj.dst << 16n);
   $.setBigUint64(6, obj.src << 16n);
-  $.setUint16(12, obj.etherType);
-  frame.set(obj.payload, 14);
+  if (obj.tag !== undefined) {
+    $.setUint16(12, ETHER_TAG);
+    $.setUint16(14, ((obj.tag.pcp & 0b111) << 13) | ((obj.tag.dei & 0b1) << 12) | (obj.tag.vid & 0xfff));
+  }
+  $.setUint16(12 + tag_shift, obj.etherType);
+  frame.set(obj.payload, 14 + tag_shift);
 
   return frame;
 }
