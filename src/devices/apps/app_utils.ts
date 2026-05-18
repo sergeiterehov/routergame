@@ -10,13 +10,7 @@ export function test_args(args: string[], ...ps: (string | ((arg: string) => unk
 }
 
 export function has_arg(args: string[], key: string) {
-  for (let i = 0; i < args.length - 1; i++) {
-    if (args[i] === key && args[i + 1]) {
-      return true;
-    }
-  }
-
-  return false;
+  return args.includes(key);
 }
 
 export function find_arg(args: string[], key: string, initial: string = "") {

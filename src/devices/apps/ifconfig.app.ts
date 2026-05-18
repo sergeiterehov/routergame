@@ -398,13 +398,22 @@ export function br(os: OS, args: string[]) {
     return;
   }
 
-  if (test_args(args, "vlan", "on")) {
-    bridge.vlan_filtering = true;
-    return;
-  }
+  if (test_args(args, "set")) {
+    const _vlan = find_arg(args, "-v");
+    if (_vlan === "on") {
+      bridge.vlan_filtering = true;
+    } else if (_vlan === "off") {
+      bridge.vlan_filtering = false;
+    } else {
+      throw new Error("usage: -v on|off");
+    }
 
-  if (test_args(args, "vlan", "off")) {
-    bridge.vlan_filtering = false;
+    const _pvid = find_arg(args, "-p", "");
+    const pvid = _pvid ? Number(_pvid) : undefined;
+    if (pvid !== undefined && !_validate_vlan_id(pvid)) throw new Error("Invalid PVID");
+
+    if (pvid) bridge.pvid = pvid;
+
     return;
   }
 
