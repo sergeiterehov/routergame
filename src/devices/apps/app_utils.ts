@@ -9,6 +9,16 @@ export function test_args(args: string[], ...ps: (string | ((arg: string) => unk
   return true;
 }
 
+export function has_arg(args: string[], key: string) {
+  for (let i = 0; i < args.length - 1; i++) {
+    if (args[i] === key && args[i + 1]) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export function find_arg(args: string[], key: string, initial: string = "") {
   for (let i = 0; i < args.length - 1; i++) {
     if (args[i] === key && args[i + 1]) {
@@ -17,6 +27,19 @@ export function find_arg(args: string[], key: string, initial: string = "") {
   }
 
   return initial;
+}
+
+export function find_args(args: string[], key: string) {
+  const result: string[] = [];
+
+  for (let i = 0; i < args.length - 1; i++) {
+    if (args[i] === key && args[i + 1]) {
+      result.push(args[i + 1]);
+      i += 1;
+    }
+  }
+
+  return result;
 }
 
 export async function run_command_of(record: Record<string, { fn: () => unknown; desc: string }>, cmd: string) {

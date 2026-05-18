@@ -8,8 +8,9 @@ import {
   validate_ip,
   validate_mac,
 } from "../format";
+import type { TInterface } from "../os/net";
 import type { OS } from "../os/os";
-import { find_arg, test_args } from "./app_utils";
+import { find_arg, find_args, has_arg, test_args } from "./app_utils";
 
 function _get_iface(os: OS, name: string) {
   return os.net._interfaces.find((p) => p.name === name);
@@ -50,6 +51,42 @@ function _print_interfaces(os: OS) {
   for (let i = 0; i < os.net._interfaces.length; i++) {
     const iface = os.net._interfaces[i];
     _print_interface(os, iface.name);
+  }
+}
+
+function _print_bridge(os: OS, br_iface: TInterface) {
+  if (!br_iface || br_iface.type !== "bridge") return;
+
+  const bridge = os.net.br.get_bridge(br_iface.index);
+
+  os.print(`${br_iface.name} (VLAN=${bridge.vlan_filtering ? "ON" : "OFF"}, PVID=${bridge.pvid}):\n`);
+
+  for (const port of bridge.ports) {
+    const _iface = os.net.iface(port.iPort);
+
+    os.print(
+      `\t${_iface.name}: PVID=${port.pvid}, tagged=[${port.tagged.join(",")}], untagged=[${port.untagged.join(",")}]\n`,
+    );
+  }
+}
+
+function _validate_vlan_id(vid: number) {
+  return !Number.isNaN(vid) && vid > 0 && vid < 4095;
+}
+
+function _flush_interface(os: OS, iface: TInterface) {
+  iface.ips.splice(0);
+
+  for (let r = 0; r < os.net.ip4._routes.length; r += 1) {
+    if (os.net.ip4._routes[r].iInterface !== iface.index) continue;
+    os.net.ip4._routes.splice(r, 1);
+    r -= 1;
+  }
+
+  for (let a = 0; a < os.net.arp._table.length; a += 1) {
+    if (os.net.arp._table[a].iInterface !== iface.index) continue;
+    os.net.arp._table.splice(a, 1);
+    a -= 1;
   }
 }
 
@@ -292,14 +329,7 @@ export function br(os: OS, args: string[]) {
   if (!op) {
     for (const _br of os.net._interfaces) {
       if (_br.type !== "bridge") continue;
-      os.print(`${_br.name}:\n`);
-      const bridge = os.net.br.get_bridge(_br.index);
-
-      for (const port of bridge.ports) {
-        const _iface = os.net.iface(port.iPort);
-        if (_iface.iMasterInterface !== _br.index) continue;
-        os.print(`\t${_iface.name}\n`);
-      }
+      _print_bridge(os, _br);
     }
 
     return;
@@ -335,20 +365,7 @@ export function br(os: OS, args: string[]) {
       const bridge = os.net.br.get_bridge(br_iface.index);
 
       for (const port_iface of slaves) {
-        port_iface.ips.splice(0);
-
-        for (let r = 0; r < os.net.ip4._routes.length; r += 1) {
-          if (os.net.ip4._routes[r].iInterface !== port_iface.index) continue;
-          os.net.ip4._routes.splice(r, 1);
-          r -= 1;
-        }
-
-        for (let a = 0; a < os.net.arp._table.length; a += 1) {
-          if (os.net.arp._table[a].iInterface !== port_iface.index) continue;
-          os.net.arp._table.splice(a, 1);
-          a -= 1;
-        }
-
+        _flush_interface(os, port_iface);
         port_iface.iMasterInterface = br_iface.index;
 
         bridge.ports.push({
@@ -358,12 +375,97 @@ export function br(os: OS, args: string[]) {
           tagged: [],
         });
 
-        if (port_iface.mac !== undefined && br_iface.mac === 0n) br_iface.mac = port_iface.mac;
+        if (port_iface.mac !== undefined && br_iface.mac === 0n) {
+          br_iface.mac = port_iface.mac;
+        }
       }
 
       return;
     }
 
     return;
+  }
+
+  const _br_name = op;
+  const br_iface = os.net.iface_by_name(_br_name);
+  if (!br_iface) throw new Error(`Interface ${_br_name} not found`);
+  if (br_iface.type !== "bridge") throw new Error("Interface is not a bridge");
+
+  const bridge = os.net.br.get_bridge(br_iface.index);
+
+  if (!args.length) {
+    _print_bridge(os, br_iface);
+    return;
+  }
+
+  if (test_args(args, "vlan", "on")) {
+    bridge.vlan_filtering = true;
+    return;
+  }
+
+  if (test_args(args, "vlan", "off")) {
+    bridge.vlan_filtering = false;
+    return;
+  }
+
+  if (test_args(args, "add", Boolean)) {
+    const _port_name = args[1];
+    const port_iface = _get_iface(os, _port_name);
+    if (!port_iface) throw new Error(`Interface ${_port_name} not found`);
+
+    try {
+      if (os.net.br.get_port(port_iface.index)) throw new Error(`Interface ${_port_name} is already a port`);
+    } catch {
+      // ok
+    }
+
+    if (port_iface.iMasterInterface !== undefined) throw new Error(`Interface ${_port_name} is already a slave`);
+    if (port_iface.type === "bridge") throw new Error(`Interface ${_port_name} is a bridge`);
+
+    const tagged = find_args(args, "-t").map(Number);
+    if (!tagged.every(_validate_vlan_id)) throw new Error("Invalid tagged VLAN ID");
+    const untagged = find_args(args, "-u").map(Number);
+    if (!untagged.every(_validate_vlan_id)) throw new Error("Invalid untagged VLAN ID");
+
+    const _pvid = find_arg(args, "-p", bridge.pvid.toString());
+    const pvid = Number(_pvid);
+    if (!_validate_vlan_id(pvid)) throw new Error("Invalid PVID");
+
+    _flush_interface(os, port_iface);
+    port_iface.iMasterInterface = br_iface.index;
+
+    bridge.ports.push({
+      iPort: port_iface.index,
+      pvid,
+      untagged,
+      tagged,
+    });
+
+    if (port_iface.mac !== undefined && br_iface.mac === 0n) {
+      br_iface.mac = port_iface.mac;
+    }
+
+    return;
+  }
+
+  const port_name = args.shift()!;
+  const port_iface = _get_iface(os, port_name);
+  if (!port_iface) throw new Error(`Interface ${port_name} not found`);
+  const port = os.net.br.get_port(port_iface.index);
+  if (!bridge.ports.includes(port)) throw new Error(`Interface ${port_name} is not a port`);
+
+  if (test_args(args, "set")) {
+    const tagged = has_arg(args, "-t") ? find_args(args, "-t").map(Number) : undefined;
+    if (tagged && !tagged?.every(_validate_vlan_id)) throw new Error("Invalid tagged VLAN ID");
+    const untagged = has_arg(args, "-u") ? find_args(args, "-u").map(Number) : undefined;
+    if (untagged && !untagged?.every(_validate_vlan_id)) throw new Error("Invalid untagged VLAN ID");
+
+    const _pvid = find_arg(args, "-p", "");
+    const pvid = _pvid ? Number(_pvid) : undefined;
+    if (pvid !== undefined && !_validate_vlan_id(pvid)) throw new Error("Invalid PVID");
+
+    if (pvid) port.pvid = pvid;
+    if (tagged) port.tagged = tagged;
+    if (untagged) port.untagged = untagged;
   }
 }
