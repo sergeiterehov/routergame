@@ -77,7 +77,7 @@ export class SimpleEthernetDriver extends Driver {
     const dev = this._device;
 
     if (dev.received) {
-      this._os.net.handle_frame(this._iInterface, dev.received);
+      this._os.net.handle_raw_ingress(this._iInterface, dev.received);
       dev.received = undefined;
     }
 

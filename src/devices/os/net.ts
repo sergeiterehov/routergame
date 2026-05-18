@@ -17,7 +17,7 @@ export type TIP4 = { address: number; prefix: number };
 
 export type TInterface = {
   index: number;
-  type: "bridge" | "ethernet";
+  type: "ethernet" | "bridge" | "vlan";
   name: string;
   flags: {
     UP?: boolean;
@@ -67,8 +67,7 @@ export class Net {
     if (!iface.flags.UP) return;
 
     if (iface.type === "bridge") {
-      this.br.send(iface.index, frame.dst, frame);
-
+      this.br.send_frame(iface.index, frame.dst, frame);
       return;
     }
 
@@ -77,21 +76,26 @@ export class Net {
     driver.net_send_frame?.(iInterface, raw);
   }
 
-  handle_frame(iInterfaceOrigin: number, raw: Uint8Array) {
+  handle_raw_ingress(iInterface: number, raw: Uint8Array) {
     const frame = unpack_ethernet_frame(raw);
+    this.handle_frame(iInterface, frame);
+  }
+
+  handle_frame(iInterfaceOrigin: number, frame: TEthernetFrame) {
     const { dst, src, etherType } = frame;
 
-    let iface = this._interfaces[iInterfaceOrigin];
+    const iface = this._interfaces[iInterfaceOrigin];
 
     if (iface.iMasterInterface !== undefined) {
-      iface = this._interfaces[iface.iMasterInterface];
-    }
+      const master_iface = this._interfaces[iface.iMasterInterface];
 
-    if (iface.type === "bridge") {
-      this.br.fdb_update(iface.index, src, iInterfaceOrigin);
-
-      if (dst !== iface.mac) {
-        this.br.send(iface.index, dst, frame, iInterfaceOrigin);
+      if (master_iface.type === "bridge") {
+        if (iface.type === "vlan") {
+          // TODO: VLAN interface
+        } else {
+          this.br.handle_port_frame(master_iface, iInterfaceOrigin, frame);
+          return;
+        }
       }
     }
 
@@ -113,7 +117,7 @@ export class Net {
       // IPv4
       this.ip4.handle_packet(iface.index, packet);
     } else if (etherType === ETHER_TYPES.ARP) {
-      this.arp.handle(iface.index, raw);
+      this.arp.handle(iface.index, frame);
     }
   }
 }

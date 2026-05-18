@@ -293,7 +293,10 @@ export function br(os: OS, args: string[]) {
     for (const _br of os.net._interfaces) {
       if (_br.type !== "bridge") continue;
       os.print(`${_br.name}:\n`);
-      for (const _iface of os.net._interfaces) {
+      const bridge = os.net.br.get_bridge(_br.index);
+
+      for (const port of bridge.ports) {
+        const _iface = os.net.iface(port.iPort);
         if (_iface.iMasterInterface !== _br.index) continue;
         os.print(`\t${_iface.name}\n`);
       }
@@ -318,28 +321,44 @@ export function br(os: OS, args: string[]) {
       });
 
       const index = os.net.add_interface("bridge", name, -1);
-      const br = os.net._interfaces[index];
+      const br_iface = os.net.iface(index);
 
-      br.mac = 0n;
+      br_iface.mac = 0n;
 
-      for (const slave of slaves) {
-        slave.ips.splice(0);
+      os.net.br._bridges.push({
+        iBridge: br_iface.index,
+        ports: [],
+        pvid: os.net.br._default_pvid,
+        vlan_filtering: false,
+      });
+
+      const bridge = os.net.br.get_bridge(br_iface.index);
+
+      for (const port_iface of slaves) {
+        port_iface.ips.splice(0);
 
         for (let r = 0; r < os.net.ip4._routes.length; r += 1) {
-          if (os.net.ip4._routes[r].iInterface !== slave.index) continue;
+          if (os.net.ip4._routes[r].iInterface !== port_iface.index) continue;
           os.net.ip4._routes.splice(r, 1);
           r -= 1;
         }
 
         for (let a = 0; a < os.net.arp._table.length; a += 1) {
-          if (os.net.arp._table[a].iInterface !== slave.index) continue;
+          if (os.net.arp._table[a].iInterface !== port_iface.index) continue;
           os.net.arp._table.splice(a, 1);
           a -= 1;
         }
 
-        slave.iMasterInterface = br.index;
+        port_iface.iMasterInterface = br_iface.index;
 
-        if (slave.mac !== undefined && br.mac === 0n) br.mac = slave.mac;
+        bridge.ports.push({
+          iPort: port_iface.index,
+          pvid: bridge.pvid,
+          untagged: [],
+          tagged: [],
+        });
+
+        if (port_iface.mac !== undefined && br_iface.mac === 0n) br_iface.mac = port_iface.mac;
       }
 
       return;

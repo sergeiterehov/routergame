@@ -1,4 +1,11 @@
-import { ARP_OPCODES, ETHER_TYPES, MAC_BROADCAST, pack_arp_packet, type TEthernetFrame } from "../pack";
+import {
+  ARP_OPCODES,
+  ETHER_TYPES,
+  MAC_BROADCAST,
+  pack_arp_packet,
+  unpack_arp_packet,
+  type TEthernetFrame,
+} from "../pack";
 import type { Net } from "./net";
 import { OSChannel } from "./os";
 
@@ -84,37 +91,32 @@ export class ARP {
     });
   }
 
-  handle(iInterface: number, frame: Uint8Array) {
+  handle(iInterface: number, frame: TEthernetFrame) {
     const iface = this.net._interfaces[iInterface];
+    if (!iface.mac) return;
 
-    const view = new DataView(frame.buffer, frame.byteOffset);
-    const opcode = view.getUint16(20);
+    const arp = unpack_arp_packet(frame.payload);
+    const { opcode, src_mac, src_ip, dst_ip } = arp;
 
-    if (opcode === 0x0001) {
+    if (opcode === ARP_OPCODES.REQUEST) {
       // Request
-      if (!iface.mac) return;
-
-      const remote_mac = view.getBigUint64(6) >> 16n;
-      const remote_ip = view.getUint32(28);
-      const who_is_ip = view.getUint32(38);
-
       for (const _iface of this.net._interfaces) {
         for (const _ip of _iface.ips) {
-          if (_ip.address === who_is_ip) {
+          if (_ip.address === dst_ip) {
             const frame: TEthernetFrame = {
-              dst: remote_mac,
+              dst: src_mac,
               src: iface.mac,
               etherType: ETHER_TYPES.ARP,
               payload: pack_arp_packet({
-                hwType: 0x0001,
+                hwType: ARP_OPCODES.REPLY,
                 protoType: ETHER_TYPES.IPv4,
                 hwSize: 6,
                 protoSize: 4,
                 opcode: ARP_OPCODES.REPLY,
                 src_mac: iface.mac,
-                src_ip: who_is_ip,
-                dst_mac: remote_mac,
-                dst_ip: remote_ip,
+                src_ip: _ip.address,
+                dst_mac: src_mac,
+                dst_ip: src_ip,
               }),
             };
 
@@ -124,14 +126,11 @@ export class ARP {
           }
         }
       }
-    } else if (opcode === 0x0002) {
+    } else if (opcode === ARP_OPCODES.REPLY) {
       // Reply
-      const mac = view.getBigUint64(22) >> 16n;
-      const ip = view.getUint32(28);
-
       let arp: TArpRecord | undefined;
       for (const _arp of this._table) {
-        if (_arp.iInterface === iInterface && _arp.ip === ip) {
+        if (_arp.iInterface === iInterface && _arp.ip === src_ip) {
           arp = _arp;
           break;
         }
@@ -139,12 +138,12 @@ export class ARP {
       if (!arp) return;
 
       arp.state = "success";
-      arp.mac = mac;
+      arp.mac = src_mac;
       arp.expiresAt = Date.now() + ARP_TTL_MS;
 
       this._channel.postMessage("success");
 
-      this.net.ip4.process_queue(iInterface, ip);
+      this.net.ip4.process_queue(iInterface, src_ip);
     }
   }
 
