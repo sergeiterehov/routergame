@@ -7,9 +7,11 @@ import {
   IconTopologyBus,
   IconTerminal2,
   IconSwitch3,
+  IconCopy,
 } from "@tabler/icons-react";
 import { observer } from "mobx-react-lite";
 import { store, TOOL } from "./state/store";
+import { toJS } from "mobx";
 
 function Separator() {
   return <div className="border-l border-black/5 m-1" />;
@@ -133,6 +135,18 @@ export const Tools = observer(function Tools() {
         }}
       >
         <IconLayoutSidebarRight stroke="1" size="24" />
+      </Btn>
+      <Separator />
+      <Btn
+        data-gray
+        title="Copy architecture to clipboard"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          navigator.clipboard.writeText(JSON.stringify(toJS(store.arch)));
+        }}
+      >
+        <IconCopy stroke="1" size="24" />
       </Btn>
     </div>
   );
