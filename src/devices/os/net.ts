@@ -13,6 +13,13 @@ import { IP4 } from "./ip4";
 import { Socket } from "./socket";
 import { ARP } from "./arp";
 
+export const NET_ERRORS = {
+  NO_ROUTE: 1,
+  ACCESS: 2,
+  UNREACHABLE: 3,
+  BAD_PROTOCOL: 4,
+} as const;
+
 export type TIP4 = { address: number; prefix: number };
 
 export type TInterface = {

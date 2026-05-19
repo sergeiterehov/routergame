@@ -102,11 +102,17 @@ export async function dhcpd(os: OS, args: string[]) {
     }
   }
 
-  const socket: TSocket = {
+  const socket: TSocket & { protocol: "udp" } = {
     ip: 0,
     protocol: "udp",
     port: 67,
-    on_data: (payload, ip, port, _iface) => {
+    error: 0,
+    recv: [],
+    on_wake_up: () => {
+      const recv = socket.recv.shift();
+      if (!recv) return;
+
+      const { data: payload, iface: _iface } = recv;
       if (iface.index !== _iface.index) return;
 
       const packet = unpack_dhcp_packet(payload);
@@ -436,11 +442,17 @@ export async function dhcp(os: OS, args: string[]) {
     }
   }
 
-  const socket: TSocket = {
+  const socket: TSocket & { protocol: "udp" } = {
     ip: 0,
     protocol: "udp",
     port: 68,
-    on_data: (payload, ip, port, _iface) => {
+    error: 0,
+    recv: [],
+    on_wake_up: () => {
+      const recv = socket.recv.shift();
+      if (!recv) return;
+
+      const { data: payload, iface: _iface } = recv;
       if (iface.index !== _iface.index) return;
 
       const packet = unpack_dhcp_packet(payload);

@@ -1,7 +1,7 @@
-- VLAN interface
 - Сохранение архитектуры
 - Корректные icmp ответы по ошибкам
 - Утилита trace
 - TCP socket
 - Полноценный net socket
 - Туннель: IPIP, EoIP, ?WireGuard
+- Правила FW на базе меток у пакета (состояние соединения, related для icmp error)

@@ -67,7 +67,8 @@ export async function ping(os: OS, args: string[]) {
         }),
       };
 
-      os.net.ip4.send_raw(ip, packet);
+      const err_send = os.net.ip4.send_raw(ip, packet);
+      if (err_send) throw new Error(`Failed to send packet: err=${err_send}`);
 
       const start = Date.now();
 
@@ -170,18 +171,34 @@ export async function nc(os: OS, args: string[]) {
     os.print(`Listening ${params.port ? `port ${params.port}` : "RAW"} on ${formatIPv4(ip)}:\n`);
 
     if (!params.port) {
-      os.net.socket._sockets.push({ protocol: "raw", ip: 0, on_data: (data) => print(data.payload) });
+      const sock: TSocket & { protocol: "raw" } = {
+        protocol: "raw",
+        ip: 0,
+        error: 0,
+        recv: [],
+        on_wake_up: () => {
+          for (const res of sock.recv) print(res.packet.payload);
+          sock.recv.splice(0);
+        },
+      };
+      os.net.socket._sockets.push(sock);
     } else {
       const port = parseInt(params.port);
 
       if (!flags.u) throw new Error("Only UDP is supported for listening");
 
-      os.net.socket._sockets.push({
+      const sock: TSocket & { protocol: "udp" } = {
         protocol: "udp",
         ip,
         port,
-        on_data: (data) => print(data),
-      });
+        error: 0,
+        recv: [],
+        on_wake_up: () => {
+          for (const res of sock.recv) print(res.data);
+          sock.recv.splice(0);
+        },
+      };
+      os.net.socket._sockets.push(sock);
     }
 
     await new Promise(() => null);
@@ -191,7 +208,7 @@ export async function nc(os: OS, args: string[]) {
     if (!flags.u) throw new Error("Only UDP is supported");
 
     const source_ip = config.s ? parseIPv4(config.s) : 0;
-    const source_port = config.p ? parseInt(config.p) : 0;
+    const source_port = config.p ? parseInt(config.p) : Math.round(1 + Math.random() * 0xfff0);
 
     const ip = params.ip ? parseIPv4(params.ip) : 0;
     const port = parseInt(params.port);
@@ -200,11 +217,16 @@ export async function nc(os: OS, args: string[]) {
       protocol: "udp",
       ip: source_ip,
       port: source_port,
-      on_data: () => null,
+      recv: [],
+      error: 0,
+      on_wake_up: () => {
+        if (sock.error) os.print(`Socket error: ${sock.error}\n`);
+      },
     };
     os.net.socket._sockets.push(sock);
 
-    os.net.socket.send_udp(sock, new TextEncoder().encode(config.w), ip, port);
+    const err_send = os.net.socket.send_udp(sock, new TextEncoder().encode(config.w), ip, port);
+    if (err_send) throw new Error(`Send error: ${err_send}`);
 
     os.net.socket._sockets.splice(os.net.socket._sockets.indexOf(sock), 1);
   }

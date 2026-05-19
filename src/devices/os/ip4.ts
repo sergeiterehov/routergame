@@ -1,6 +1,7 @@
-import type { Net, TInterface } from "./net";
+import { NET_ERRORS, type Net, type TInterface } from "./net";
 import {
   ETHER_TYPES,
+  ICMP_TYPES,
   IP_BROADCAST,
   IP_PROTOCOLS,
   pack_icmp_packet,
@@ -62,9 +63,9 @@ export class IP4 {
     // Forwarding
     if (!this._forwarding) return;
 
-    if (this.fw.handle_chain(FW_CHAINS.FORWARD, packet, fw_context)) return;
-
     if (ttl <= 1) return this._icmp_send_time_exceeded(iInterface, packet, fw_context);
+
+    if (this.fw.handle_chain(FW_CHAINS.FORWARD, packet, fw_context)) return;
 
     const route = this.route(dst);
     if (!route) return;
@@ -74,11 +75,11 @@ export class IP4 {
     this._send_packet(route.iInterface, route.gateway, packet, fw_context);
   }
 
-  private _send_packet(iInterface: number, ip: number, packet: TIP4Packet, fw_context: TPacketContext) {
+  private _send_packet(iInterface: number, ip: number, packet: TIP4Packet, fw_context: TPacketContext): number {
     fw_context.out = iInterface;
 
     const route_iface = this.net._interfaces[iInterface];
-    if (route_iface.mac === undefined) return;
+    if (route_iface.mac === undefined) return NET_ERRORS.NO_ROUTE;
 
     this._channel.postMessage({ direction: "out", iInterface, packet });
 
@@ -92,7 +93,7 @@ export class IP4 {
     }
     if (local_iface) {
       setTimeout(() => this.handle_packet(local_iface.index, packet));
-      return;
+      return 0;
     }
 
     const src_mac = route_iface.mac;
@@ -118,10 +119,10 @@ export class IP4 {
       }
     }
 
-    if (dst_mac === -3n) return;
+    if (dst_mac === -3n) return NET_ERRORS.UNREACHABLE;
 
-    if (this.fw.handle_chain(FW_CHAINS.POST_ROUTING, packet, fw_context)) return;
-    if (this.fw.handle_chain(FW_CHAINS.SRC_NAT, packet, fw_context)) return;
+    if (this.fw.handle_chain(FW_CHAINS.POST_ROUTING, packet, fw_context)) return NET_ERRORS.ACCESS;
+    if (this.fw.handle_chain(FW_CHAINS.SRC_NAT, packet, fw_context)) return NET_ERRORS.ACCESS;
 
     const frame: TEthernetFrame = {
       dst: dst_mac,
@@ -136,24 +137,26 @@ export class IP4 {
     } else {
       this.net.send_frame(iInterface, frame);
     }
+
+    return 0;
   }
 
-  send_raw(dst_ip: number, packet: TIP4Packet) {
+  send_raw(dst_ip: number, packet: TIP4Packet): number {
     const { src } = packet.header;
 
     const fw_context: TPacketContext = {};
 
-    if (this.fw.handle_chain(FW_CHAINS.OUTPUT, packet, fw_context)) return;
+    if (this.fw.handle_chain(FW_CHAINS.OUTPUT, packet, fw_context)) return NET_ERRORS.ACCESS;
 
     const route = this.route(dst_ip);
-    if (!route) return;
+    if (!route) return NET_ERRORS.NO_ROUTE;
 
     if (src <= 0) packet.header.src = route.src;
 
-    this._send_packet(route.iInterface, route.gateway, packet, fw_context);
+    return this._send_packet(route.iInterface, route.gateway, packet, fw_context);
   }
 
-  send(dst_ip: number, protocol: number, payload: Uint8Array, src_ip?: number) {
+  send(dst_ip: number, protocol: number, payload: Uint8Array, src_ip?: number): number {
     const packet: TIP4Packet = {
       header: {
         version: 4,
@@ -173,7 +176,7 @@ export class IP4 {
       payload,
     };
 
-    this.send_raw(dst_ip, packet);
+    return this.send_raw(dst_ip, packet);
   }
 
   route(dst: number) {
@@ -232,7 +235,7 @@ export class IP4 {
 
     // TODO: types 0,3,8
 
-    if (icmp.type === 8) {
+    if (icmp.type === ICMP_TYPES.ECHO_REQUEST) {
       const reply = pack_icmp_packet({
         type: 0,
         code: 0,
@@ -242,10 +245,18 @@ export class IP4 {
       });
 
       this.send(packet.header.src, IP_PROTOCOLS.ICMP, reply, packet.header.dst);
+    } else if (icmp.type === ICMP_TYPES.DEST_UNREACHABLE || icmp.type === ICMP_TYPES.TIME_EXCEEDED) {
+      this.net.socket.handle_icmp_error(iInterface, icmp);
     }
   }
 
   private _icmp_send_time_exceeded(iInterface: number, packet: TIP4Packet, fw_context: TPacketContext) {
+    // storm protection
+    if (packet.header.protocol === IP_PROTOCOLS.ICMP) {
+      const icmp = unpack_icmp_packet(packet.payload);
+      if (icmp.type === ICMP_TYPES.TIME_EXCEEDED) return;
+    }
+
     const { src } = packet.header;
 
     const route = this.route(src);
@@ -268,11 +279,11 @@ export class IP4 {
         checksum: 0,
       },
       payload: pack_icmp_packet({
-        type: 11,
+        type: ICMP_TYPES.TIME_EXCEEDED,
         code: 0,
         checksum: 0,
         data: new Uint8Array(4),
-        payload: pack_ip4_packet({ ...packet, payload: new Uint8Array() }),
+        payload: pack_ip4_packet({ ...packet, payload: packet.payload.slice(0, 8) }),
       }),
     };
 
