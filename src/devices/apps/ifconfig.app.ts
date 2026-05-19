@@ -68,6 +68,16 @@ function _print_bridge(os: OS, br_iface: TInterface) {
       `\t${_iface.name}: PVID=${port.pvid}, tagged=[${port.tagged.join(",")}], untagged=[${port.untagged.join(",")}]\n`,
     );
   }
+
+  if (bridge.vlans.length) {
+    os.print("\tVLANS:\n");
+
+    for (const vlan of bridge.vlans) {
+      const _iface = os.net.iface(vlan.iVlan);
+
+      os.print(`\t\t${_iface.name}: PVID=${vlan.vid}\n`);
+    }
+  }
 }
 
 function _validate_vlan_id(vid: number) {
@@ -110,8 +120,6 @@ export function iface(os: OS, args: string[]) {
   if (!op) return _print_interface(os, name);
 
   if (op === "add" || op === "del") {
-    if (iface.iMasterInterface !== undefined) throw new Error("Interface is slave");
-
     const ip = args.shift();
     if (!ip) throw new Error(`Usage: ${name} ${op} <ip/prefix>`);
     if (!validate_address(ip)) throw new Error(`Invalid address ${ip}`);
@@ -324,9 +332,7 @@ export function route(os: OS, args: string[]) {
 }
 
 export function br(os: OS, args: string[]) {
-  const op = args.shift();
-
-  if (!op) {
+  if (!args.length) {
     for (const _br of os.net._interfaces) {
       if (_br.type !== "bridge") continue;
       _print_bridge(os, _br);
@@ -335,58 +341,57 @@ export function br(os: OS, args: string[]) {
     return;
   }
 
-  if (op === "add") {
-    if (test_args(args, Boolean)) {
-      const name = args.shift()!;
-      for (const _br of os.net._interfaces) {
-        if (_br.name === name) throw new Error("Bridge already exists");
-      }
+  if (test_args(args, "add", Boolean)) {
+    args.shift();
 
-      const slaves = args.map((_name) => {
-        const _slave = _get_iface(os, _name);
-        if (!_slave) throw new Error(`Interface ${_name} not found`);
-        if (_slave.iMasterInterface !== undefined) throw new Error(`Interface ${_name} is already a slave`);
-        if (_slave.type === "bridge") throw new Error(`Interface ${_name} is a bridge`);
-        return _slave;
+    const name = args.shift()!;
+    for (const _br of os.net._interfaces) {
+      if (_br.name === name) throw new Error("Bridge already exists");
+    }
+
+    const slaves = args.map((_name) => {
+      const _slave = _get_iface(os, _name);
+      if (!_slave) throw new Error(`Interface ${_name} not found`);
+      if (_slave.iMasterInterface !== undefined) throw new Error(`Interface ${_name} is already a slave`);
+      if (_slave.type === "bridge") throw new Error(`Interface ${_name} is a bridge`);
+      return _slave;
+    });
+
+    const index = os.net.add_interface("bridge", name, -1);
+    const br_iface = os.net.iface(index);
+
+    br_iface.mac = 0n;
+
+    os.net.br._bridges.push({
+      iBridge: br_iface.index,
+      ports: [],
+      vlans: [],
+      pvid: os.net.br._default_vlan_id,
+      vlan_filtering: false,
+    });
+
+    const bridge = os.net.br.get_bridge(br_iface.index);
+
+    for (const port_iface of slaves) {
+      _flush_interface(os, port_iface);
+      port_iface.iMasterInterface = br_iface.index;
+
+      bridge.ports.push({
+        iPort: port_iface.index,
+        pvid: bridge.pvid,
+        untagged: [],
+        tagged: [],
       });
 
-      const index = os.net.add_interface("bridge", name, -1);
-      const br_iface = os.net.iface(index);
-
-      br_iface.mac = 0n;
-
-      os.net.br._bridges.push({
-        iBridge: br_iface.index,
-        ports: [],
-        pvid: os.net.br._default_pvid,
-        vlan_filtering: false,
-      });
-
-      const bridge = os.net.br.get_bridge(br_iface.index);
-
-      for (const port_iface of slaves) {
-        _flush_interface(os, port_iface);
-        port_iface.iMasterInterface = br_iface.index;
-
-        bridge.ports.push({
-          iPort: port_iface.index,
-          pvid: bridge.pvid,
-          untagged: [],
-          tagged: [],
-        });
-
-        if (port_iface.mac !== undefined && br_iface.mac === 0n) {
-          br_iface.mac = port_iface.mac;
-        }
+      if (port_iface.mac !== undefined && br_iface.mac === 0n) {
+        br_iface.mac = port_iface.mac;
       }
-
-      return;
     }
 
     return;
   }
 
-  const _br_name = op;
+  const _br_name = args.shift()!;
   const br_iface = os.net.iface_by_name(_br_name);
   if (!br_iface) throw new Error(`Interface ${_br_name} not found`);
   if (br_iface.type !== "bridge") throw new Error("Interface is not a bridge");
@@ -453,6 +458,27 @@ export function br(os: OS, args: string[]) {
     if (port_iface.mac !== undefined && br_iface.mac === 0n) {
       br_iface.mac = port_iface.mac;
     }
+
+    return;
+  }
+
+  if (test_args(args, "vlan", "add", Boolean)) {
+    args.splice(0, 2);
+
+    const vlan_name = args.shift()!;
+    if (_get_iface(os, vlan_name)) throw new Error(`Interface ${vlan_name} already exists`);
+
+    const _vid = find_arg(args, "-v", bridge.pvid.toString());
+    const vid = Number(_vid);
+    if (!_validate_vlan_id(vid)) throw new Error("Invalid VLAN ID");
+
+    if (bridge.vlans.some((v) => v.vid === vid)) throw new Error(`VLAN ${vid} already exists`);
+
+    const vlan_iface_index = os.net.add_interface("vlan", vlan_name, -1);
+    const vlan_iface = os.net.iface(vlan_iface_index);
+    vlan_iface.iMasterInterface = br_iface.index;
+    vlan_iface.mac = br_iface.mac;
+    bridge.vlans.push({ iVlan: vlan_iface.index, vid });
 
     return;
   }

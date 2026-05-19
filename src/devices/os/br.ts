@@ -3,12 +3,19 @@ import type { Net, TInterface } from "./net";
 
 const _FDB_TTL = 60_000;
 
-export type TBridge = { iBridge: number; ports: TBridgePort[]; vlan_filtering: boolean; pvid: number };
+export type TBridge = {
+  iBridge: number;
+  ports: TBridgePort[];
+  vlans: TBridgeVlan[];
+  vlan_filtering: boolean;
+  pvid: number;
+};
 export type TBridgePort = { iPort: number; pvid: number; untagged: number[]; tagged: number[] };
+export type TBridgeVlan = { iVlan: number; vid: number };
 export type TBridgeFDB = { iBridge: number; mac: bigint; vid?: number; iPort: number; expiresAt: number };
 
 export class Bridge {
-  _default_pvid = 1;
+  _default_vlan_id = 1;
 
   _bridges: TBridge[] = [];
 
@@ -22,20 +29,23 @@ export class Bridge {
     this._fdb_actualize();
   }
 
-  send_frame(iBridge: number, mac: bigint, frame: TEthernetFrame, iSourcePort?: number) {
+  br_send_frame(iBridge: number, frame: TEthernetFrame, iSourcePort?: number) {
     const bridge = this.get_bridge(iBridge);
 
     if (bridge.vlan_filtering) {
       if (!frame.tag) {
-        frame.tag = {
-          dei: 0,
-          pcp: 0,
-          vid: bridge.pvid,
+        frame = {
+          ...frame,
+          tag: {
+            dei: 0,
+            pcp: 0,
+            vid: bridge.pvid,
+          },
         };
       }
     }
 
-    const iLearnedPort = this._fdb_resolve(iBridge, mac, bridge.vlan_filtering ? bridge.pvid : undefined);
+    const iLearnedPort = this._fdb_resolve(iBridge, frame.dst, bridge.vlan_filtering ? bridge.pvid : undefined);
     if (iLearnedPort !== undefined) {
       return this._send_frame_to_port(iBridge, iLearnedPort, frame);
     }
@@ -50,64 +60,74 @@ export class Bridge {
     }
   }
 
-  private _send_frame_to_port(iBridge: number, iPort: number, frame: TEthernetFrame) {
-    const bridge = this.get_bridge(iBridge);
+  br_handle_frame(br_iface: TInterface, port_iface: TInterface, frame: TEthernetFrame) {
+    const bridge = this.get_bridge(br_iface.index);
 
     if (bridge.vlan_filtering) {
-      const port = this.get_port(iPort);
-
-      if (frame.tag) {
-        if (frame.tag.vid !== port.pvid) return;
-
-        if (port.tagged.includes(frame.tag.vid)) {
-          // keep tag
-        } else if (port.untagged.includes(frame.tag.vid)) {
-          delete frame.tag;
-        } else {
-          return;
-        }
-      }
-    }
-
-    this.net.send_frame(iPort, frame);
-  }
-
-  handle_port_frame(br: TInterface, iPort: number, frame: TEthernetFrame) {
-    const bridge = this.get_bridge(br.index);
-
-    if (bridge.vlan_filtering) {
-      const port = this.get_port(iPort);
+      const port = this.get_port(port_iface.index);
 
       if (!frame.tag) {
-        frame.tag = {
-          dei: 0,
-          pcp: 0,
-          vid: port.pvid,
+        frame = {
+          ...frame,
+          tag: {
+            dei: 0,
+            pcp: 0,
+            vid: port.pvid,
+          },
         };
       }
 
-      if (!port.untagged.includes(frame.tag.vid) && !port.tagged.includes(frame.tag.vid)) {
+      if (!port.untagged.includes(frame.tag!.vid) && !port.tagged.includes(frame.tag!.vid)) {
         return;
       }
     }
 
     const { dst, src } = frame;
 
-    this._fdb_update(br.index, src, iPort, bridge.vlan_filtering ? frame.tag!.vid : undefined);
+    this._fdb_update(br_iface.index, src, port_iface.index, bridge.vlan_filtering ? frame.tag!.vid : undefined);
 
-    // to port
-    const port_iface = this.net.iface(iPort);
-    if (dst === port_iface.mac) {
-      this.net.handle_frame(br.index, frame);
+    // to vlan
+    if (bridge.vlan_filtering) {
+      for (const _vlan of bridge.vlans) {
+        if (frame.tag!.vid !== _vlan.vid) continue;
+        const vlan_iface = this.net.iface(_vlan.iVlan);
+        if (dst === vlan_iface.mac) {
+          this.net.handle_frame(vlan_iface.index, frame);
+          return;
+        }
+      }
+    }
+
+    // to port -> to bridge
+    if (dst === br_iface.mac) {
+      this.net.handle_frame(br_iface.index, frame);
       return;
     }
 
     // broadcast
     if (dst === MAC_BROADCAST) {
-      this.net.handle_frame(br.index, frame);
+      this.net.handle_frame(br_iface.index, frame);
     }
 
-    this.send_frame(br.index, dst, frame, iPort);
+    this.br_send_frame(br_iface.index, frame, port_iface.index);
+  }
+
+  vlan_send_frame(iVlan: number, frame: TEthernetFrame) {
+    const vlan = this.get_vlan(iVlan);
+
+    const vlan_iface = this.net.iface(iVlan);
+    const br_iface = this.net.iface(vlan_iface.iMasterInterface!);
+
+    frame = {
+      ...frame,
+      tag: {
+        dei: 0,
+        pcp: 0,
+        vid: vlan.vid,
+      },
+    };
+
+    this.br_send_frame(br_iface.index, frame);
   }
 
   get_bridge(iBridge: number) {
@@ -126,6 +146,37 @@ export class Bridge {
       }
     }
     throw new Error("Port not found");
+  }
+
+  get_vlan(iVlan: number) {
+    for (const _bridge of this._bridges) {
+      for (const _vlan of _bridge.vlans) {
+        if (_vlan.iVlan === iVlan) {
+          return _vlan;
+        }
+      }
+    }
+    throw new Error("Vlan not found");
+  }
+
+  private _send_frame_to_port(iBridge: number, iPort: number, frame: TEthernetFrame) {
+    const bridge = this.get_bridge(iBridge);
+
+    if (bridge.vlan_filtering) {
+      const port = this.get_port(iPort);
+
+      if (frame.tag) {
+        if (port.tagged.includes(frame.tag.vid)) {
+          // keep tag
+        } else if (port.untagged.includes(frame.tag.vid)) {
+          frame = { ...frame, tag: undefined };
+        } else {
+          return;
+        }
+      }
+    }
+
+    this.net.send_frame(iPort, frame);
   }
 
   private _fdb_update(iBridge: number, mac: bigint, iPort: number, vid?: number) {

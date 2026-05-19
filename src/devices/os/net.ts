@@ -67,7 +67,12 @@ export class Net {
     if (!iface.flags.UP) return;
 
     if (iface.type === "bridge") {
-      this.br.send_frame(iface.index, frame.dst, frame);
+      this.br.br_send_frame(iface.index, frame);
+      return;
+    }
+
+    if (iface.type === "vlan") {
+      this.br.vlan_send_frame(iface.index, frame);
       return;
     }
 
@@ -82,18 +87,20 @@ export class Net {
   }
 
   handle_frame(iInterfaceOrigin: number, frame: TEthernetFrame) {
-    const { dst, src, etherType } = frame;
-
     const iface = this._interfaces[iInterfaceOrigin];
+
+    if (!iface.flags.UP) return;
+
+    const { dst, src, etherType } = frame;
 
     if (iface.iMasterInterface !== undefined) {
       const master_iface = this._interfaces[iface.iMasterInterface];
 
       if (master_iface.type === "bridge") {
         if (iface.type === "vlan") {
-          // TODO: VLAN interface
+          delete frame.tag;
         } else {
-          this.br.handle_port_frame(master_iface, iInterfaceOrigin, frame);
+          this.br.br_handle_frame(master_iface, iface, frame);
           return;
         }
       }
