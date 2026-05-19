@@ -109,6 +109,9 @@ export class Net {
     // reject if not our mac or broadcast
     if (dst !== iface.mac && dst !== MAC_BROADCAST) return;
 
+    // common interfaces do not handle tagged frames
+    if (frame.tag) return;
+
     if (etherType === ETHER_TYPES.IPv4) {
       const packet = unpack_ip4_packet(frame.payload);
 

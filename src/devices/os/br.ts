@@ -91,22 +91,39 @@ export class Bridge {
       for (const _vlan of bridge.vlans) {
         if (frame.tag!.vid !== _vlan.vid) continue;
         const vlan_iface = this.net.iface(_vlan.iVlan);
+
         if (dst === vlan_iface.mac) {
-          this.net.handle_frame(vlan_iface.index, frame);
+          this.net.handle_frame(vlan_iface.index, {
+            ...frame,
+            tag: undefined,
+          });
           return;
+        }
+
+        if (dst === MAC_BROADCAST) {
+          this.net.handle_frame(vlan_iface.index, {
+            ...frame,
+            tag: undefined,
+          });
         }
       }
     }
 
     // to port -> to bridge
     if (dst === br_iface.mac) {
-      this.net.handle_frame(br_iface.index, frame);
+      this.net.handle_frame(br_iface.index, {
+        ...frame,
+        tag: undefined,
+      });
       return;
     }
 
     // broadcast
     if (dst === MAC_BROADCAST) {
-      this.net.handle_frame(br_iface.index, frame);
+      this.net.handle_frame(br_iface.index, {
+        ...frame,
+        tag: undefined,
+      });
     }
 
     this.br_send_frame(br_iface.index, frame, port_iface.index);
