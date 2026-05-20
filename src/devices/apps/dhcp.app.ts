@@ -1,7 +1,6 @@
 import { formatIPv4, formatMAC, formatTime, maskToPrefix, parseIPv4, prefixToMask, validate_ip } from "../format";
 import type { TInterface } from "../os/net";
 import type { OS } from "../os/os";
-import type { TSocket } from "../os/socket";
 import {
   DHCP_OPS,
   DHCP_OPTIONS,
@@ -102,159 +101,157 @@ export async function dhcpd(os: OS, args: string[]) {
     }
   }
 
-  const socket: TSocket & { protocol: "udp" } = {
+  const socket = os.net.socket.create("udp", {
     ip: 0,
-    protocol: "udp",
     port: 67,
-    error: 0,
-    recv: [],
-    on_wake_up: () => {
-      const recv = socket.recv.shift();
-      if (!recv) return;
+  });
 
-      const { data: payload, iface: _iface } = recv;
-      if (iface.index !== _iface.index) return;
+  socket.on_error = (error) => os.print(`Socket error: ${error}\n`);
 
-      const packet = unpack_dhcp_packet(payload);
+  socket.on_data = (recv) => {
+    const { data: payload, iface: _iface } = recv;
+    if (iface.index !== _iface.index) return;
 
-      const client_mac =
-        new DataView(packet.header.chaddr.buffer, packet.header.chaddr.byteOffset).getBigUint64(0) >> 16n;
+    const packet = unpack_dhcp_packet(payload);
 
-      let leasing = leases.find((lease) => lease.iface === iface && lease.mac === client_mac);
+    const client_mac =
+      new DataView(packet.header.chaddr.buffer, packet.header.chaddr.byteOffset).getBigUint64(0) >> 16n;
 
-      function get_options() {
-        const options: TDhcpPacket["header"]["options"] = [
-          { type: DHCP_OPTIONS.SUBNET_MASK, data: uint32(prefixToMask(server_ip.prefix)) },
-          { type: DHCP_OPTIONS.SERVER_ID, data: uint32(server_ip.address) },
-          { type: DHCP_OPTIONS.LEASE_TIME, data: uint32(LEASE_TIME_S) },
-        ];
+    let leasing = leases.find((lease) => lease.iface === iface && lease.mac === client_mac);
 
-        if (gateway_ip >= 0) {
-          options.push({ type: DHCP_OPTIONS.ROUTER, data: uint32(gateway_ip) });
-        }
+    function get_options() {
+      const options: TDhcpPacket["header"]["options"] = [
+        { type: DHCP_OPTIONS.SUBNET_MASK, data: uint32(prefixToMask(server_ip.prefix)) },
+        { type: DHCP_OPTIONS.SERVER_ID, data: uint32(server_ip.address) },
+        { type: DHCP_OPTIONS.LEASE_TIME, data: uint32(LEASE_TIME_S) },
+      ];
 
-        return options;
+      if (gateway_ip >= 0) {
+        options.push({ type: DHCP_OPTIONS.ROUTER, data: uint32(gateway_ip) });
       }
 
-      function send_offer() {
-        if (iface.mac === undefined) return;
-        if (!leasing) return;
+      return options;
+    }
 
-        os.net.send_frame(iface.index, {
-          dst: client_mac,
-          src: iface.mac,
-          etherType: ETHER_TYPES.IPv4,
-          payload: pack_ip4_packet({
+    function send_offer() {
+      if (iface.mac === undefined) return;
+      if (!leasing) return;
+
+      os.net.send_frame(iface.index, {
+        dst: client_mac,
+        src: iface.mac,
+        etherType: ETHER_TYPES.IPv4,
+        payload: pack_ip4_packet({
+          header: {
+            version: 4,
+            dst: IP_BROADCAST,
+            src: server_ip.address,
+            protocol: IP_PROTOCOLS.UDP,
+            ttl: 64,
+            checksum: 0,
+            flags: 0,
+            id: 0,
+            ihl: 0,
+            length: 0,
+            offset: 0,
+            options: [],
+            tos: 0,
+          },
+          payload: pack_udp_packet({
             header: {
-              version: 4,
-              dst: IP_BROADCAST,
-              src: server_ip.address,
-              protocol: IP_PROTOCOLS.UDP,
-              ttl: 64,
-              checksum: 0,
-              flags: 0,
-              id: 0,
-              ihl: 0,
+              src: 67,
+              dst: 68,
               length: 0,
-              offset: 0,
-              options: [],
-              tos: 0,
+              checksum: 0,
             },
-            payload: pack_udp_packet({
+            payload: pack_dhcp_packet({
               header: {
-                src: 67,
-                dst: 68,
-                length: 0,
-                checksum: 0,
+                ...packet.header,
+                op: DHCP_OPS.REPLY,
+                yiaddr: leasing.ip,
+                options: [
+                  { type: DHCP_OPTIONS.MESSAGE_TYPE, data: new Uint8Array([DHCP_TYPES.OFFER]) },
+                  ...get_options(),
+                ],
               },
-              payload: pack_dhcp_packet({
-                header: {
-                  ...packet.header,
-                  op: DHCP_OPS.REPLY,
-                  yiaddr: leasing.ip,
-                  options: [
-                    { type: DHCP_OPTIONS.MESSAGE_TYPE, data: new Uint8Array([DHCP_TYPES.OFFER]) },
-                    ...get_options(),
-                  ],
-                },
-              }),
             }),
           }),
-        });
-      }
+        }),
+      });
+    }
 
-      function send_ack() {
-        if (iface.mac === undefined) return;
-        if (!leasing) return;
+    function send_ack() {
+      if (iface.mac === undefined) return;
+      if (!leasing) return;
 
-        os.net.send_frame(iface.index, {
-          dst: client_mac,
-          src: iface.mac,
-          etherType: ETHER_TYPES.IPv4,
-          payload: pack_ip4_packet({
+      os.net.send_frame(iface.index, {
+        dst: client_mac,
+        src: iface.mac,
+        etherType: ETHER_TYPES.IPv4,
+        payload: pack_ip4_packet({
+          header: {
+            version: 4,
+            dst: IP_BROADCAST,
+            src: server_ip.address,
+            protocol: IP_PROTOCOLS.UDP,
+            ttl: 64,
+            checksum: 0,
+            flags: 0,
+            id: 0,
+            ihl: 0,
+            length: 0,
+            offset: 0,
+            options: [],
+            tos: 0,
+          },
+          payload: pack_udp_packet({
             header: {
-              version: 4,
-              dst: IP_BROADCAST,
-              src: server_ip.address,
-              protocol: IP_PROTOCOLS.UDP,
-              ttl: 64,
-              checksum: 0,
-              flags: 0,
-              id: 0,
-              ihl: 0,
+              src: 67,
+              dst: 68,
               length: 0,
-              offset: 0,
-              options: [],
-              tos: 0,
+              checksum: 0,
             },
-            payload: pack_udp_packet({
+            payload: pack_dhcp_packet({
               header: {
-                src: 67,
-                dst: 68,
-                length: 0,
-                checksum: 0,
+                ...packet.header,
+                op: DHCP_OPS.REPLY,
+                yiaddr: leasing.ip,
+                options: [
+                  { type: DHCP_OPTIONS.MESSAGE_TYPE, data: new Uint8Array([DHCP_TYPES.ACK]) },
+                  ...get_options(),
+                ],
               },
-              payload: pack_dhcp_packet({
-                header: {
-                  ...packet.header,
-                  op: DHCP_OPS.REPLY,
-                  yiaddr: leasing.ip,
-                  options: [
-                    { type: DHCP_OPTIONS.MESSAGE_TYPE, data: new Uint8Array([DHCP_TYPES.ACK]) },
-                    ...get_options(),
-                  ],
-                },
-              }),
             }),
           }),
-        });
-      }
+        }),
+      });
+    }
 
-      const type = get_option(DHCP_OPTIONS.MESSAGE_TYPE, packet)?.[0];
+    const type = get_option(DHCP_OPTIONS.MESSAGE_TYPE, packet)?.[0];
 
-      if (type === DHCP_TYPES.DISCOVER) {
-        if (!leasing) leasing = addr_allocate(client_mac);
-        send_offer();
-      } else if (type === DHCP_TYPES.REQUEST) {
-        if (leasing) {
-          const requested_ip_opt = get_option(DHCP_OPTIONS.REQUESTED_IP, packet);
-          const server_id_opt = get_option(DHCP_OPTIONS.SERVER_ID, packet);
-          if (requested_ip_opt && server_id_opt) {
-            const requested_ip = new DataView(requested_ip_opt.buffer, requested_ip_opt.byteOffset).getUint32(0);
-            const server_id = new DataView(server_id_opt.buffer, server_id_opt.byteOffset).getUint32(0);
-            if (requested_ip === leasing.ip && server_id === server_ip.address) {
-              leasing.expiresAt = Date.now() + LEASE_TIME_S * 1_000;
-              send_ack();
-            }
+    if (type === DHCP_TYPES.DISCOVER) {
+      if (!leasing) leasing = addr_allocate(client_mac);
+      send_offer();
+    } else if (type === DHCP_TYPES.REQUEST) {
+      if (leasing) {
+        const requested_ip_opt = get_option(DHCP_OPTIONS.REQUESTED_IP, packet);
+        const server_id_opt = get_option(DHCP_OPTIONS.SERVER_ID, packet);
+        if (requested_ip_opt && server_id_opt) {
+          const requested_ip = new DataView(requested_ip_opt.buffer, requested_ip_opt.byteOffset).getUint32(0);
+          const server_id = new DataView(server_id_opt.buffer, server_id_opt.byteOffset).getUint32(0);
+          if (requested_ip === leasing.ip && server_id === server_ip.address) {
+            leasing.expiresAt = Date.now() + LEASE_TIME_S * 1_000;
+            send_ack();
           }
         }
       }
-    },
+    }
   };
-  os.net.socket._sockets.push(socket);
 
   os.print("DHCP server started\n");
   await new Promise(() => null);
+
+  os.net.socket.delete(socket);
   server_started = false;
 }
 
@@ -442,64 +439,65 @@ export async function dhcp(os: OS, args: string[]) {
     }
   }
 
-  const socket: TSocket & { protocol: "udp" } = {
+  const socket = os.net.socket.create("udp", {
     ip: 0,
-    protocol: "udp",
     port: 68,
-    error: 0,
-    recv: [],
-    on_wake_up: () => {
-      const recv = socket.recv.shift();
-      if (!recv) return;
+  });
 
-      const { data: payload, iface: _iface } = recv;
-      if (iface.index !== _iface.index) return;
+  socket.on_error = (error) => os.print(`Socket error: ${error}\n`);
 
-      const packet = unpack_dhcp_packet(payload);
-      if (packet.header.xid !== xid) return;
+  try {
+    await new Promise((resolve, reject) => {
+      socket.on_error = (e) => reject(new Error(`Socket error: ${e}`));
+      socket.on_data = (recv) => {
+        const { data: payload, iface: _iface } = recv;
+        if (iface.index !== _iface.index) return;
 
-      const type_opt = get_option(DHCP_OPTIONS.MESSAGE_TYPE, packet);
-      if (!type_opt) return;
-      const type = type_opt[0];
+        const packet = unpack_dhcp_packet(payload);
+        if (packet.header.xid !== xid) return;
 
-      if (state === "discovering") {
-        if (type === DHCP_TYPES.OFFER) {
-          requested_ip = packet.header.yiaddr;
-          save_options(packet);
+        const type_opt = get_option(DHCP_OPTIONS.MESSAGE_TYPE, packet);
+        if (!type_opt) return;
+        const type = type_opt[0];
 
-          if (server_id !== -1 && mask !== -1 && lease_time !== -1) {
-            state = "requesting";
-            refresh_xid();
-            send_request();
+        if (state === "discovering") {
+          if (type === DHCP_TYPES.OFFER) {
+            requested_ip = packet.header.yiaddr;
+            save_options(packet);
+
+            if (server_id !== -1 && mask !== -1 && lease_time !== -1) {
+              state = "requesting";
+              refresh_xid();
+              send_request();
+            } else {
+              reset(); // FIXME:
+            }
+          }
+        } else if (state === "requesting") {
+          if (type === DHCP_TYPES.ACK) {
+            save_options(packet);
+
+            os.exec("iface", [iface.name, "add", `${formatIPv4(packet.header.yiaddr)}/${maskToPrefix(mask)}`]);
+            os.exec("route", ["add", `${formatIPv4(packet.header.yiaddr)}/${maskToPrefix(mask)}`, "dev", iface.name]);
+
+            if (router !== -1) {
+              os.exec("route", ["add", "default", "via", formatIPv4(router)]);
+            }
+
+            state = "leasing";
           } else {
             reset(); // FIXME:
           }
-        }
-      } else if (state === "requesting") {
-        if (type === DHCP_TYPES.ACK) {
-          save_options(packet);
-
-          os.exec("iface", [iface.name, "add", `${formatIPv4(packet.header.yiaddr)}/${maskToPrefix(mask)}`]);
-          os.exec("route", ["add", `${formatIPv4(packet.header.yiaddr)}/${maskToPrefix(mask)}`, "dev", iface.name]);
-
-          if (router !== -1) {
-            os.exec("route", ["add", "default", "via", formatIPv4(router)]);
-          }
-
-          state = "leasing";
         } else {
-          reset(); // FIXME:
+          // FIXME:
         }
-      } else {
-        // FIXME:
-      }
-    },
-  };
-  os.net.socket._sockets.push(socket);
+      };
 
-  state = "discovering";
-  refresh_xid();
-  send_discover();
-
-  await new Promise(() => null);
+      state = "discovering";
+      refresh_xid();
+      send_discover();
+    });
+  } finally {
+    os.net.socket.delete(socket);
+  }
 }

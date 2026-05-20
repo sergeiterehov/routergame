@@ -14,6 +14,7 @@ import { OSChannel } from "./os";
 import { testSameNetwork } from "../format";
 import { Tracker } from "./tracker";
 import { Firewall, FW_CHAINS, type TPacketContext } from "./fw";
+import type { TSocket } from "./socket";
 
 export type TRoute = { network: number; prefix: number; gateway?: number; iInterface: number; src?: number };
 
@@ -21,7 +22,7 @@ export class IP4 {
   _forwarding = true;
   _default_ttl = 64;
 
-  _queue: { iInterface: number; ip: number; frame: TEthernetFrame }[] = [];
+  _buffer: { iInterface: number; ip: number; frame: TEthernetFrame; socket?: TSocket }[] = [];
   _routes: TRoute[] = [];
   _channel = new OSChannel<{ direction: "in" | "out"; iInterface: number; packet: TIP4Packet }>();
 
@@ -56,7 +57,7 @@ export class IP4 {
     if (_input) {
       if (this.fw.handle_chain(FW_CHAINS.INPUT, packet, fw_context)) return;
 
-      this.handle_protocol(iInterface, packet);
+      this._handle_protocol(iInterface, packet);
       return;
     }
 
@@ -72,10 +73,16 @@ export class IP4 {
 
     packet.header.ttl -= 1;
 
-    this._send_packet(route.iInterface, route.gateway, packet, fw_context);
+    this._send_packet(route.iInterface, route.gateway, packet, fw_context, undefined);
   }
 
-  private _send_packet(iInterface: number, ip: number, packet: TIP4Packet, fw_context: TPacketContext): number {
+  private _send_packet(
+    iInterface: number,
+    ip: number,
+    packet: TIP4Packet,
+    fw_context: TPacketContext,
+    socket: TSocket | undefined,
+  ): number {
     fw_context.out = iInterface;
 
     const route_iface = this.net._interfaces[iInterface];
@@ -132,7 +139,7 @@ export class IP4 {
     };
 
     if (dst_mac < 0n) {
-      this._queue.push({ iInterface, ip, frame });
+      this._buffer.push({ iInterface, ip, frame, socket });
       if (dst_mac === -1n) this.net.arp.send_request(iInterface, ip);
     } else {
       this.net.send_frame(iInterface, frame);
@@ -141,7 +148,7 @@ export class IP4 {
     return 0;
   }
 
-  send_raw(dst_ip: number, packet: TIP4Packet): number {
+  send_raw(dst_ip: number, packet: TIP4Packet, socket: TSocket | undefined): number {
     const { src } = packet.header;
 
     const fw_context: TPacketContext = {};
@@ -153,10 +160,10 @@ export class IP4 {
 
     if (src <= 0) packet.header.src = route.src;
 
-    return this._send_packet(route.iInterface, route.gateway, packet, fw_context);
+    return this._send_packet(route.iInterface, route.gateway, packet, fw_context, socket);
   }
 
-  send(dst_ip: number, protocol: number, payload: Uint8Array, src_ip?: number): number {
+  send(socket: TSocket | undefined, dst_ip: number, protocol: number, payload: Uint8Array, src_ip?: number): number {
     const packet: TIP4Packet = {
       header: {
         version: 4,
@@ -176,7 +183,7 @@ export class IP4 {
       payload,
     };
 
-    return this.send_raw(dst_ip, packet);
+    return this.send_raw(dst_ip, packet, socket);
   }
 
   route(dst: number) {
@@ -204,33 +211,49 @@ export class IP4 {
     return { ...route, gateway: route.gateway ?? dst, src };
   }
 
-  process_queue(iInterface: number, ip: number) {
-    for (let i = 0; i < this._queue.length; i++) {
-      const record = this._queue[i];
-      if (record.iInterface === iInterface && record.ip === ip) {
-        const dst_mac = this.net.arp.resolve(iInterface, ip);
-        if (dst_mac < 0n) continue;
+  buffer_process(iInterface: number, ip: number) {
+    const arp = this.net.arp.get_record(iInterface, ip);
 
-        const { frame } = record;
-        frame.dst = dst_mac;
+    // arp probe failed, drop
+    if (!arp || arp.state === "fail") {
+      for (let i = this._buffer.length - 1; i >= 0; i -= 1) {
+        const record = this._buffer[i];
+        if (record.iInterface !== iInterface || record.ip !== ip) continue;
 
-        this.net.send_frame(record.iInterface, frame);
+        this._buffer.splice(i, 1);
+        record.socket?.on_error?.(NET_ERRORS.UNREACHABLE);
       }
+
+      return;
+    }
+
+    // arp has not final state
+    if (arp.state !== "success") return;
+
+    for (let i = this._buffer.length - 1; i >= 0; i -= 1) {
+      const record = this._buffer[i];
+      if (record.iInterface !== iInterface || record.ip !== ip) continue;
+
+      const { frame } = record;
+      frame.dst = arp.mac;
+
+      this._buffer.splice(i, 1);
+      this.net.send_frame(record.iInterface, frame);
     }
   }
 
-  handle_protocol(iInterface: number, packet: TIP4Packet) {
+  private _handle_protocol(iInterface: number, packet: TIP4Packet) {
     this._channel.postMessage({ direction: "in", iInterface, packet });
 
     // icmp
     if (packet.header.protocol === IP_PROTOCOLS.ICMP) {
-      this.icmp_handle(iInterface, packet);
+      this._icmp_handle(iInterface, packet);
     }
 
     this.net.socket.handle_packet(iInterface, packet);
   }
 
-  icmp_handle(iInterface: number, packet: TIP4Packet) {
+  private _icmp_handle(iInterface: number, packet: TIP4Packet) {
     const icmp = unpack_icmp_packet(packet.payload);
 
     // TODO: types 0,3,8
@@ -244,7 +267,7 @@ export class IP4 {
         payload: icmp.payload,
       });
 
-      this.send(packet.header.src, IP_PROTOCOLS.ICMP, reply, packet.header.dst);
+      this.send(undefined, packet.header.src, IP_PROTOCOLS.ICMP, reply, packet.header.dst);
     } else if (icmp.type === ICMP_TYPES.DEST_UNREACHABLE || icmp.type === ICMP_TYPES.TIME_EXCEEDED) {
       this.net.socket.handle_icmp_error(iInterface, icmp);
     }
@@ -287,6 +310,6 @@ export class IP4 {
       }),
     };
 
-    this._send_packet(iInterface, route.gateway, response, fw_context);
+    this._send_packet(iInterface, route.gateway, response, fw_context, undefined);
   }
 }

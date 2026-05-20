@@ -67,7 +67,7 @@ export async function ping(os: OS, args: string[]) {
         }),
       };
 
-      const err_send = os.net.ip4.send_raw(ip, packet);
+      const err_send = os.net.ip4.send_raw(ip, packet, undefined);
       if (err_send) throw new Error(`Failed to send packet: err=${err_send}`);
 
       const start = Date.now();
@@ -167,41 +167,33 @@ export async function nc(os: OS, args: string[]) {
 
   if (flags.l) {
     const ip = params.ip ? parseIPv4(params.ip) : 0;
-
-    os.print(`Listening ${params.port ? `port ${params.port}` : "RAW"} on ${formatIPv4(ip)}:\n`);
+    let sock: TSocket;
 
     if (!params.port) {
-      const sock: TSocket & { protocol: "raw" } = {
-        protocol: "raw",
+      sock = os.net.socket.create("raw", {
         ip: 0,
-        error: 0,
-        recv: [],
-        on_wake_up: () => {
-          for (const res of sock.recv) print(res.packet.payload);
-          sock.recv.splice(0);
-        },
-      };
-      os.net.socket._sockets.push(sock);
+        on_data: (recv) => print(recv.packet.payload),
+      });
     } else {
       const port = parseInt(params.port);
 
       if (!flags.u) throw new Error("Only UDP is supported for listening");
 
-      const sock: TSocket & { protocol: "udp" } = {
-        protocol: "udp",
+      sock = os.net.socket.create("udp", {
         ip,
         port,
-        error: 0,
-        recv: [],
-        on_wake_up: () => {
-          for (const res of sock.recv) print(res.data);
-          sock.recv.splice(0);
-        },
-      };
-      os.net.socket._sockets.push(sock);
+        on_data: (recv) => print(recv.data),
+      });
     }
 
-    await new Promise(() => null);
+    os.print(`Listening ${params.port ? `port ${params.port}` : "RAW"} on ${formatIPv4(ip)}:\n`);
+    try {
+      await new Promise((resolve, reject) => {
+        sock.on_error = (e) => reject(new Error(`Socket error: ${e}`));
+      });
+    } finally {
+      os.net.socket.delete(sock);
+    }
   } else {
     if (!params.ip || !params.port) throw new Error("Missing ip and port");
 
@@ -213,21 +205,20 @@ export async function nc(os: OS, args: string[]) {
     const ip = params.ip ? parseIPv4(params.ip) : 0;
     const port = parseInt(params.port);
 
-    const sock: TSocket = {
-      protocol: "udp",
+    const sock = os.net.socket.create("udp", {
       ip: source_ip,
       port: source_port,
-      recv: [],
-      error: 0,
-      on_wake_up: () => {
-        if (sock.error) os.print(`Socket error: ${sock.error}\n`);
-      },
-    };
-    os.net.socket._sockets.push(sock);
+    });
 
-    const err_send = os.net.socket.send_udp(sock, new TextEncoder().encode(config.w), ip, port);
-    if (err_send) throw new Error(`Send error: ${err_send}`);
+    try {
+      const err_send = os.net.socket.send_udp(sock, new TextEncoder().encode(config.w), ip, port);
+      if (err_send) throw new Error(`Send error: ${err_send}`);
 
-    os.net.socket._sockets.splice(os.net.socket._sockets.indexOf(sock), 1);
+      await new Promise((resolve, reject) => {
+        sock.on_error = (e) => reject(new Error(`Socket error ${e}`));
+      });
+    } finally {
+      os.net.socket.delete(sock);
+    }
   }
 }

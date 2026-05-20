@@ -36,7 +36,7 @@ export async function arp(os: OS, args: string[]) {
 
     const dl = os.deadline(1000);
     while (dl.left) {
-      mac = os.net.arp.resolve(iface_index, who_ip);
+      mac = os.net.arp.get_record(iface_index, who_ip);
       if (mac !== -1n) break;
       const [, err] = await os.channel_sync(os.net.arp._channel, dl);
       if (err) throw err;

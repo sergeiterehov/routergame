@@ -10,12 +10,14 @@ import { NET_ERRORS, type Net, type TInterface } from "./net";
 
 export type TSocket = {
   ip: number;
-  error: number;
-  on_wake_up: () => void;
+  on_error?: (error: number) => void;
 } & (
-  | { protocol: "raw"; recv: { packet: TIP4Packet; ip: number; iface: TInterface }[] }
-  | { protocol: "icmp"; recv: { data: Uint8Array; ip: number; iface: TInterface }[] }
-  | { protocol: "udp"; port: number; recv: { data: Uint8Array; ip: number; port: number; iface: TInterface }[] }
+  | { protocol: "raw"; on_data?: (recv: { packet: TIP4Packet; ip: number; iface: TInterface }) => void }
+  | {
+      protocol: "udp";
+      port: number;
+      on_data?: (recv: { data: Uint8Array; ip: number; port: number; iface: TInterface }) => void;
+    }
 );
 
 export class Socket {
@@ -23,10 +25,26 @@ export class Socket {
 
   constructor(public readonly net: Net) {}
 
-  send_raw(socket: TSocket, packet: TIP4Packet) {
-    if (socket.protocol !== "raw") return;
+  create<P extends TSocket["protocol"]>(
+    protocol: P,
+    config: Omit<TSocket & { protocol: P }, "protocol">,
+  ): TSocket & { protocol: P } {
+    const socket = { ...config, protocol } as TSocket & { protocol: P };
 
-    return this.net.ip4.send_raw(packet.header.dst, packet);
+    this._sockets.push(socket);
+
+    return socket;
+  }
+
+  delete(socket: TSocket) {
+    const index = this._sockets.indexOf(socket);
+    if (index === -1) this._sockets.splice(index, 1);
+  }
+
+  send_raw(socket: TSocket, packet: TIP4Packet): number {
+    if (socket.protocol !== "raw") return NET_ERRORS.BAD_PROTOCOL;
+
+    return this.net.ip4.send_raw(packet.header.dst, packet, socket);
   }
 
   send_udp(socket: TSocket, data: Uint8Array, ip: number, port: number): number {
@@ -34,7 +52,7 @@ export class Socket {
 
     const payload = pack_udp_packet({ header: { dst: port, src: socket.port, length: 0, checksum: 0 }, payload: data });
 
-    return this.net.ip4.send(ip, IP_PROTOCOLS.UDP, payload);
+    return this.net.ip4.send(socket, ip, IP_PROTOCOLS.UDP, payload);
   }
 
   handle_packet(iInterface: number, packet: TIP4Packet) {
@@ -43,19 +61,11 @@ export class Socket {
     for (const socket of this._sockets) {
       if (socket.ip !== 0 && socket.ip !== packet.header.dst) continue;
       if (socket.protocol === "raw") {
-        socket.error = 0;
-        socket.recv.push({ packet, ip: packet.header.src, iface });
-        socket.on_wake_up();
-      } else if (packet.header.protocol === IP_PROTOCOLS.ICMP && socket.protocol === "icmp") {
-        socket.error = 0;
-        socket.recv.push({ data: packet.payload, ip: packet.header.src, iface });
-        socket.on_wake_up();
+        socket.on_data?.({ packet, ip: packet.header.src, iface });
       } else if (socket.protocol === "udp" && packet.header.protocol === IP_PROTOCOLS.UDP) {
         const udp = unpack_udp_packet(packet.payload);
         if (socket.port === udp.header.dst) {
-          socket.error = 0;
-          socket.recv.push({ data: udp.payload, ip: packet.header.src, port: udp.header.src, iface });
-          socket.on_wake_up();
+          socket.on_data?.({ data: udp.payload, ip: packet.header.src, port: udp.header.src, iface });
         }
       }
     }
@@ -67,17 +77,13 @@ export class Socket {
     for (const socket of this._sockets) {
       if (socket.ip !== 0 && socket.ip !== src_packet.header.src) continue;
 
-      if (src_packet.header.protocol === IP_PROTOCOLS.ICMP && socket.protocol === "icmp") {
-        socket.error = icmp.type;
-        socket.on_wake_up();
-      } else if (socket.protocol === "udp" && src_packet.header.protocol === IP_PROTOCOLS.UDP) {
+      if (socket.protocol === "udp" && src_packet.header.protocol === IP_PROTOCOLS.UDP) {
         const src_udp = unpack_udp_packet(src_packet.payload);
         if (socket.port === src_udp.header.src) {
-          socket.error = icmp.type;
-          socket.on_wake_up();
+          socket.on_error?.(icmp.type);
         }
       }
-      // TODO: tcp always use udp structure
+      // TODO: tcp also use udp structure
     }
   }
 }

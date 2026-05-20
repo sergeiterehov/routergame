@@ -178,7 +178,7 @@ async function _add(os: OS, args: string[]) {
   const dst_arg = find_arg(args, "-dst");
   if (dst_arg) {
     if (!validate_ip(dst_arg)) throw new Error(`Invalid dst IP address ${dst_arg}`);
-    predicate.src = parseIPv4(dst_arg);
+    predicate.dst = parseIPv4(dst_arg);
   }
 
   const to_ip = find_arg(args, "-to-ip");

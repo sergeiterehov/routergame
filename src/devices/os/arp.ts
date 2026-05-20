@@ -30,8 +30,8 @@ export class ARP {
     setInterval(this._timer_handle_1s.bind(this), 1000);
   }
 
-  _timer_handle_1s() {
-    this.actualize();
+  private _timer_handle_1s() {
+    this._actualize();
   }
 
   send_request(iInterface: number, ip: number) {
@@ -143,23 +143,19 @@ export class ARP {
 
       this._channel.postMessage("success");
 
-      this.net.ip4.process_queue(iInterface, src_ip);
+      this.net.ip4.buffer_process(iInterface, src_ip);
     }
   }
 
-  resolve(iInterface: number, ip: number) {
+  get_record(iInterface: number, ip: number) {
     for (const _entry of this._table) {
       if (_entry.iInterface === iInterface && _entry.ip === ip) {
-        if (_entry.state === "success") {
-          return _entry.mac;
-        }
+        return _entry;
       }
     }
-
-    return -1n;
   }
 
-  actualize() {
+  private _actualize() {
     const now = Date.now();
     let failed = 0;
     let removed = 0;
@@ -170,6 +166,9 @@ export class ARP {
         if (arp.state === "pending") {
           arp.state = "fail";
           arp.expiresAt = now + ARP_RETRY_MS;
+
+          this.net.ip4.buffer_process(arp.iInterface, arp.ip);
+
           failed += 1;
         } else {
           this._table.splice(i, 1);
