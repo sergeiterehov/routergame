@@ -101,14 +101,12 @@ export async function dhcpd(os: OS, args: string[]) {
     }
   }
 
-  const socket = os.net.socket.create("udp", {
-    ip: 0,
-    port: 67,
-  });
+  const socket = os.net.socket.create("udp");
+  os.net.socket.bind(socket, 0, 67);
 
   socket.on_error = (error) => os.print(`Socket error: ${error}\n`);
 
-  socket.on_data = (recv) => {
+  socket.on_udp_recv = (recv) => {
     const { data: payload, iface: _iface } = recv;
     if (iface.index !== _iface.index) return;
 
@@ -439,17 +437,15 @@ export async function dhcp(os: OS, args: string[]) {
     }
   }
 
-  const socket = os.net.socket.create("udp", {
-    ip: 0,
-    port: 68,
-  });
+  const socket = os.net.socket.create("udp");
+  os.net.socket.bind(socket, 0, 68);
 
   socket.on_error = (error) => os.print(`Socket error: ${error}\n`);
 
   try {
     await new Promise((resolve, reject) => {
       socket.on_error = (e) => reject(new Error(`Socket error: ${e}`));
-      socket.on_data = (recv) => {
+      socket.on_udp_recv = (recv) => {
         const { data: payload, iface: _iface } = recv;
         if (iface.index !== _iface.index) return;
 

@@ -170,20 +170,17 @@ export async function nc(os: OS, args: string[]) {
     let sock: TSocket;
 
     if (!params.port) {
-      sock = os.net.socket.create("raw", {
-        ip: 0,
-        on_data: (recv) => print(recv.packet.payload),
-      });
+      sock = os.net.socket.create("raw");
+      os.net.socket.bind(sock, 0, 0);
+      sock.on_raw_recv = (recv) => print(recv.packet.payload);
     } else {
       const port = parseInt(params.port);
 
       if (!flags.u) throw new Error("Only UDP is supported for listening");
 
-      sock = os.net.socket.create("udp", {
-        ip,
-        port,
-        on_data: (recv) => print(recv.data),
-      });
+      sock = os.net.socket.create("udp");
+      os.net.socket.bind(sock, ip, port);
+      sock.on_udp_recv = (recv) => print(recv.data);
     }
 
     os.print(`Listening ${params.port ? `port ${params.port}` : "RAW"} on ${formatIPv4(ip)}:\n`);
@@ -205,13 +202,12 @@ export async function nc(os: OS, args: string[]) {
     const ip = params.ip ? parseIPv4(params.ip) : 0;
     const port = parseInt(params.port);
 
-    const sock = os.net.socket.create("udp", {
-      ip: source_ip,
-      port: source_port,
-    });
+    const sock = os.net.socket.create("udp");
+    os.net.socket.bind(sock, source_ip, source_port);
+    os.net.socket.connect(sock, ip, port);
 
     try {
-      const err_send = os.net.socket.send_udp(sock, new TextEncoder().encode(config.w), ip, port);
+      const err_send = os.net.socket.send_udp(sock, new TextEncoder().encode(config.w));
       if (err_send) throw new Error(`Send error: ${err_send}`);
 
       await new Promise((resolve, reject) => {
