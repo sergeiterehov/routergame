@@ -33,14 +33,33 @@ export class Socket {
     return socket;
   }
 
-  bind(socket: TSocket, ip: number, port: number) {
+  bind(socket: TSocket, ip: number, port: number): number {
     socket.src_ip = ip;
     socket.src_port = port;
+
+    if (socket.src_port !== 0 && socket.type !== "raw") {
+      for (const _sock of this._sockets) {
+        if (_sock === socket) continue;
+        if (_sock.type === socket.type && _sock.src_port === socket.src_port) {
+          return NET_ERRORS.PORT_BUSY;
+        }
+      }
+    }
+
+    return 0;
   }
 
-  connect(socket: TSocket, ip: number, port: number) {
+  connect(socket: TSocket, ip: number, port: number): number {
     socket.dst_ip = ip;
     socket.dst_port = port;
+
+    const route = this.net.ip4.route(ip);
+    if (!route) return NET_ERRORS.NO_ROUTE;
+
+    if (socket.src_ip === 0) socket.src_ip = route.src;
+    if (socket.src_port === 0) this._allocate_port(socket);
+
+    return 0;
   }
 
   delete(socket: TSocket) {
@@ -69,7 +88,7 @@ export class Socket {
   send_udp_to(socket: TSocket, ip: number, port: number, data: Uint8Array): number {
     if (socket.type !== "udp") return NET_ERRORS.BAD_PROTOCOL;
 
-    // TODO: randomize src_port here?
+    if (socket.src_port === 0) this._allocate_port(socket);
 
     const payload = pack_udp_packet({
       header: { dst: port, src: socket.src_port, length: 0, checksum: 0 },
@@ -129,6 +148,12 @@ export class Socket {
         }
       }
       // TODO: tcp also use udp structure
+    }
+  }
+
+  private _allocate_port(socket: TSocket) {
+    if (socket.type === "udp") {
+      socket.src_port = Math.round(1 + Math.random() * 0xfff0);
     }
   }
 }

@@ -18,6 +18,7 @@ export const NET_ERRORS = {
   ACCESS: 2,
   UNREACHABLE: 3,
   BAD_PROTOCOL: 4,
+  PORT_BUSY: 5,
 } as const;
 
 export type TIP4 = { address: number; prefix: number };
