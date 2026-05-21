@@ -106,7 +106,7 @@ export async function dhcpd(os: OS, args: string[]) {
 
   socket.on_error = (error) => os.print(`Socket error: ${error}\n`);
 
-  socket.on_udp_recv = (recv) => {
+  socket.on_recv = (recv) => {
     const { data: payload, iface: _iface } = recv;
     if (iface.index !== _iface.index) return;
 
@@ -445,7 +445,7 @@ export async function dhcp(os: OS, args: string[]) {
   try {
     await new Promise((resolve, reject) => {
       socket.on_error = (e) => reject(new Error(`Socket error: ${e}`));
-      socket.on_udp_recv = (recv) => {
+      socket.on_recv = (recv) => {
         const { data: payload, iface: _iface } = recv;
         if (iface.index !== _iface.index) return;
 

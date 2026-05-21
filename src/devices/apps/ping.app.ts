@@ -188,7 +188,7 @@ export async function nc(os: OS, args: string[]) {
         err = os.net.socket.bind(sock, ip, port);
         if (err) throw new Error(`Bind error ${err}`);
 
-        sock.on_udp_recv = (recv) => print(recv.data);
+        sock.on_recv = (recv) => print(recv.data);
       }
 
       os.print(`Listening ${params.port ? `port ${params.port}` : "RAW"} on ${formatIPv4(ip)}:\n`);
@@ -221,7 +221,7 @@ export async function nc(os: OS, args: string[]) {
       if (err) throw new Error(`Connect error ${err}`);
 
       if (config.w) {
-        err = os.net.socket.send_udp(sock, new TextEncoder().encode(config.w));
+        err = os.net.socket.send(sock, new TextEncoder().encode(config.w));
         if (err) throw new Error(`Send error: ${err}`);
       }
 
