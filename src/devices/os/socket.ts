@@ -12,8 +12,6 @@ import {
 } from "../pack";
 import { NET_ERRORS, type Net, type TInterface } from "./net";
 
-const _INSTANT_CLOSING = true;
-
 export type TSocket = {
   type: "raw" | "udp" | "tcp";
   protocol: number;
@@ -46,6 +44,8 @@ export type TSocket = {
 };
 
 export class Socket {
+  _3_way_closing = true;
+
   _sockets: TSocket[] = [];
 
   constructor(public readonly net: Net) {}
@@ -59,8 +59,8 @@ export class Socket {
       src_ip: 0,
       src_port: 0,
       state: "closed",
-      snd_una: 0,
-      snd_nxt: 0,
+      snd_una: 1000,
+      snd_nxt: 1000,
       rcv_nxt: 0,
       snd_wnd: 0,
       rcv_wnd: 0,
@@ -114,6 +114,8 @@ export class Socket {
         socket.state = "closed";
         return err;
       }
+
+      socket.snd_nxt += 1;
       socket.state = "syn_sent";
     }
 
@@ -173,7 +175,7 @@ export class Socket {
   }
 
   handle_packet(iInterface: number, packet: TIP4Packet) {
-    const iface = this.net._interfaces[iInterface];
+    const iface = this.net.iface(iInterface);
 
     for (const socket of this._sockets) {
       if (socket.src_ip !== 0 && socket.src_ip !== packet.header.dst) continue;
@@ -247,7 +249,9 @@ export class Socket {
       payload,
     };
 
-    socket.retry_queue.push(tcp);
+    socket.snd_nxt += payload.length;
+
+    if (tcp.header.flags !== TCP_FLAGS.ACK || payload.length) socket.retry_queue.push(tcp);
 
     return this.net.ip4.send(socket, socket.dst_ip, IP_PROTOCOLS.TCP, pack_tcp_packet(tcp), socket.src_ip);
   }
@@ -257,35 +261,43 @@ export class Socket {
 
     const { flags, ack, seq, window } = tcp.header;
 
-    if (seq !== socket.rcv_nxt) return;
+    if (ack < socket.snd_una) return;
 
-    if (ack > socket.snd_una) {
-      for (let i = 0; i < socket.retry_queue.length; i += 1) {
-        if (socket.retry_queue[i].header.seq < ack) {
-          socket.retry_queue.splice(i, 1);
-          i -= 1;
-        }
+    for (let i = 0; i < socket.retry_queue.length; i += 1) {
+      if (socket.retry_queue[i].header.seq < ack) {
+        socket.retry_queue.splice(i, 1);
+        i -= 1;
       }
-      socket.snd_una = ack;
-
-      // TODO: retransmit timers
     }
 
+    socket.snd_una = ack;
     socket.snd_wnd = window;
+
+    // TODO: retransmit timers
 
     // move into queue
     if (state === "syn_sent") {
       if (flags & (TCP_FLAGS.SYN + TCP_FLAGS.ACK)) {
+        socket.rcv_nxt = seq + 1;
+        this._send_tcp(socket, TCP_FLAGS.ACK);
         socket.state = "established";
         socket.on_connected?.();
       }
-    } else if (state === "established") {
+      return;
+    }
+
+    if (seq !== socket.rcv_nxt) return;
+
+    if (state === "established") {
       if (flags & TCP_FLAGS.ACK) {
         socket.rcv_nxt += tcp.payload.length;
-        this._send_tcp(socket, TCP_FLAGS.ACK);
-        socket.on_recv?.({ data: tcp.payload, ip: ip.header.src, port: tcp.header.src, iface });
+
+        if (tcp.payload.length) {
+          this._send_tcp(socket, TCP_FLAGS.ACK);
+          socket.on_recv?.({ data: tcp.payload, ip: ip.header.src, port: tcp.header.src, iface });
+        }
       } else if (flags & TCP_FLAGS.FIN) {
-        if (_INSTANT_CLOSING) {
+        if (this._3_way_closing) {
           this._send_tcp(socket, TCP_FLAGS.FIN + TCP_FLAGS.ACK);
           socket.state = "last_ack";
         } else {
