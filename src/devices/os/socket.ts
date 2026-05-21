@@ -36,11 +36,13 @@ export type TSocket = {
   snd_wnd: number;
   rcv_wnd: number;
   retry_queue: TTcpPacket[];
+  expired_at: number;
+  parent?: TSocket;
   on_error?: (error: number) => void;
   on_raw_recv?: (recv: { packet: TIP4Packet; ip: number; iface: TInterface }) => void;
   on_recv?: (recv: { data: Uint8Array; ip: number; port: number; iface: TInterface }) => void;
-  on_connected?: () => void;
-  on_closed?: () => void;
+  on_connected?: (socket: TSocket) => void;
+  on_close?: () => void;
 };
 
 export class Socket {
@@ -48,7 +50,9 @@ export class Socket {
 
   _sockets: TSocket[] = [];
 
-  constructor(public readonly net: Net) {}
+  constructor(public readonly net: Net) {
+    setInterval(this._handle_timer_1s.bind(this), 1_000);
+  }
 
   create<P extends TSocket["type"]>(type: P): TSocket {
     const socket: TSocket = {
@@ -65,7 +69,14 @@ export class Socket {
       snd_wnd: 0,
       rcv_wnd: 0,
       retry_queue: [],
+      expired_at: 0,
     };
+
+    if (type === "udp") {
+      socket.protocol = IP_PROTOCOLS.UDP;
+    } else if (type === "tcp") {
+      socket.protocol = IP_PROTOCOLS.TCP;
+    }
 
     this._sockets.push(socket);
 
@@ -90,6 +101,10 @@ export class Socket {
           return NET_ERRORS.PORT_BUSY;
         }
       }
+    }
+
+    if (socket.type === "tcp") {
+      socket.state = "listen";
     }
 
     return 0;
@@ -118,6 +133,36 @@ export class Socket {
       socket.snd_nxt += 1;
       socket.state = "syn_sent";
     }
+
+    return 0;
+  }
+
+  close(socket: TSocket): number {
+    if (socket.type !== "tcp") return NET_ERRORS.BAD_PROTOCOL;
+
+    if (socket.state === "closed") {
+      return NET_ERRORS.NOT_CONNECTED;
+    } else if (socket.state === "listen") {
+      socket.state = "closed";
+
+      for (const sock of this._sockets) {
+        if (sock.parent === socket) {
+          const err = this.close(sock);
+          if (err) return err;
+        }
+      }
+
+      this._flush_tcp_socket(socket);
+    } else if (socket.state === "established") {
+      const err = this._send_tcp(socket, TCP_FLAGS.FIN);
+      if (!err) {
+        socket.state = "fin_wait_1";
+        return 0;
+      }
+    }
+
+    this._send_tcp(socket, TCP_FLAGS.RST);
+    this._flush_tcp_socket(socket);
 
     return 0;
   }
@@ -257,9 +302,33 @@ export class Socket {
   }
 
   private _handle_tcp(socket: TSocket, iface: TInterface, ip: TIP4Packet, tcp: TTcpPacket) {
-    const { state } = socket;
-
     const { flags, ack, seq, window } = tcp.header;
+
+    if (socket.state === "listen") {
+      if (flags & TCP_FLAGS.SYN) {
+        const child = this.create("tcp");
+        child.parent = socket;
+        child.state = "listen";
+        child.src_ip = ip.header.dst;
+        child.src_port = tcp.header.dst;
+        child.dst_ip = ip.header.src;
+        child.dst_port = tcp.header.src;
+
+        child.rcv_nxt = seq + 1;
+        this._send_tcp(child, TCP_FLAGS.SYN + TCP_FLAGS.ACK);
+        child.snd_nxt += 1;
+        child.state = "syn_received";
+      }
+
+      return;
+    }
+
+    if (flags & TCP_FLAGS.RST) {
+      this._flush_tcp_socket(socket);
+      return;
+    }
+
+    const { state } = socket;
 
     if (ack < socket.snd_una) return;
 
@@ -275,20 +344,24 @@ export class Socket {
 
     // TODO: retransmit timers
 
-    // move into queue
     if (state === "syn_sent") {
       if (flags & (TCP_FLAGS.SYN + TCP_FLAGS.ACK)) {
         socket.rcv_nxt = seq + 1;
         this._send_tcp(socket, TCP_FLAGS.ACK);
         socket.state = "established";
-        socket.on_connected?.();
+        socket.on_connected?.(socket);
       }
       return;
     }
 
     if (seq !== socket.rcv_nxt) return;
 
-    if (state === "established") {
+    if (state === "syn_received") {
+      if (flags & TCP_FLAGS.ACK) {
+        socket.state = "established";
+        socket.parent?.on_connected?.(socket);
+      }
+    } else if (state === "established") {
       if (flags & TCP_FLAGS.ACK) {
         socket.rcv_nxt += tcp.payload.length;
 
@@ -310,9 +383,10 @@ export class Socket {
         socket.state = "closed";
       }
     } else if (state === "fin_wait_1") {
-      if (flags & (TCP_FLAGS.FIN + TCP_FLAGS.ACK)) {
+      if (flags & TCP_FLAGS.FIN && flags & TCP_FLAGS.ACK) {
         this._send_tcp(socket, TCP_FLAGS.ACK);
         socket.state = "time_wait";
+        socket.on_close?.();
       } else if (flags & TCP_FLAGS.ACK) {
         socket.state = "fin_wait_2";
       }
@@ -320,8 +394,23 @@ export class Socket {
       if (flags & TCP_FLAGS.FIN) {
         this._send_tcp(socket, TCP_FLAGS.ACK);
         socket.state = "time_wait";
+        socket.on_close?.();
       }
     }
+  }
+
+  private _flush_tcp_socket(socket: TSocket) {
+    const index = this._sockets.indexOf(socket);
+    if (index === -1) return;
+
+    socket.retry_queue.splice(0);
+
+    if (socket.state !== "closed") {
+      socket.state = "closed";
+      socket.on_close?.();
+    }
+
+    this._sockets.splice(index, 1);
   }
 
   private _allocate_port(socket: TSocket) {
@@ -334,5 +423,19 @@ export class Socket {
     }
 
     return -1;
+  }
+
+  private _handle_timer_1s() {
+    const now = Date.now();
+
+    for (const socket of this._sockets) {
+      if (socket.expired_at > now) continue;
+
+      if (socket.state === "time_wait") {
+        socket.state = "closed";
+        this._flush_tcp_socket(socket);
+        continue;
+      }
+    }
   }
 }
