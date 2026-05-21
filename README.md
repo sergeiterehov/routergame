@@ -23,6 +23,7 @@
 - IP routing
 - ICMP ping + некоторые ответы
 - UDP
+- TCP
 - Socket в простом исполнении
 - DHCP client + server
 - Firewall + NAT + masquerade (icmp, udp, tcp)
