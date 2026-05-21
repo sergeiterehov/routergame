@@ -1,3 +1,8 @@
+export const SEC = 1000;
+export const MINUTE = 60 * SEC;
+export const HOUR = 60 * MINUTE;
+export const DAY = 24 * HOUR;
+
 export function formatTime(ms: number) {
   if (ms < 1000) return `${ms}ms`;
   if (ms < 1000 * 60) return `${(ms / 1000).toFixed(2)}s`;

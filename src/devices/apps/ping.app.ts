@@ -169,40 +169,73 @@ export async function nc(os: OS, args: string[]) {
     const ip = params.ip ? parseIPv4(params.ip) : 0;
     let err = 0;
 
-    let sock: TSocket | undefined;
-    try {
-      if (!params.port) {
-        sock = os.net.socket.create("raw");
+    if (!params.port) {
+      const sock = os.net.socket.create("raw");
 
+      try {
         err = os.net.socket.bind(sock, 0, 0);
         if (err) throw new Error(`Bind error ${err}`);
 
         sock.on_raw_recv = (recv) => print(recv.packet.payload);
-      } else {
-        const port = parseInt(params.port);
 
-        if (!flags.u) throw new Error("Only UDP is supported for listening");
+        os.print(`Listening RAW on ${formatIPv4(ip)}\n`);
 
-        sock = os.net.socket.create("udp");
-
-        err = os.net.socket.bind(sock, ip, port);
-        if (err) throw new Error(`Bind error ${err}`);
-
-        sock.on_recv = (recv) => print(recv.data);
+        await new Promise<void>((resolve, reject) => {
+          sock.on_close = resolve;
+          sock.on_error = (e) => reject(new Error(`Socket error: ${e}`));
+        });
+      } finally {
+        os.net.socket.close(sock);
       }
+    } else {
+      const port = parseInt(params.port);
 
-      os.print(`Listening ${params.port ? `port ${params.port}` : "RAW"} on ${formatIPv4(ip)}:\n`);
+      if (flags.u) {
+        const sock = os.net.socket.create("udp");
 
-      await new Promise((resolve, reject) => {
-        sock!.on_error = (e) => reject(new Error(`Socket error: ${e}`));
-      });
-    } finally {
-      if (sock) os.net.socket.delete(sock);
+        try {
+          err = os.net.socket.bind(sock, ip, port);
+          if (err) throw new Error(`Bind error ${err}`);
+
+          sock.on_recv = (recv) => print(recv.data);
+          os.print(`Listening UDP ${formatIPv4(ip)}:${params.port}\n`);
+
+          await new Promise<void>((resolve, reject) => {
+            sock.on_close = resolve;
+            sock.on_error = (e) => reject(new Error(`Socket error: ${e}`));
+          });
+        } finally {
+          os.net.socket.close(sock);
+        }
+      } else {
+        const server_sock = os.net.socket.create("tcp");
+
+        try {
+          err = os.net.socket.bind(server_sock, ip, port);
+          if (err) throw new Error(`Bind error ${err}`);
+
+          const sock = await new Promise<TSocket>((resolve, reject) => {
+            server_sock!.on_connected = resolve;
+            server_sock!.on_error = (e) => reject(new Error(`Socket error ${e}`));
+          });
+
+          delete server_sock.on_connected;
+          delete server_sock.on_error;
+
+          sock.on_recv = (recv) => print(recv.data);
+          os.print(`Listening TCP ${formatIPv4(ip)}:${params.port}\n`);
+
+          await new Promise<void>((resolve, reject) => {
+            sock.on_close = resolve;
+            sock.on_error = (e) => reject(new Error(`Socket error: ${e}`));
+          });
+        } finally {
+          os.net.socket.close(server_sock);
+        }
+      }
     }
   } else {
     if (!params.ip || !params.port) throw new Error("Missing ip and port");
-
-    if (!flags.u) throw new Error("Only UDP is supported");
 
     const source_ip = config.s ? parseIPv4(config.s) : 0;
     const source_port = config.p ? parseInt(config.p) : 0;
@@ -210,26 +243,76 @@ export async function nc(os: OS, args: string[]) {
     const ip = params.ip ? parseIPv4(params.ip) : 0;
     const port = parseInt(params.port);
 
-    const sock = os.net.socket.create("udp");
-    try {
-      let err = 0;
+    if (flags.u) {
+      const sock = os.net.socket.create("udp");
 
-      err = os.net.socket.bind(sock, source_ip, source_port);
-      if (err) throw new Error(`Bind error ${err}`);
+      try {
+        let err = 0;
 
-      err = os.net.socket.connect(sock, ip, port);
-      if (err) throw new Error(`Connect error ${err}`);
+        err = os.net.socket.bind(sock, source_ip, source_port);
+        if (err) throw new Error(`Bind error ${err}`);
 
-      if (config.w) {
-        err = os.net.socket.send(sock, new TextEncoder().encode(config.w));
-        if (err) throw new Error(`Send error: ${err}`);
+        err = os.net.socket.connect(sock, ip, port);
+        if (err) throw new Error(`Connect error ${err}`);
+
+        if (config.w) {
+          err = os.net.socket.send(sock, new TextEncoder().encode(config.w));
+          if (err) throw new Error(`Send error: ${err}`);
+        }
+
+        await new Promise<void>((resolve, reject) => {
+          sock.on_close = resolve;
+          sock.on_error = (e) => reject(new Error(`Socket error ${e}`));
+        });
+      } finally {
+        os.net.socket.close(sock);
       }
+    } else {
+      const sock = os.net.socket.create("tcp");
 
-      await new Promise((resolve, reject) => {
-        sock.on_error = (e) => reject(new Error(`Socket error ${e}`));
-      });
-    } finally {
-      os.net.socket.delete(sock);
+      try {
+        let err = 0;
+
+        err = os.net.socket.connect(sock, ip, port);
+        if (err) throw new Error(`Connect error ${err}`);
+
+        await new Promise<unknown>((resolve, reject) => {
+          sock.on_connected = resolve;
+          sock.on_error = (e) => reject(new Error(`Socket error ${e}`));
+        });
+
+        await new Promise<void>((resolve, reject) => {
+          sock.on_close = resolve;
+          sock.on_error = (e) => reject(new Error(`Socket error ${e}`));
+
+          if (config.w) {
+            err = os.net.socket.send(sock, new TextEncoder().encode(config.w));
+            if (err) throw new Error(`Send error: ${err}`);
+          }
+
+          os.net.socket.close(sock);
+        });
+      } finally {
+        os.net.socket.close(sock);
+      }
     }
+  }
+  os.print("\n[closed]\n");
+}
+
+export async function socket(os: OS, args: string[]) {
+  if (args.length) throw new Error("Arguments not supported");
+
+  if (!os.net.socket._sockets.length) {
+    os.print("[empty]\n");
+    return;
+  }
+
+  let n = 0;
+  for (const s of os.net.socket._sockets) {
+    n += 1;
+    os.print(
+      `${n}) [${s.state}] ${s.type} ${formatIPv4(s.dst_ip)}:${s.dst_port} -> ${formatIPv4(s.src_ip)}:${s.src_port}\n`,
+    );
   }
 }

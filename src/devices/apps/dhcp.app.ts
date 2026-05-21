@@ -249,7 +249,7 @@ export async function dhcpd(os: OS, args: string[]) {
   os.print("DHCP server started\n");
   await new Promise(() => null);
 
-  os.net.socket.delete(socket);
+  os.net.socket.close(socket);
   server_started = false;
 }
 
@@ -494,6 +494,6 @@ export async function dhcp(os: OS, args: string[]) {
       send_discover();
     });
   } finally {
-    os.net.socket.delete(socket);
+    os.net.socket.close(socket);
   }
 }

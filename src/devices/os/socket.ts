@@ -1,3 +1,4 @@
+import { SEC } from "../format";
 import {
   IP_PROTOCOLS,
   pack_tcp_packet,
@@ -11,6 +12,10 @@ import {
   type TTcpPacket,
 } from "../pack";
 import { NET_ERRORS, type Net, type TInterface } from "./net";
+
+const _TIMEOUTS_MS = {
+  TIME_WAIT: 30 * SEC,
+} as const;
 
 export type TSocket = {
   type: "raw" | "udp" | "tcp";
@@ -83,11 +88,6 @@ export class Socket {
     return socket;
   }
 
-  delete(socket: TSocket) {
-    const index = this._sockets.indexOf(socket);
-    if (index === -1) this._sockets.splice(index, 1);
-  }
-
   bind(socket: TSocket, ip: number, port: number): number {
     if (socket.type === "tcp" && socket.state !== "closed") return NET_ERRORS.NOT_CLOSED;
 
@@ -143,8 +143,6 @@ export class Socket {
     if (socket.state === "closed") {
       return NET_ERRORS.NOT_CONNECTED;
     } else if (socket.state === "listen") {
-      socket.state = "closed";
-
       for (const sock of this._sockets) {
         if (sock.parent === socket) {
           const err = this.close(sock);
@@ -155,14 +153,18 @@ export class Socket {
       this._flush_tcp_socket(socket);
     } else if (socket.state === "established") {
       const err = this._send_tcp(socket, TCP_FLAGS.FIN);
-      if (!err) {
+      if (err) {
+        this._send_tcp(socket, TCP_FLAGS.RST);
+        this._flush_tcp_socket(socket);
+      } else {
         socket.state = "fin_wait_1";
-        return 0;
       }
+    } else if (socket.state === "time_wait") {
+      this._flush_tcp_socket(socket);
+    } else {
+      this._send_tcp(socket, TCP_FLAGS.RST);
+      this._flush_tcp_socket(socket);
     }
-
-    this._send_tcp(socket, TCP_FLAGS.RST);
-    this._flush_tcp_socket(socket);
 
     return 0;
   }
@@ -380,12 +382,13 @@ export class Socket {
       }
     } else if (state === "last_ack") {
       if (flags & TCP_FLAGS.ACK) {
-        socket.state = "closed";
+        this._flush_tcp_socket(socket);
       }
     } else if (state === "fin_wait_1") {
       if (flags & TCP_FLAGS.FIN && flags & TCP_FLAGS.ACK) {
         this._send_tcp(socket, TCP_FLAGS.ACK);
         socket.state = "time_wait";
+        socket.expired_at = Date.now() + _TIMEOUTS_MS.TIME_WAIT;
         socket.on_close?.();
       } else if (flags & TCP_FLAGS.ACK) {
         socket.state = "fin_wait_2";
@@ -394,6 +397,7 @@ export class Socket {
       if (flags & TCP_FLAGS.FIN) {
         this._send_tcp(socket, TCP_FLAGS.ACK);
         socket.state = "time_wait";
+        socket.expired_at = Date.now() + _TIMEOUTS_MS.TIME_WAIT;
         socket.on_close?.();
       }
     }

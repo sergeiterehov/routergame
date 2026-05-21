@@ -166,12 +166,12 @@ export class Firewall {
 
     if (conn.flags.src_nat && dst === conn.reply_dst && dst_port === conn.reply_dst_port) {
       packet.header.dst = conn.src;
-      if (has_port) inject_ip_ports(packet, { src: conn.src_port });
+      if (has_port) inject_ip_ports(packet, { dst: conn.src_port });
     }
 
     if (conn.flags.dst_nat && src === conn.reply_src && src_port === conn.reply_src_port) {
       packet.header.src = conn.dst;
-      if (has_port) inject_ip_ports(packet, { dst: conn.dst_port });
+      if (has_port) inject_ip_ports(packet, { src: conn.dst_port });
     }
   }
 

@@ -1,3 +1,4 @@
+import { SEC, MINUTE, DAY } from "../format";
 import {
   ICMP_TYPES,
   IP_BROADCAST,
@@ -11,28 +12,23 @@ import {
 } from "../pack";
 import type { IP4 } from "./ip4";
 
-const _SEC = 1000;
-const _MINUTE = 60 * _SEC;
-const _HOUR = 60 * _MINUTE;
-const _DAY = 24 * _HOUR;
-
 const TIMEOUTS_MS = {
-  GENERIC: 60 * _SEC,
+  GENERIC: 60 * SEC,
 
-  ICMP: 10 * _SEC,
+  ICMP: 10 * SEC,
 
-  UDP: 30 * _SEC,
-  UDP_REPLY: 3 * _MINUTE,
+  UDP: 30 * SEC,
+  UDP_REPLY: 3 * MINUTE,
 
-  TCP_SYN_SENT: 5 * _SEC,
-  TCP_SYN_RECV: 5 * _SEC,
-  TCP_ESTABLISHED: 1 * _DAY,
-  TCP_FIN_WAIT: 10 * _SEC,
-  TCP_CLOSE_WAIT: 10 * _SEC,
-  TCP_LAST_ACK: 10 * _SEC,
-  TCP_TIME_WAIT: 10 * _SEC,
-  TCP_CLOSE: 10 * _SEC,
-  TCP_ESTABLISHED_WAIT_ACK: 10 * _SEC, // TODO: отслеживать отставание
+  TCP_SYN_SENT: 5 * SEC,
+  TCP_SYN_RECV: 5 * SEC,
+  TCP_ESTABLISHED: 1 * DAY,
+  TCP_FIN_WAIT: 10 * SEC,
+  TCP_CLOSE_WAIT: 10 * SEC,
+  TCP_LAST_ACK: 10 * SEC,
+  TCP_TIME_WAIT: 10 * SEC,
+  TCP_CLOSE: 10 * SEC,
+  TCP_ESTABLISHED_WAIT_ACK: 10 * SEC, // TODO: отслеживать отставание
 } as const;
 
 type _TTcpState =
