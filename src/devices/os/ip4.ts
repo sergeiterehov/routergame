@@ -8,6 +8,7 @@ import {
   pack_ip4_packet,
   unpack_icmp_packet,
   type TEthernetFrame,
+  type TIcmpPacket,
   type TIP4Packet,
 } from "../pack";
 import { OSChannel } from "./os";
@@ -69,7 +70,7 @@ export class IP4 {
     if (this.fw.handle_chain(FW_CHAINS.FORWARD, packet, fw_context)) return;
 
     const route = this.route(dst);
-    if (!route) return;
+    if (!route) return this._icmp_send_unreachable(iInterface, packet, fw_context);
 
     packet.header.ttl -= 1;
 
@@ -273,7 +274,7 @@ export class IP4 {
     }
   }
 
-  private _icmp_send_time_exceeded(iInterface: number, packet: TIP4Packet, fw_context: TPacketContext) {
+  private _icmp_send_response(iInterface: number, packet: TIP4Packet, fw_context: TPacketContext, icmp: TIcmpPacket) {
     // storm protection
     if (packet.header.protocol === IP_PROTOCOLS.ICMP) {
       const icmp = unpack_icmp_packet(packet.payload);
@@ -301,15 +302,29 @@ export class IP4 {
         tos: 0,
         checksum: 0,
       },
-      payload: pack_icmp_packet({
-        type: ICMP_TYPES.TIME_EXCEEDED,
-        code: 0,
-        checksum: 0,
-        data: new Uint8Array(4),
-        payload: pack_ip4_packet({ ...packet, payload: packet.payload.slice(0, 8) }),
-      }),
+      payload: pack_icmp_packet(icmp),
     };
 
-    this._send_packet(iInterface, route.gateway, response, fw_context, undefined);
+    return this._send_packet(iInterface, route.gateway, response, fw_context, undefined);
+  }
+
+  private _icmp_send_time_exceeded(iInterface: number, packet: TIP4Packet, fw_context: TPacketContext) {
+    return this._icmp_send_response(iInterface, packet, fw_context, {
+      type: ICMP_TYPES.TIME_EXCEEDED,
+      code: 0,
+      checksum: 0,
+      data: new Uint8Array(4),
+      payload: pack_ip4_packet({ ...packet, payload: packet.payload.slice(0, 8) }),
+    });
+  }
+
+  private _icmp_send_unreachable(iInterface: number, packet: TIP4Packet, fw_context: TPacketContext) {
+    return this._icmp_send_response(iInterface, packet, fw_context, {
+      type: ICMP_TYPES.DEST_UNREACHABLE,
+      code: 0,
+      checksum: 0,
+      data: new Uint8Array(4),
+      payload: pack_ip4_packet({ ...packet, payload: packet.payload.slice(0, 8) }),
+    });
   }
 }

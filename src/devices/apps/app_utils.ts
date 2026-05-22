@@ -1,3 +1,5 @@
+import { NET_ERRORS } from "../os/net";
+
 export function test_args(args: string[], ...ps: (string | ((arg: string) => unknown))[]) {
   if (ps.length > args.length) return false;
   for (let i = 0; i < ps.length; i++) {
@@ -52,4 +54,11 @@ export async function run_command_of(record: Record<string, { fn: () => unknown;
   }
 
   await record[cmds[0]].fn();
+}
+
+export function format_net_error(err: number) {
+  for (const [name, code] of Object.entries(NET_ERRORS)) {
+    if (code === err) return name;
+  }
+  return `UNKNOWN_${err}`;
 }

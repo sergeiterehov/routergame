@@ -2,6 +2,7 @@ import { formatIPv4, formatTime, hexdump, parseIPv4, validate_ip } from "../form
 import type { OS } from "../os/os";
 import type { TSocket } from "../os/socket";
 import { pack_icmp_packet, unpack_icmp_packet, type TIP4Packet } from "../pack";
+import { format_net_error } from "./app_utils";
 
 function find_config(args: string[], key: string, initial: string = "") {
   for (let i = 1; i < args.length; i++) {
@@ -68,7 +69,7 @@ export async function ping(os: OS, args: string[]) {
       };
 
       const err_send = os.net.ip4.send_raw(ip, packet, undefined);
-      if (err_send) throw new Error(`Failed to send packet: err=${err_send}`);
+      if (err_send) throw new Error(`Failed to send packet: ${format_net_error(err_send)}`);
 
       const start = Date.now();
 
@@ -182,7 +183,7 @@ export async function nc(os: OS, args: string[]) {
 
         await new Promise<void>((resolve, reject) => {
           sock.on_close = resolve;
-          sock.on_error = (e) => reject(new Error(`Socket error: ${e}`));
+          sock.on_error = (e) => reject(new Error(`Socket error ${format_net_error(e)}`));
         });
       } finally {
         os.net.socket.close(sock);
@@ -195,14 +196,14 @@ export async function nc(os: OS, args: string[]) {
 
         try {
           err = os.net.socket.bind(sock, ip, port);
-          if (err) throw new Error(`Bind error ${err}`);
+          if (err) throw new Error(`Bind error ${format_net_error(err)}`);
 
           sock.on_recv = (recv) => print(recv.data);
           os.print(`Listening UDP ${formatIPv4(ip)}:${params.port}\n`);
 
           await new Promise<void>((resolve, reject) => {
             sock.on_close = resolve;
-            sock.on_error = (e) => reject(new Error(`Socket error: ${e}`));
+            sock.on_error = (e) => reject(new Error(`Socket error: ${format_net_error(e)}`));
           });
         } finally {
           os.net.socket.close(sock);
@@ -212,11 +213,11 @@ export async function nc(os: OS, args: string[]) {
 
         try {
           err = os.net.socket.bind(server_sock, ip, port);
-          if (err) throw new Error(`Bind error ${err}`);
+          if (err) throw new Error(`Bind error ${format_net_error(err)}`);
 
           const sock = await new Promise<TSocket>((resolve, reject) => {
             server_sock!.on_connected = resolve;
-            server_sock!.on_error = (e) => reject(new Error(`Socket error ${e}`));
+            server_sock!.on_error = (e) => reject(new Error(`Socket error ${format_net_error(e)}`));
           });
 
           delete server_sock.on_connected;
@@ -250,14 +251,14 @@ export async function nc(os: OS, args: string[]) {
         let err = 0;
 
         err = os.net.socket.bind(sock, source_ip, source_port);
-        if (err) throw new Error(`Bind error ${err}`);
+        if (err) throw new Error(`Bind error ${format_net_error(err)}`);
 
         err = os.net.socket.connect(sock, ip, port);
-        if (err) throw new Error(`Connect error ${err}`);
+        if (err) throw new Error(`Connect error ${format_net_error(err)}`);
 
         if (config.w) {
           err = os.net.socket.send(sock, new TextEncoder().encode(config.w));
-          if (err) throw new Error(`Send error: ${err}`);
+          if (err) throw new Error(`Send error: ${format_net_error(err)}`);
         }
 
         await new Promise<void>((resolve, reject) => {
@@ -274,20 +275,20 @@ export async function nc(os: OS, args: string[]) {
         let err = 0;
 
         err = os.net.socket.connect(sock, ip, port);
-        if (err) throw new Error(`Connect error ${err}`);
+        if (err) throw new Error(`Connect error ${format_net_error(err)}`);
 
         await new Promise<unknown>((resolve, reject) => {
           sock.on_connected = resolve;
-          sock.on_error = (e) => reject(new Error(`Socket error ${e}`));
+          sock.on_error = (e) => reject(new Error(`Socket error ${format_net_error(e)}`));
         });
 
         await new Promise<void>((resolve, reject) => {
           sock.on_close = resolve;
-          sock.on_error = (e) => reject(new Error(`Socket error ${e}`));
+          sock.on_error = (e) => reject(new Error(`Socket error ${format_net_error(e)}`));
 
           if (config.w) {
             err = os.net.socket.send(sock, new TextEncoder().encode(config.w));
-            if (err) throw new Error(`Send error: ${err}`);
+            if (err) throw new Error(`Send error: ${format_net_error(err)}`);
           }
 
           os.net.socket.close(sock);
