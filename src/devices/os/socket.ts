@@ -108,7 +108,7 @@ export class Socket {
     }
 
     if (socket.type === "tcp") {
-      socket.state = "listen";
+      this._set_state(socket, "listen");
     }
 
     return 0;
@@ -130,12 +130,12 @@ export class Socket {
     if (socket.type === "tcp") {
       const err = this._send_tcp(socket, TCP_FLAGS.SYN);
       if (err) {
-        socket.state = "closed";
+        this._set_state(socket, "closed");
         return err;
       }
 
       socket.snd_nxt += 1;
-      socket.state = "syn_sent";
+      this._set_state(socket, "syn_sent");
     }
 
     return 0;
@@ -161,7 +161,7 @@ export class Socket {
         this._send_tcp(socket, TCP_FLAGS.RST);
         this._flush_tcp_socket(socket);
       } else {
-        socket.state = "fin_wait_1";
+        this._set_state(socket, "fin_wait_1");
       }
     } else if (socket.state === "close_wait") {
       const err = this._send_tcp(socket, TCP_FLAGS.RST);
@@ -169,7 +169,7 @@ export class Socket {
         this._send_tcp(socket, TCP_FLAGS.RST);
         this._flush_tcp_socket(socket);
       } else {
-        socket.state = "last_ack";
+        this._set_state(socket, "last_ack");
       }
     } else if (socket.state === "time_wait") {
       this._flush_tcp_socket(socket);
@@ -322,7 +322,6 @@ export class Socket {
       if (flags & TCP_FLAGS.SYN) {
         const child = this.create("tcp");
         child.parent = socket;
-        child.state = "listen";
         child.src_ip = ip.header.dst;
         child.src_port = tcp.header.dst;
         child.dst_ip = ip.header.src;
@@ -331,7 +330,7 @@ export class Socket {
         child.rcv_nxt = seq + 1;
         this._send_tcp(child, TCP_FLAGS.SYN + TCP_FLAGS.ACK);
         child.snd_nxt += 1;
-        child.state = "syn_received";
+        this._set_state(child, "syn_received");
       }
 
       return;
@@ -356,13 +355,11 @@ export class Socket {
     socket.snd_una = ack;
     socket.snd_wnd = window;
 
-    // TODO: retransmit timers
-
     if (state === "syn_sent") {
       if (flags & (TCP_FLAGS.SYN + TCP_FLAGS.ACK)) {
         socket.rcv_nxt = seq + 1;
         this._send_tcp(socket, TCP_FLAGS.ACK);
-        socket.state = "established";
+        this._set_state(socket, "established");
         socket.on_connected?.(socket);
       }
       return;
@@ -372,11 +369,12 @@ export class Socket {
 
     if (state === "syn_received") {
       if (flags & TCP_FLAGS.ACK) {
-        socket.state = "established";
+        this._set_state(socket, "established");
         socket.parent?.on_connected?.(socket);
       }
     } else if (state === "established") {
       if (flags & TCP_FLAGS.ACK) {
+        this._reset_timeout(socket, _RETRY_TIMEOUTS_MS[0]);
         socket.rcv_nxt += tcp.payload.length;
 
         if (tcp.payload.length) {
@@ -386,33 +384,60 @@ export class Socket {
       } else if (flags & TCP_FLAGS.FIN) {
         if (this._3_way_closing) {
           this._send_tcp(socket, TCP_FLAGS.FIN + TCP_FLAGS.ACK);
-          socket.state = "last_ack";
+          this._set_state(socket, "last_ack");
         } else {
           this._send_tcp(socket, TCP_FLAGS.ACK);
-          socket.state = "close_wait";
+          this._set_state(socket, "close_wait");
         }
       }
     } else if (state === "last_ack") {
       if (flags & TCP_FLAGS.ACK) {
+        socket.retry_counter = 0;
         this._flush_tcp_socket(socket);
       }
     } else if (state === "fin_wait_1") {
       if (flags & TCP_FLAGS.FIN && flags & TCP_FLAGS.ACK) {
         this._send_tcp(socket, TCP_FLAGS.ACK);
-        socket.state = "time_wait";
-        socket.expired_at = Date.now() + _TIMEOUTS_MS.TIME_WAIT;
+        this._set_state(socket, "time_wait");
         socket.on_close?.();
       } else if (flags & TCP_FLAGS.ACK) {
-        socket.state = "fin_wait_2";
+        this._set_state(socket, "fin_wait_2");
       }
     } else if (state === "fin_wait_2") {
       if (flags & TCP_FLAGS.FIN) {
         this._send_tcp(socket, TCP_FLAGS.ACK);
-        socket.state = "time_wait";
-        socket.expired_at = Date.now() + _TIMEOUTS_MS.TIME_WAIT;
+        this._set_state(socket, "time_wait");
         socket.on_close?.();
       }
     }
+  }
+
+  private _set_state(socket: TSocket, state: TSocket["state"]) {
+    const prev_state = socket.state;
+    let timeout_ms: number | undefined;
+
+    if (state === "closed" || state === "listen" || state === "close_wait") {
+      timeout_ms = undefined;
+    } else if (state === "established") {
+      if (prev_state !== "established") {
+        timeout_ms = undefined;
+      }
+    } else if (state === "time_wait") {
+      timeout_ms = _TIMEOUTS_MS.TIME_WAIT;
+    } else if (state === "fin_wait_2") {
+      timeout_ms = _TIMEOUTS_MS.FIN_WAIT_2;
+    } else {
+      this._reset_timeout(socket, _RETRY_TIMEOUTS_MS[0]);
+    }
+
+    this._reset_timeout(socket, timeout_ms);
+    socket.retry_counter = 0;
+    socket.state = state;
+  }
+
+  private _reset_timeout(socket: TSocket, timeout_ms?: number) {
+    socket.retry_counter = 0;
+    socket.expired_at = timeout_ms !== undefined ? Date.now() + timeout_ms : 0;
   }
 
   private _flush_tcp_socket(socket: TSocket) {
@@ -423,9 +448,9 @@ export class Socket {
     this._sockets.splice(index, 1);
 
     if (socket.state === "syn_sent" || socket.state === "syn_received") {
-      socket.state = "closed";
+      this._set_state(socket, "closed");
     } else if (socket.state !== "closed") {
-      socket.state = "closed";
+      this._set_state(socket, "closed");
       socket.on_close?.();
     }
   }
@@ -462,18 +487,18 @@ export class Socket {
         this._flush_tcp_socket(socket);
         socket.on_error?.(NET_ERRORS.TIMEOUT);
       } else if (state === "time_wait") {
-        socket.state = "closed";
+        this._set_state(socket, "closed");
         this._flush_tcp_socket(socket);
         socket.on_error?.(NET_ERRORS.TIMEOUT);
       } else {
         if (retry_queue.length) {
+          socket.retry_counter += 1;
           if (socket.retry_counter >= _RETRY_TIMEOUTS_MS.length) {
             this._flush_tcp_socket(socket);
             socket.on_error?.(NET_ERRORS.TIMEOUT);
           } else {
             this._resend_tcp_queue(socket);
             socket.expired_at = Date.now() + _RETRY_TIMEOUTS_MS[socket.retry_counter];
-            socket.retry_counter += 1;
           }
         }
       }

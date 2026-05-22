@@ -308,11 +308,19 @@ export async function socket(os: OS, args: string[]) {
     return;
   }
 
-  let n = 0;
-  for (const s of os.net.socket._sockets) {
-    n += 1;
+  for (let i = 0; i < os.net.socket._sockets.length; i += 1) {
+    const s = os.net.socket._sockets[i];
     os.print(
-      `${n}) [${s.state}] ${s.type} ${formatIPv4(s.dst_ip)}:${s.dst_port} -> ${formatIPv4(s.src_ip)}:${s.src_port}\n`,
+      [
+        `${i + 1})`,
+        `[${s.state}]`,
+        `${formatIPv4(s.dst_ip)}:${s.dst_port} -> ${formatIPv4(s.src_ip)}:${s.src_port}`,
+        s.retry_queue.length > 0 && `queue=${s.retry_queue.length}`,
+        s.parent && `parent=${os.net.socket._sockets.indexOf(s.parent) + 1}`,
+      ]
+        .filter(Boolean)
+        .join(" "),
+      "\n",
     );
   }
 }
