@@ -22,6 +22,7 @@ export const NET_ERRORS = {
   NOT_CLOSED: 6,
   NOT_CONNECTED: 7,
   IS_CONNECTED: 8,
+  TIMEOUT: 9,
 } as const;
 
 export type TIP4 = { address: number; prefix: number };

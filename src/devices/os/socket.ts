@@ -13,8 +13,10 @@ import {
 } from "../pack";
 import { NET_ERRORS, type Net, type TInterface } from "./net";
 
+const _RETRY_TIMEOUTS_MS = [1 * SEC, 2 * SEC, 4 * SEC, 8 * SEC];
 const _TIMEOUTS_MS = {
-  TIME_WAIT: 30 * SEC,
+  TIME_WAIT: 60 * SEC,
+  FIN_WAIT_2: 30 * SEC,
 } as const;
 
 export type TSocket = {
@@ -41,6 +43,7 @@ export type TSocket = {
   snd_wnd: number;
   rcv_wnd: number;
   retry_queue: TTcpPacket[];
+  retry_counter: number;
   expired_at: number;
   parent?: TSocket;
   on_error?: (error: number) => void;
@@ -74,6 +77,7 @@ export class Socket {
       snd_wnd: 0,
       rcv_wnd: 0,
       retry_queue: [],
+      retry_counter: 0,
       expired_at: 0,
     };
 
@@ -158,6 +162,14 @@ export class Socket {
         this._flush_tcp_socket(socket);
       } else {
         socket.state = "fin_wait_1";
+      }
+    } else if (socket.state === "close_wait") {
+      const err = this._send_tcp(socket, TCP_FLAGS.RST);
+      if (err) {
+        this._send_tcp(socket, TCP_FLAGS.RST);
+        this._flush_tcp_socket(socket);
+      } else {
+        socket.state = "last_ack";
       }
     } else if (socket.state === "time_wait") {
       this._flush_tcp_socket(socket);
@@ -408,13 +420,20 @@ export class Socket {
     if (index === -1) return;
 
     socket.retry_queue.splice(0);
+    this._sockets.splice(index, 1);
 
-    if (socket.state !== "closed") {
+    if (socket.state === "syn_sent" || socket.state === "syn_received") {
+      socket.state = "closed";
+    } else if (socket.state !== "closed") {
       socket.state = "closed";
       socket.on_close?.();
     }
+  }
 
-    this._sockets.splice(index, 1);
+  private _resend_tcp_queue(socket: TSocket) {
+    for (const tcp of socket.retry_queue) {
+      this.net.ip4.send(socket, socket.dst_ip, IP_PROTOCOLS.TCP, pack_tcp_packet(tcp), socket.src_ip);
+    }
   }
 
   private _allocate_port(socket: TSocket) {
@@ -432,13 +451,31 @@ export class Socket {
   private _handle_timer_1s() {
     const now = Date.now();
 
-    for (const socket of this._sockets) {
-      if (socket.expired_at > now) continue;
+    for (const socket of [...this._sockets]) {
+      const { expired_at, state, retry_queue } = socket;
+      if (expired_at && expired_at > now) continue;
 
-      if (socket.state === "time_wait") {
+      if (state === "closed" || state === "listen") {
+        continue;
+      } else if (state === "fin_wait_2") {
+        this._send_tcp(socket, TCP_FLAGS.RST);
+        this._flush_tcp_socket(socket);
+        socket.on_error?.(NET_ERRORS.TIMEOUT);
+      } else if (state === "time_wait") {
         socket.state = "closed";
         this._flush_tcp_socket(socket);
-        continue;
+        socket.on_error?.(NET_ERRORS.TIMEOUT);
+      } else {
+        if (retry_queue.length) {
+          if (socket.retry_counter >= _RETRY_TIMEOUTS_MS.length) {
+            this._flush_tcp_socket(socket);
+            socket.on_error?.(NET_ERRORS.TIMEOUT);
+          } else {
+            this._resend_tcp_queue(socket);
+            socket.expired_at = Date.now() + _RETRY_TIMEOUTS_MS[socket.retry_counter];
+            socket.retry_counter += 1;
+          }
+        }
       }
     }
   }
