@@ -82,6 +82,13 @@ export function validate_ip(ip: string) {
   return true;
 }
 
+export function validate_port(port: string) {
+  if (!/^\d+$/.test(port)) return false;
+  const number = parseInt(port);
+  if (0 >= number || number >= 65535) return false;
+  return true;
+}
+
 export function validate_address(address: string) {
   if (!/\d+\.\d+\.\d+\.\d+\/\d+/.test(address)) return false;
   const parts = address.split("/");

@@ -27,6 +27,7 @@
 - Socket в простом исполнении
 - DHCP client + server
 - DNS + server
+- HTTP клиент-сервер
 - Firewall + NAT + masquerade (icmp, udp, tcp)
 
 Все в OS работает на уровне ядра. Доступны некоторые упрощенные аналоги утилит:
@@ -42,4 +43,6 @@
 - `dhcp` - клиент
 - `dhcpd` - сервер
 - `fw` - управление firewall
+- `curl`
+- `nginx` - минимальный, с yaml конфигом
 - `cat`, `ls`, `rm`, `touch` - для работы с файлами

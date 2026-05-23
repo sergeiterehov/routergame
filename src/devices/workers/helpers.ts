@@ -9,6 +9,7 @@ import * as dhcp from "../apps/dhcp.app";
 import * as fw from "../apps/fw.app";
 import * as cat from "../apps/cat.app";
 import * as dnsd from "../apps/dnsd.app";
+import * as nginx from "../apps/http.app";
 import type { Bus } from "../bus";
 import { SimpleEthernet, SimpleEthernetDriver } from "../simpleEthernet";
 
@@ -70,7 +71,7 @@ export function beginWorker(config: { type: string; ethernet?: { mac: bigint }[]
   }
 
   os.print(`Host ${self.name}\n`);
-  os.install({ init, ...ifconfig, ...arp, ...ping, ...dhcp, ...dnsd, ...fw, ...cat });
+  os.install({ init, ...ifconfig, ...arp, ...ping, ...dhcp, ...dnsd, ...fw, ...cat, ...nginx });
 
   onMessage((msg) => {
     if (msg.$ === "exec") {

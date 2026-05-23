@@ -19,6 +19,9 @@ const _TIMEOUTS_MS = {
   FIN_WAIT_2: 30 * SEC,
 } as const;
 
+export type TSocketRawRecv = { packet: TIP4Packet; ip: number; iface: TInterface };
+export type TSocketRecv = { data: Uint8Array; ip: number; port: number; iface: TInterface };
+
 export type TSocket = {
   type: "raw" | "udp" | "tcp";
   protocol: number;
@@ -44,11 +47,12 @@ export type TSocket = {
   rcv_wnd: number;
   retry_queue: TTcpPacket[];
   retry_counter: number;
+  recv_queue: TSocketRecv[];
   expired_at: number;
   parent?: TSocket;
   on_error?: (error: number) => void;
-  on_raw_recv?: (recv: { packet: TIP4Packet; ip: number; iface: TInterface }) => void;
-  on_recv?: (recv: { data: Uint8Array; ip: number; port: number; iface: TInterface }) => void;
+  on_raw_recv?: (recv: TSocketRawRecv) => void;
+  on_recv?: (recv: TSocketRecv) => void;
   on_connected?: (socket: TSocket) => void;
   on_close?: () => void;
 };
@@ -76,6 +80,7 @@ export class Socket {
       rcv_nxt: 0,
       snd_wnd: 0,
       rcv_wnd: 0,
+      recv_queue: [],
       retry_queue: [],
       retry_counter: 0,
       expired_at: 0,
@@ -379,7 +384,14 @@ export class Socket {
 
         if (tcp.payload.length) {
           this._send_tcp(socket, TCP_FLAGS.ACK);
-          socket.on_recv?.({ data: tcp.payload, ip: ip.header.src, port: tcp.header.src, iface });
+          const recv: TSocketRecv = { data: tcp.payload, ip: ip.header.src, port: tcp.header.src, iface };
+          if (socket.on_recv) {
+            for (const _recv of socket.recv_queue) socket.on_recv(_recv);
+            socket.recv_queue.splice(0);
+            socket.on_recv(recv);
+          } else {
+            socket.recv_queue.push(recv);
+          }
         }
       } else if (flags & TCP_FLAGS.FIN) {
         if (this._3_way_closing) {
