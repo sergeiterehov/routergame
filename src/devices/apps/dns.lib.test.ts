@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { get_hostname_ip } from "./dns.lib";
+import { get_hostname_ip, answer_dns, DNS_CLASSES, DNS_TYPES } from "./dns.lib";
 import type { OS } from "../os/os";
 import { parseIPv4 } from "../format";
 import type { TInterface } from "../os/net";
@@ -328,5 +328,68 @@ describe("get_hostname_ip", () => {
     expect(socket.on_recv).toBeNullable();
     expect(socket.on_close).toBeNullable();
     expect(socket.on_error).toBeNullable();
+  });
+});
+
+describe("answer_dns", () => {
+  const mockOnName = vi.fn();
+  const request = new Uint8Array(512);
+  const $ = new DataView(request.buffer);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    $.setUint16(0, 12345); // Set ID
+  });
+
+  it("should create a valid DNS response with correct header", () => {
+    // Arrange
+    mockOnName.mockReturnValue([]);
+
+    // Act
+    const response = answer_dns(request, mockOnName);
+    const $ = new DataView(response.buffer);
+
+    // Assert
+    expect($.getUint16(0)).toBe(12345); // ID should be copied
+    expect($.getUint16(2)).toBe(0x8180); // QR=1, RD=1, RA=1 (0x8000 | 0x0100 | 0x0080)
+  });
+
+  it("should include answer records when found", () => {
+    // Arrange
+    const record = {
+      type: DNS_TYPES.A,
+      class: DNS_CLASSES.IN,
+      name: "example.com",
+      text: "192.168.1.100",
+      ttl: 300,
+      expired_at: Date.now() + 300000,
+    };
+    mockOnName.mockReturnValue([record]);
+
+    // Create a simple request with one question
+    $.setUint16(4, 1); // QDCOUNT = 1
+    const nameBytes = new TextEncoder().encode("\x07example\x03com\x00");
+    request.set(nameBytes, 12); // Encode domain name
+    $.setUint16(12 + nameBytes.length, DNS_TYPES.A);
+    $.setUint16(12 + nameBytes.length + 2, DNS_CLASSES.IN);
+    const a_offset = 12 + nameBytes.length + 4;
+
+    // Act
+    const response = answer_dns(request, mockOnName);
+    const $res = new DataView(response.buffer);
+
+    const res_a_name = new Uint8Array([0xc0, 0x0c]);
+
+    // Assert
+    expect($res.getUint16(6)).toBe(1); // ANCOUNT = 1
+    expect($res.getUint16(a_offset + res_a_name.length)).toBe(DNS_TYPES.A); // TYPE
+    expect($res.getUint16(a_offset + res_a_name.length + 2)).toBe(DNS_CLASSES.IN); // CLASS
+    expect($res.getUint32(a_offset + res_a_name.length + 4)).toBe(300); // TTL
+    expect($res.getUint16(a_offset + res_a_name.length + 8)).toBe(4); // RDLENGTH
+    // Verify IP address bytes
+    expect(response[a_offset + res_a_name.length + 10]).toBe(192);
+    expect(response[a_offset + res_a_name.length + 11]).toBe(168);
+    expect(response[a_offset + res_a_name.length + 12]).toBe(1);
+    expect(response[a_offset + res_a_name.length + 13]).toBe(100);
   });
 });

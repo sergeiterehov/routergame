@@ -46,12 +46,14 @@ function pack_dns_name(name: string): Uint8Array {
   return request.subarray(0, offset);
 }
 
-function unpack_dns_name(data: Uint8Array, offset: number): { name: string; offset: number } {
+function unpack_dns_name(data: Uint8Array, offset: number): { name: string; offset: number; string_offset: number } {
+  let string_offset = offset;
   const _first_offset = offset;
   const _first_length = data[_first_offset];
 
   if (_first_length === _DNS_COMPRESSED_NAME_MARKER) {
     offset = data[_first_offset + 1];
+    string_offset = offset;
   }
 
   const _segments: string[] = [];
@@ -67,7 +69,7 @@ function unpack_dns_name(data: Uint8Array, offset: number): { name: string; offs
     offset = _first_offset + 2;
   }
 
-  return { name: _segments.join("."), offset };
+  return { name: _segments.join("."), offset, string_offset };
 }
 
 export const DNS_CLASSES = {
@@ -255,7 +257,7 @@ export async function resolve_dns(
   return records;
 }
 
-export function answer_dns(os: OS, request: Uint8Array, on_name: (name: string) => TDnsRecord[]): Uint8Array {
+export function answer_dns(request: Uint8Array, on_name: (name: string) => TDnsRecord[]): Uint8Array {
   const $req = new DataView(request.buffer, request.byteOffset);
 
   const id = $req.getUint16(0);
@@ -273,20 +275,23 @@ export function answer_dns(os: OS, request: Uint8Array, on_name: (name: string) 
     const flags = _DNS_FLAGS.QR | _DNS_FLAGS.RD | _DNS_FLAGS.RA;
     $.setUint16(2, flags);
 
-    const questions: { name: string; type: number; class: number }[] = [];
+    $.setUint16(4, q_count);
+
+    const questions: { name: string; type: number; class: number; name_offset: number }[] = [];
     for (let i = 0; i < q_count; i++) {
       const _name = unpack_dns_name(request, req_offset);
       const name = _name.name;
       req_offset = _name.offset;
-      const q_type = $.getUint16(req_offset);
+      const q_type = $req.getUint16(req_offset);
       req_offset += 2;
-      const q_class = $.getUint16(req_offset);
+      const q_class = $req.getUint16(req_offset);
       req_offset += 2;
-      questions.push({ name, type: q_type, class: q_class });
+      questions.push({ name, type: q_type, class: q_class, name_offset: _name.string_offset });
     }
 
     response.set(request.subarray(12, req_offset), 12);
     let res_offset = req_offset;
+    let a_count = 0;
 
     for (const question of questions) {
       if (question.class !== DNS_CLASSES.IN) continue;
@@ -297,6 +302,12 @@ export function answer_dns(os: OS, request: Uint8Array, on_name: (name: string) 
         if (record.type !== question.type) continue;
         if (record.name !== question.name) continue;
 
+        a_count += 1;
+
+        $.setUint8(res_offset, 0xc0);
+        res_offset += 1;
+        $.setUint8(res_offset, question.name_offset);
+        res_offset += 1;
         $.setUint16(res_offset, record.type);
         res_offset += 2;
         $.setUint16(res_offset, record.class);
@@ -320,7 +331,9 @@ export function answer_dns(os: OS, request: Uint8Array, on_name: (name: string) 
       }
     }
 
-    return response;
+    $.setUint16(6, a_count);
+
+    return response.subarray(0, res_offset);
   } catch {
     const error = new Uint8Array(12);
     const $ = new DataView(error.buffer, error.byteOffset);
