@@ -163,7 +163,7 @@ describe("get_hostname_ip", () => {
     _os.net.socket.create.mockReturnValue({});
 
     // Arrange
-    const hostname = "example.com";
+    const hostname = "example.com.";
     const dnsIp = "8.8.8.8";
     const responseIp = "93.184.216.34"; // example.com IP
 
@@ -197,7 +197,6 @@ describe("get_hostname_ip", () => {
       response.set(bytes, offset);
       offset += bytes.length;
     }
-    dv.setUint8(offset++, 0); // End of domain name
     dv.setUint16(offset, 0x0001); // QTYPE (A record)
     offset += 2;
     dv.setUint16(offset, 0x0001); // QCLASS (IN)
@@ -359,7 +358,7 @@ describe("answer_dns", () => {
     const record = {
       type: DNS_TYPES.A,
       class: DNS_CLASSES.IN,
-      name: "example.com",
+      name: "example.com.",
       text: "192.168.1.100",
       ttl: 300,
       expired_at: Date.now() + 300000,

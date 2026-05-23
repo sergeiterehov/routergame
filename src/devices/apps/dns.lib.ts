@@ -33,7 +33,6 @@ function pack_dns_name(name: string): Uint8Array {
   const $ = new DataView(request.buffer, request.byteOffset);
 
   const segments = name.split(".");
-  if (segments.at(-1) !== "") segments.push("");
 
   let offset = 0;
   for (const segment of segments) {
@@ -61,8 +60,8 @@ function unpack_dns_name(data: Uint8Array, offset: number): { name: string; offs
     const length = data[offset++];
     const _segment = data.subarray(offset, offset + length);
     offset += length;
-    if (length === 0) break;
     _segments.push(new TextDecoder().decode(_segment));
+    if (length === 0) break;
   }
 
   if (_first_length === _DNS_COMPRESSED_NAME_MARKER) {
@@ -161,7 +160,7 @@ export async function resolve_dns(
 
       const flags = _DNS_FLAGS.RD;
       const q_count = 1;
-      const q_type = DNS_TYPES.A;
+      const q_type = type;
       const q_class = DNS_CLASSES.IN;
 
       $.setUint16(0, id);
@@ -172,11 +171,13 @@ export async function resolve_dns(
       request.set(packed_name, offset);
       offset += packed_name.length;
       $.setUint16(offset, q_type);
-      $.setUint16(offset + 2, q_class);
-    }
+      offset += 2;
+      $.setUint16(offset, q_class);
+      offset += 2;
 
-    err = os.net.socket.send(socket, request);
-    if (err) throw new Error(`Failed to send request: ${format_net_error(err)}`);
+      err = os.net.socket.send(socket, request.subarray(0, offset));
+      if (err) throw new Error(`Failed to send request: ${format_net_error(err)}`);
+    }
 
     for (;;) {
       const response = await new Promise<Uint8Array>((resolve, reject) => {
@@ -264,7 +265,7 @@ export async function resolve_dns(
   return records;
 }
 
-export function answer_dns(request: Uint8Array, on_name: (name: string) => TDnsRecord[]): Uint8Array {
+export function answer_dns(request: Uint8Array, on_name: (name: string, type: number) => TDnsRecord[]): Uint8Array {
   const $req = new DataView(request.buffer, request.byteOffset);
 
   const id = $req.getUint16(0);
@@ -304,7 +305,7 @@ export function answer_dns(request: Uint8Array, on_name: (name: string) => TDnsR
     for (const question of questions) {
       if (question.class !== DNS_CLASSES.IN) continue;
 
-      const records = on_name(question.name);
+      const records = on_name(question.name, question.type);
       for (const record of records) {
         if (record.class !== DNS_CLASSES.IN) continue;
         if (record.type !== question.type) continue;
@@ -329,6 +330,12 @@ export function answer_dns(request: Uint8Array, on_name: (name: string) => TDnsR
           res_offset += 2;
           response.set(ip_data, res_offset);
           res_offset += ip_data.length;
+        } else if (record.type === DNS_TYPES.PTR) {
+          const name = pack_dns_name(record.text);
+          $.setUint16(res_offset, name.length);
+          res_offset += 2;
+          response.set(name, res_offset);
+          res_offset += name.length;
         } else {
           const data = new TextEncoder().encode(record.text);
           $.setUint16(res_offset, data.length);

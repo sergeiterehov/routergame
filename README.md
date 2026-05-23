@@ -26,6 +26,7 @@
 - TCP
 - Socket в простом исполнении
 - DHCP client + server
+- DNS + server
 - Firewall + NAT + masquerade (icmp, udp, tcp)
 
 Все в OS работает на уровне ядра. Доступны некоторые упрощенные аналоги утилит:
@@ -36,6 +37,8 @@
 - `ping`
 - `socket` - просмотр активных сокетов
 - `nc` - аналог netcat
+- `dig`
+- `dnsd` - DNS сервер
 - `dhcp` - клиент
 - `dhcpd` - сервер
 - `fw` - управление firewall

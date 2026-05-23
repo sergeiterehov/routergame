@@ -2,8 +2,11 @@ import { formatIPv4, formatTime, hexdump, parseIPv4, validate_ip } from "../form
 import type { OS } from "../os/os";
 import type { TSocket } from "../os/socket";
 import { pack_icmp_packet, unpack_icmp_packet, type TIP4Packet } from "../pack";
-import { format_net_error } from "./app.lib";
-import { get_hostname_ip } from "./dns.lib";
+import { format_net_error, test_args } from "./app.lib";
+import { DNS_CLASSES, DNS_TYPES, get_hostname_ip, resolve_dns } from "./dns.lib";
+
+const DNS_TYPE_NAMES = Object.fromEntries(Object.entries(DNS_TYPES).map(([k, v]) => [v, k]));
+const DNS_CLASS_NAMES = Object.fromEntries(Object.entries(DNS_CLASSES).map(([k, v]) => [v, k]));
 
 function find_config(args: string[], key: string, initial: string = "") {
   for (let i = 1; i < args.length; i++) {
@@ -16,8 +19,26 @@ function find_config(args: string[], key: string, initial: string = "") {
 }
 
 export async function ping(os: OS, args: string[]) {
-  if (validate_ip(args[0])) {
-    const ip = parseIPv4(args[0]);
+  if (test_args(args, Boolean)) {
+    let ip = 0;
+
+    if (validate_ip(args[0])) {
+      ip = parseIPv4(args[0]);
+    } else {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), 5000);
+
+      const name = args[0];
+      const resolved_ip = await get_hostname_ip(
+        os,
+        name.endsWith(".") ? name : `${name}.`,
+        undefined,
+        controller.signal,
+      );
+      if (!resolved_ip) throw new Error("Failed to resolve hostname");
+
+      ip = resolved_ip;
+    }
 
     const count = parseInt(find_config(args, "-c", "1"));
     if (Number.isNaN(count) || count < 0) throw new Error("Invalid count");
@@ -113,7 +134,7 @@ export async function ping(os: OS, args: string[]) {
     return;
   }
 
-  os.print("Usage: <ip> [-c count] [-s packet_size] [-t timeout_ms] [-m TTL] [-i wait_ms]\n");
+  os.print("Usage: <host> [-c count] [-s packet_size] [-t timeout_ms] [-m TTL] [-i wait_ms]\n");
 }
 
 export async function nc(os: OS, args: string[]) {
@@ -303,17 +324,39 @@ export async function nc(os: OS, args: string[]) {
 }
 
 export async function dig(os: OS, args: string[]) {
-  if (!args.length) return os.print("usage: <hostname>\n");
+  if (!args.length) os.print("usage:\n\t<hostname>\n\t-x <ip>\n");
 
-  const hostname = args.shift()!;
+  let name = "";
+  let type = 0;
+
+  if (test_args(args, "-x", Boolean)) {
+    name = args[1].split(".").reverse().concat(["in-addr", "arpa", ""]).join(".");
+    type = DNS_TYPES.PTR;
+  } else if (test_args(args, Boolean)) {
+    name = args.shift()!;
+    type = DNS_TYPES.A;
+  }
+
+  if (!name.endsWith(".")) name += ".";
 
   const controller = new AbortController();
   setTimeout(() => controller.abort(), 5_000);
 
-  const ip = await get_hostname_ip(os, hostname, undefined, controller.signal);
-  if (!ip) throw new Error(`Hostname ${hostname} not found`);
+  const records = await resolve_dns(os, name, type, undefined, controller.signal);
+  if (!records.length) throw new Error(`No ${DNS_TYPE_NAMES[type]} records for ${name}`);
 
-  os.print(formatIPv4(ip));
+  for (const record of records) {
+    os.print(
+      [
+        record.name,
+        record.ttl,
+        DNS_CLASS_NAMES[record.class] || record.class,
+        DNS_TYPE_NAMES[record.type] || record.type,
+        record.text,
+      ].join("\t"),
+      "\n",
+    );
+  }
 }
 
 export async function socket(os: OS, args: string[]) {

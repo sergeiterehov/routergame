@@ -2,10 +2,9 @@ import z from "zod";
 import type { OS } from "../os/os";
 import { format_net_error } from "./app.lib";
 import { answer_dns, DNS_CLASSES, DNS_TYPES, type TDnsRecord } from "./dns.lib";
-import { SEC } from "../format";
 
 const _DNS_PORT = 53;
-const _RECORDS_PATH = "/dnsd/records";
+const _RECORDS_PATH = "/etc/ns.json";
 
 const _DNS_NAME_TO_TYPE: Record<string, number> = {
   A: DNS_TYPES.A,
@@ -24,28 +23,44 @@ const z_records = z.array(
   }),
 );
 
-function _resolve_name(os: OS, name: string): TDnsRecord[] {
+function _resolve_name(os: OS, name: string, type: number): TDnsRecord[] {
   if (!os.fs.exists(_RECORDS_PATH)) throw new Error(`Records file ${_RECORDS_PATH} not found`);
 
-  const records = JSON.parse(os.fs.read(_RECORDS_PATH));
-
-  try {
-    return z_records
-      .parse(records)
-      .filter((r) => r.name === name)
-      .map(
+  const all_records = (() => {
+    try {
+      return z_records.parse(JSON.parse(os.fs.read(_RECORDS_PATH))).map(
         (r): TDnsRecord => ({
-          name: r.name,
+          name: r.name.endsWith(".") ? r.name : `${r.name}.`,
           class: DNS_CLASSES.IN,
           type: _DNS_NAME_TO_TYPE[r.type],
-          ttl: r.ttl ?? 60 * SEC,
+          ttl: r.ttl ?? 3600,
           expired_at: 0,
           text: r.value,
         }),
       );
-  } catch (e) {
-    throw new Error(`Invalid records file ${_RECORDS_PATH}: ${e}`);
+    } catch (e) {
+      os.print(`[DNSd] [ERROR] [Resolve] ${e}\n`);
+      throw new Error(`Invalid records file ${_RECORDS_PATH}: ${e}`);
+    }
+  })();
+
+  const records = all_records.filter((r) => r.type === type && r.name === name);
+  if (records.length) return records;
+
+  if (type === DNS_TYPES.PTR) {
+    const ip = name.split(".").slice(0, 4).reverse().join(".");
+    const a_records = all_records
+      .filter((r) => r.type === DNS_TYPES.A && r.text === ip)
+      .map((r) => ({
+        ...r,
+        name,
+        type: DNS_TYPES.PTR,
+        text: r.name,
+      }));
+    if (a_records.length) return a_records;
   }
+
+  return [];
 }
 
 export async function dnsd(os: OS, args: string[]) {
@@ -75,7 +90,7 @@ export async function dnsd(os: OS, args: string[]) {
       });
 
       try {
-        const res = answer_dns(req.data, (name) => _resolve_name(os, name));
+        const res = answer_dns(req.data, (name, type) => _resolve_name(os, name, type));
 
         err = os.net.socket.send_to(socket, req.ip, req.port, res);
         if (err) throw new Error(`Failed to send response: ${format_net_error(err)}`);

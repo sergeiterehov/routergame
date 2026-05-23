@@ -66,7 +66,13 @@ export const initial_arch: TArchitecture = {
           "iface eth0 add 192.168.0.100/24",
           "route add 192.168.0.0/24 dev eth0",
           "route add default via 192.168.0.1",
+          "dnsd",
         ].join("\n"),
+        "/etc/ns.json": JSON.stringify([
+          { type: "A", name: "dns.google", value: "8.8.8.8", ttl: 24 * 3600 },
+          { type: "A", name: "ya.ru", value: "77.88.44.242" },
+          { type: "A", name: "ya.ru", value: "77.88.55.242" },
+        ]),
       },
       ui: { x: 150, y: 200 },
     },
@@ -76,7 +82,7 @@ export const initial_arch: TArchitecture = {
       name: "PC A",
       ports: [{ id: "eth0", type: "ethernet" }],
       ethernetPorts: [{ id: "eth0", mac: "00:00:00:aa:00:00" }],
-      fs: { "/init": ["dhcp eth0"].join("\n") },
+      fs: { "/init": ["dhcp eth0"].join("\n"), "/etc/resolv.conf": "nameserver 192.168.0.100" },
       ui: { x: 50, y: 100 },
     },
     {
