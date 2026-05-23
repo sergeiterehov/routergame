@@ -2,7 +2,8 @@ import { formatIPv4, formatTime, hexdump, parseIPv4, validate_ip } from "../form
 import type { OS } from "../os/os";
 import type { TSocket } from "../os/socket";
 import { pack_icmp_packet, unpack_icmp_packet, type TIP4Packet } from "../pack";
-import { format_net_error } from "./app_utils";
+import { format_net_error } from "./app.lib";
+import { get_hostname_ip } from "./dns.lib";
 
 function find_config(args: string[], key: string, initial: string = "") {
   for (let i = 1; i < args.length; i++) {
@@ -299,6 +300,20 @@ export async function nc(os: OS, args: string[]) {
     }
   }
   os.print("\n[closed]\n");
+}
+
+export async function dig(os: OS, args: string[]) {
+  if (!args.length) return os.print("usage: <hostname>\n");
+
+  const hostname = args.shift()!;
+
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), 5_000);
+
+  const ip = await get_hostname_ip(os, hostname, undefined, controller.signal);
+  if (!ip) throw new Error(`Hostname ${hostname} not found`);
+
+  os.print(formatIPv4(ip));
 }
 
 export async function socket(os: OS, args: string[]) {

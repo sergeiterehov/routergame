@@ -2,7 +2,7 @@ import { formatIPv4, formatTime, parseIPv4, validate_ip } from "../format";
 import { FW_ACTIONS, FW_CHAINS, FW_TABLES, type TAction, type TPredicate } from "../os/fw";
 import type { OS } from "../os/os";
 import { IP_PROTOCOLS } from "../pack";
-import { find_arg, run_command_of, test_args } from "./app_utils";
+import { find_arg, run_command_of, test_args } from "./app.lib";
 
 const TABLES = Object.values(FW_TABLES as object);
 const CHAINS = Object.values(FW_CHAINS as object);

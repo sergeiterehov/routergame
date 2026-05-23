@@ -10,7 +10,7 @@ import {
 } from "../format";
 import type { TInterface } from "../os/net";
 import type { OS } from "../os/os";
-import { find_arg, find_args, has_arg, test_args } from "./app_utils";
+import { find_arg, find_args, has_arg, test_args } from "./app.lib";
 
 function _get_iface(os: OS, name: string) {
   return os.net._interfaces.find((p) => p.name === name);
