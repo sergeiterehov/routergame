@@ -30,11 +30,7 @@ describe("get_hostname_ip", () => {
     // Default mock implementations
     _os.fs.exists.mockReturnValue(false);
     _os.fs.read.mockReturnValue("");
-    _os.net.socket.create.mockReturnValue({
-      on_recv: null,
-      on_close: null,
-      on_error: null,
-    });
+    _os.net.socket.create.mockReturnValue({});
     _os.net.socket.connect.mockReturnValue(0);
     _os.net.socket.send.mockReturnValue(0);
   });
@@ -66,10 +62,9 @@ describe("get_hostname_ip", () => {
     _os.fs.read.mockReturnValue(`invalid_ip ${hostname}\n10.0.0.1 other.com`);
 
     // Act
-    const result = await get_hostname_ip(os, hostname);
+    await expect(get_hostname_ip(os, hostname)).rejects.toThrow();
 
     // Assert
-    expect(result).toBeUndefined();
     expect(os.fs.exists).toHaveBeenCalledWith("/etc/hosts");
     expect(os.fs.read).toHaveBeenCalledWith("/etc/hosts");
     // Should not attempt DNS query if found but invalid in hosts file
@@ -85,10 +80,9 @@ describe("get_hostname_ip", () => {
     _os.fs.read.mockReturnValue(`# ${ip} ${hostname}\n10.0.0.1 other.com`);
 
     // Act
-    const result = await get_hostname_ip(os, hostname);
+    await expect(get_hostname_ip(os, hostname)).rejects.toThrow();
 
     // Assert
-    expect(result).toBeUndefined();
     expect(os.fs.exists).toHaveBeenCalledWith("/etc/hosts");
     expect(os.fs.read).toHaveBeenCalledWith("/etc/hosts");
   });
@@ -107,13 +101,12 @@ describe("get_hostname_ip", () => {
     });
 
     const controller = new AbortController();
-    setTimeout(() => controller.abort(), 100);
+    setTimeout(() => controller.abort(), 10);
 
     // Act
-    const result = await get_hostname_ip(os, hostname, undefined, controller.signal);
+    await expect(get_hostname_ip(os, hostname, undefined, controller.signal)).rejects.toThrow();
 
     // Assert
-    expect(result).toBeUndefined(); // We're not mocking the full DNS response yet
     expect(os.fs.exists).toHaveBeenCalledWith("/etc/hosts");
     expect(os.fs.exists).toHaveBeenCalledWith("/etc/resolv.conf");
     expect(os.fs.read).toHaveBeenCalledWith("/etc/hosts");
@@ -138,10 +131,9 @@ describe("get_hostname_ip", () => {
     setTimeout(() => controller.abort(), 100);
 
     // Act
-    const result = await get_hostname_ip(os, hostname, parseIPv4(dnsIp), controller.signal);
+    await expect(get_hostname_ip(os, hostname, parseIPv4(dnsIp), controller.signal)).rejects.toThrow();
 
     // Assert
-    expect(result).toBeUndefined(); // We're not mocking the full DNS response yet
     expect(os.fs.exists).toHaveBeenCalledWith("/etc/hosts");
     expect(os.fs.read).toHaveBeenCalledWith("/etc/hosts");
     expect(os.net.socket.create).toHaveBeenCalledWith("udp");
@@ -150,7 +142,7 @@ describe("get_hostname_ip", () => {
     expect(os.fs.exists).not.toHaveBeenCalledWith("/etc/resolv.conf");
   });
 
-  it("should return undefined if no DNS server is available", async () => {
+  it("should throw error if no DNS server is available", async () => {
     // Arrange
     const hostname = "example.com";
 
@@ -159,16 +151,17 @@ describe("get_hostname_ip", () => {
     _os.fs.read.mockReturnValue("10.0.0.1 other.com");
 
     // Act
-    const result = await get_hostname_ip(os, hostname);
+    await expect(get_hostname_ip(os, hostname)).rejects.toThrow();
 
     // Assert
-    expect(result).toBeUndefined();
     expect(os.fs.exists).toHaveBeenCalledWith("/etc/hosts");
     expect(os.fs.exists).toHaveBeenCalledWith("/etc/resolv.conf");
     expect(os.net.socket.create).not.toHaveBeenCalled();
   });
 
   it("should handle DNS response with correct answer", async () => {
+    _os.net.socket.create.mockReturnValue({});
+
     // Arrange
     const hostname = "example.com";
     const dnsIp = "8.8.8.8";
@@ -185,9 +178,6 @@ describe("get_hostname_ip", () => {
     // Create a mock DNS response
     const response = new Uint8Array(512);
     const dv = new DataView(response.buffer);
-
-    // Set the unknown ID
-    dv.setUint16(0, 0);
 
     // Set flags (response, no error)
     dv.setUint16(2, 0x8180);
@@ -253,7 +243,7 @@ describe("get_hostname_ip", () => {
     expect(os.net.socket.send).toHaveBeenCalled();
   });
 
-  it("should return undefined for DNS response with error", async () => {
+  it("should throw error for DNS response with error", async () => {
     // Arrange
     const hostname = "example.com";
     const dnsIp = "8.8.8.8";
@@ -267,15 +257,15 @@ describe("get_hostname_ip", () => {
     });
 
     // Create a mock DNS response with error
-    const id = 12345;
     const response = new Uint8Array(512);
     const dv = new DataView(response.buffer);
 
-    // Set the ID
-    dv.setUint16(0, id);
-
     // Set flags with error (SERVFAIL)
     dv.setUint16(2, 0x8183);
+
+    _os.net.socket.send.mockImplementationOnce((socket, data: Uint8Array) => {
+      dv.setUint16(0, (data[0] << 8) + data[1]);
+    });
 
     // Mock the socket response
     const socket = os.net.socket.create("udp");
@@ -290,10 +280,7 @@ describe("get_hostname_ip", () => {
       }
     }, 10);
 
-    const result = await resultPromise;
-
-    // Assert
-    expect(result).toBeUndefined();
+    await expect(resultPromise).rejects.toThrow();
   });
 
   it("should handle aborted signal", async () => {
@@ -305,15 +292,16 @@ describe("get_hostname_ip", () => {
     controller.abort();
 
     // Act
-    const result = await get_hostname_ip(os, hostname, undefined, controller.signal);
+    await expect(get_hostname_ip(os, hostname, undefined, controller.signal)).rejects.toThrow();
 
     // Assert
-    expect(result).toBeUndefined();
     // Should not make any network calls
     expect(os.net.socket.create).not.toHaveBeenCalled();
   });
 
   it("should clean up socket event handlers", async () => {
+    _os.net.socket.create.mockReturnValue({});
+
     // Arrange
     const hostname = "example.com";
     const dnsIp = "8.8.8.8";
@@ -333,7 +321,7 @@ describe("get_hostname_ip", () => {
     setTimeout(() => controller.abort(), 10);
 
     // Act
-    await get_hostname_ip(os, hostname, undefined, controller.signal);
+    await expect(get_hostname_ip(os, hostname, undefined, controller.signal)).rejects.toThrow();
 
     // Assert
     expect(os.net.socket.close).toHaveBeenCalled();
