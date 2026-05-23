@@ -1,4 +1,4 @@
-import { parseIPv4, validate_ip } from "../format";
+import { parseIPv4, SEC, validate_ip } from "../format";
 import type { OS } from "../os/os";
 import { format_net_error } from "./app.lib";
 
@@ -235,7 +235,14 @@ export async function resolve_dns(
 
         if (a_class !== DNS_CLASSES.IN) continue;
 
-        const record: TDnsRecord = { class: a_class, type: a_type, name, ttl, expired_at: now + ttl, text: "" };
+        const record: TDnsRecord = {
+          class: a_class,
+          type: a_type,
+          name,
+          ttl,
+          expired_at: now + ttl * SEC,
+          text: "",
+        };
 
         if (a_type === DNS_TYPES.A) {
           record.text = rd_data.join(".");
@@ -261,12 +268,13 @@ export function answer_dns(request: Uint8Array, on_name: (name: string) => TDnsR
   const $req = new DataView(request.buffer, request.byteOffset);
 
   const id = $req.getUint16(0);
-  // const q_flags = $req.getUint16(2);
-  const q_count = $req.getUint16(4);
 
   let req_offset = 12;
 
   try {
+    // const q_flags = $req.getUint16(2);
+    const q_count = $req.getUint16(4);
+
     const response = new Uint8Array(2048);
     const $ = new DataView(response.buffer);
 

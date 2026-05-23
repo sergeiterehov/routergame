@@ -1,6 +1,6 @@
 import { Device, Port } from "../device";
 import { System } from "../system";
-import { expose, onMessage } from "../worker";
+import { expose, onMessage } from "./helpers";
 
 const EXPIRE_INTERVAL_MS = 1_000;
 const TTL_MS = 30_000;

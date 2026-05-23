@@ -1,15 +1,16 @@
-import { Port } from "./device";
-import { System } from "./system";
-import { OS } from "./os/os";
-import { init } from "./apps/init.app";
-import * as ifconfig from "./apps/ifconfig.app";
-import * as arp from "./apps/arp.app";
-import * as ping from "./apps/ping.app";
-import * as dhcp from "./apps/dhcp.app";
-import * as fw from "./apps/fw.app";
-import * as cat from "./apps/cat.app";
-import type { Bus } from "./bus";
-import { SimpleEthernet, SimpleEthernetDriver } from "./simpleEthernet";
+import { Port } from "../device";
+import { System } from "../system";
+import { OS } from "../os/os";
+import { init } from "../apps/init.app";
+import * as ifconfig from "../apps/ifconfig.app";
+import * as arp from "../apps/arp.app";
+import * as ping from "../apps/ping.app";
+import * as dhcp from "../apps/dhcp.app";
+import * as fw from "../apps/fw.app";
+import * as cat from "../apps/cat.app";
+import * as dnsd from "../apps/dnsd.app";
+import type { Bus } from "../bus";
+import { SimpleEthernet, SimpleEthernetDriver } from "../simpleEthernet";
 
 export function onMessage(handler: (message: Bus.Message.Master) => void, options: AddEventListenerOptions = {}) {
   self.addEventListener("message", (e: MessageEvent<Bus.Message.Master>) => handler(e.data), options);
@@ -69,7 +70,7 @@ export function beginWorker(config: { type: string; ethernet?: { mac: bigint }[]
   }
 
   os.print(`Host ${self.name}\n`);
-  os.install({ init, ...ifconfig, ...arp, ...ping, ...dhcp, ...fw, ...cat });
+  os.install({ init, ...ifconfig, ...arp, ...ping, ...dhcp, ...dnsd, ...fw, ...cat });
 
   onMessage((msg) => {
     if (msg.$ === "exec") {

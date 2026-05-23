@@ -1,4 +1,4 @@
-import { beginWorker } from "../worker";
+import { beginWorker } from "./helpers";
 
 beginWorker({
   type: "Server",
