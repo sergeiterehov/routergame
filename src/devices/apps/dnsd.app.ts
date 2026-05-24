@@ -76,8 +76,6 @@ function _resolve_name(os: OS, name: string, type: number): TDnsRecord[] {
 export async function dnsd(os: OS, args: string[]) {
   if (args.length) throw new Error("No arguments expected");
 
-  console.log(_read_records(os));
-
   const socket = os.net.socket.create("udp");
 
   try {

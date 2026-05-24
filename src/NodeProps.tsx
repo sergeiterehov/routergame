@@ -1,5 +1,6 @@
 import { observer } from "mobx-react-lite";
 import { store } from "./state/store";
+import { IconEdit, IconPlus } from "@tabler/icons-react";
 
 export const NodeProps = observer(function NodeProps(props: { id: string }) {
   const { id } = props;
@@ -16,7 +17,7 @@ export const NodeProps = observer(function NodeProps(props: { id: string }) {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="text-lg font-semibold cursor-pointer hover:bg-gray-900/5" onClick={handle_rename}>
+      <div className="text-lg font-semibold link link-hover" onClick={handle_rename}>
         {node.name}
       </div>
       <div className="text-sm font-mono">
@@ -28,7 +29,16 @@ export const NodeProps = observer(function NodeProps(props: { id: string }) {
                 if (ext_node.id === (c.a_id === id ? c.b_id : c.a_id)) {
                   const metrics = store.connection_metrics[c.id];
                   return (
-                    <div key={p.id}>
+                    <a
+                      key={p.id}
+                      href="#"
+                      className="block link link-hover"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        store.selected_set("connection", c.id);
+                      }}
+                    >
                       {p.id} &rarr; {ext_node.name}: {ext}{" "}
                       {(() => {
                         const { ab, ba } = metrics || { ab: 0, ba: 0 };
@@ -36,7 +46,7 @@ export const NodeProps = observer(function NodeProps(props: { id: string }) {
                         const rx = c.a_id === id ? ba : ab;
                         return `[${tx}/${rx}]`;
                       })()}
-                    </div>
+                    </a>
                   );
                 }
               }
@@ -51,19 +61,41 @@ export const NodeProps = observer(function NodeProps(props: { id: string }) {
         })}
       </div>
       <div className="text-md font-semibold">Initial script</div>
-      <textarea
-        className="textarea textarea-sm w-full font-mono"
-        value={node.fs["/init"] || ""}
-        onChange={(e) => {
-          store.node_fs_set(id, { "/init": e.currentTarget.value });
-        }}
-      />
-      <div className="text-md font-semibold">Files</div>
+      <pre className="textarea textarea-sm w-full font-mono">{node.fs["/init"]}</pre>
+      <div className="text-md font-semibold flex items-center">
+        <div className="grow">Files</div>
+        <IconPlus
+          className="cursor-pointer rounded-full hover:bg-purple-500 hover:text-white"
+          title="Add file"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const path = prompt("Path", "/name");
+            if (!path) return;
+            store.node_edit_file(path);
+          }}
+          size="1em"
+        />
+      </div>
       <div className="font-mono text-sm">
         {Object.keys(node.fs).map((path, i) => {
-          return <div key={i}>{path}</div>;
+          return (
+            <a
+              key={i}
+              href="#"
+              className="block link link-hover"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                store.node_edit_file(path);
+              }}
+            >
+              {path}
+            </a>
+          );
         })}
       </div>
+      <div className="text-md font-semibold">Actions</div>
       {store.instances[node.id] ? (
         <div
           className="btn btn-outline btn-error"

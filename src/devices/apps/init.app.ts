@@ -2,8 +2,13 @@ import type { OS } from "../os/os";
 
 const PATH = "/init";
 
+let _initialized = false;
+
 export async function init(os: OS, args: string[]) {
   if (args.length) throw new Error("No arguments expected");
+
+  if (_initialized) throw new Error("Already initialized");
+  _initialized = true;
 
   if (!os.fs.exists(PATH) || os.fs.is_dir(PATH)) throw new Error("No /init script found");
 

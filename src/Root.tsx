@@ -7,9 +7,10 @@ import { NodeProps } from "./NodeProps";
 import { Tools } from "./Tools";
 import { MultiProps } from "./MultiProps";
 import { ConnectionProps } from "./ConnectionProps";
+import { FileEditor } from "./FileEditor";
 
 export const Root = observer(function Root() {
-  const { selected_node, selected_connection, selected, sidebar_visible, console_visible } = store;
+  const { selected_node, selected_connection, selected, sidebar_visible, console_visible, node_editing_file } = store;
 
   const [props_width, props_width_set] = useState(350);
   const [console_height, console_height_set] = useState(420);
@@ -44,6 +45,9 @@ export const Root = observer(function Root() {
             ) : null}
           </div>
         )}
+        {node_editing_file ? (
+          <FileEditor node={store.node_by_id(node_editing_file.id)!} path={node_editing_file.path} />
+        ) : null}
       </div>
     </div>
   );

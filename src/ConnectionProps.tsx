@@ -14,28 +14,34 @@ export const ConnectionProps = observer(function ConnectionProps(props: { id: st
 
   const metrics = store.connection_metrics[id];
 
-  const handle_rename = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const name = prompt("New name");
-    if (!name) return;
-    alert("Not implemented!"); // FIXME: connection rename
-  };
-
   const { speed } = connection;
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="text-lg font-semibold cursor-pointer hover:bg-gray-900/5" onClick={handle_rename}>
-        {connection.id}
-      </div>
+      <div className="text-lg font-semibold">Connection</div>
       <div className="text-sm font-mono">
-        <div>
+        <a
+          href="#"
+          className="block link link-hover"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            store.selected_set("node", a.id);
+          }}
+        >
           {a.name}: {connection.a_pid} &rarr; [{metrics ? metrics.ab : "0"}]
-        </div>
-        <div>
+        </a>
+        <a
+          href="#"
+          className="block link link-hover"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            store.selected_set("node", b.id);
+          }}
+        >
           {b.name}: {connection.b_pid} &rarr; [{metrics ? metrics.ba : "0"}]
-        </div>
+        </a>
       </div>
       <div>Speed</div>
       <div>

@@ -59,6 +59,11 @@ export class Store {
 
   viewport_position = { x: 0, y: 0 };
 
+  node_editing_file?: {
+    id: string;
+    path: string;
+  };
+
   tool_set(value: TOOL) {
     if (this.tool === value) return;
 
@@ -513,6 +518,16 @@ export class Store {
     this.selected_set("node", node.id);
 
     return node;
+  }
+
+  node_edit_file(path?: string, id?: string) {
+    if (!path) {
+      this.node_editing_file = undefined;
+      return;
+    }
+    if (!id) id = this.selected_node?.id;
+    if (!id) return;
+    this.node_editing_file = { id, path };
   }
 }
 
