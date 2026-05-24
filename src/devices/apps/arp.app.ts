@@ -1,4 +1,5 @@
 import { formatIPv4, formatMAC, parseIPv4, validate_ip } from "../format";
+import type { TArpRecord } from "../os/arp";
 import type { OS } from "../os/os";
 
 export async function arp(os: OS, args: string[]) {
@@ -32,18 +33,21 @@ export async function arp(os: OS, args: string[]) {
 
     os.net.arp.send_request(iface_index, who_ip);
 
-    let mac: bigint = -1n;
+    let arp: TArpRecord | undefined;
 
     const dl = os.deadline(1000);
     while (dl.left) {
-      mac = os.net.arp.get_record(iface_index, who_ip);
-      if (mac !== -1n) break;
+      arp = os.net.arp.get_record(iface_index, who_ip);
+      if (arp && arp.state !== "pending") break;
       const [, err] = await os.channel_sync(os.net.arp._channel, dl);
       if (err) throw err;
     }
-
-    os.print("ok\n");
-    os.print(`${formatMAC(mac)}\n`);
+    
+    if (arp) {
+      os.print(`${arp.state}\n${formatMAC(arp.mac)}\n`);
+    } else {
+      os.print(`not found\n`);
+    }
   } else {
     os.print("Usage:\n");
     os.print("[who <ip> [on <interface>]]\n");
