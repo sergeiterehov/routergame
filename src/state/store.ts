@@ -42,10 +42,23 @@ const Type2Worker: { [key in TArchNode["type"]]: new (options: WorkerOptions) =>
 };
 
 export class Store {
+  private _exchange_journal_counter = 1;
+
   arch: TArchitecture = initial_arch;
   instances: { [key: string]: Worker } = {};
   consoles: { [key: string]: string } = {};
   connection_metrics: { [key: string]: { ab: number; ba: number } } = {};
+  exchange_journal: {
+    id: number;
+    created_at: number;
+    a_id: string;
+    a_pid: string;
+    b_id: string;
+    b_pid: string;
+    data: Uint8Array;
+  }[] = [];
+
+  exchange_state?: object; // TODO: filters
 
   tool: TOOL = TOOL.NONE;
 
@@ -280,7 +293,16 @@ export class Store {
           return;
         }
 
-        console.log(`[${node.id}:${msg.port}] => [${targetNode.id}:${targetPort}]\n${hexdump(msg.frame)}`);
+        // console.log(`[${node.id}:${msg.port}] => [${targetNode.id}:${targetPort}]\n${hexdump(msg.frame)}`);
+        this.exchange_journal.push({
+          id: this._exchange_journal_counter++,
+          created_at: Date.now(),
+          a_id: node.id,
+          a_pid: port.id,
+          b_id: targetNode.id,
+          b_pid: targetNode.ports[targetPort].id,
+          data: msg.frame,
+        });
 
         const time = c.delay + (1000 * msg.frame.length) / c.speed;
         setTimeout(() => {
@@ -528,6 +550,18 @@ export class Store {
     if (!id) id = this.selected_node?.id;
     if (!id) return;
     this.node_editing_file = { id, path };
+  }
+
+  exchange_open() {
+    this.exchange_state = {};
+  }
+
+  exchange_close() {
+    this.exchange_state = undefined;
+  }
+
+  exchange_clear() {
+    this.exchange_journal.splice(0);
   }
 }
 

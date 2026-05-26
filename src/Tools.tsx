@@ -8,6 +8,7 @@ import {
   IconTerminal2,
   IconSwitch3,
   IconCopy,
+  IconSpy,
 } from "@tabler/icons-react";
 import { observer } from "mobx-react-lite";
 import { store, TOOL } from "./state/store";
@@ -111,6 +112,17 @@ export const Tools = observer(function Tools() {
         }}
       >
         <IconGrid3x3 stroke="1" size="24" />
+      </Btn>
+      <Btn
+        data-gray
+        title="Exchange journal"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          store.exchange_open();
+        }}
+      >
+        <IconSpy stroke="1" size="24" />
       </Btn>
       <Btn
         data-gray

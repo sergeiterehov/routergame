@@ -1,6 +1,6 @@
 import { observer } from "mobx-react-lite";
 import { store } from "./state/store";
-import { IconEdit, IconPlus } from "@tabler/icons-react";
+import { IconPlus } from "@tabler/icons-react";
 
 export const NodeProps = observer(function NodeProps(props: { id: string }) {
   const { id } = props;

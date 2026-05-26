@@ -8,9 +8,18 @@ import { Tools } from "./Tools";
 import { MultiProps } from "./MultiProps";
 import { ConnectionProps } from "./ConnectionProps";
 import { FileEditor } from "./FileEditor";
+import { ExchangeJournal } from "./ExchangeJournal";
 
 export const Root = observer(function Root() {
-  const { selected_node, selected_connection, selected, sidebar_visible, console_visible, node_editing_file } = store;
+  const {
+    selected_node,
+    selected_connection,
+    selected,
+    sidebar_visible,
+    console_visible,
+    node_editing_file,
+    exchange_state,
+  } = store;
 
   const [props_width, props_width_set] = useState(350);
   const [console_height, console_height_set] = useState(420);
@@ -48,6 +57,7 @@ export const Root = observer(function Root() {
         {node_editing_file ? (
           <FileEditor node={store.node_by_id(node_editing_file.id)!} path={node_editing_file.path} />
         ) : null}
+        {exchange_state ? <ExchangeJournal /> : null}
       </div>
     </div>
   );

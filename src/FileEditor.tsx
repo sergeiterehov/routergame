@@ -41,7 +41,7 @@ export const FileEditor = observer(function FileEditor(props: { node: TArchNode;
           </button>
           <div className="grow" />
           <form method="dialog">
-            <button className="btn">Close</button>
+            <button className="btn btn-primary">OK</button>
           </form>
         </div>
       </div>
