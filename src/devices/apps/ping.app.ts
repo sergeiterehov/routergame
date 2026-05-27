@@ -1,8 +1,17 @@
 import { formatIPv4, formatTime, hexdump, parseIPv4, validate_ip } from "../format";
 import type { OS } from "../os/os";
 import type { TSocket } from "../os/socket";
-import { pack_icmp_packet, unpack_icmp_packet, type TIP4Packet } from "../pack";
-import { format_net_error, test_args } from "./app.lib";
+import {
+  ICMP_TYPES,
+  IP_PROTOCOLS,
+  pack_icmp_packet,
+  pack_udp_packet,
+  unpack_icmp_packet,
+  unpack_ip4_packet,
+  unpack_udp_packet,
+  type TIP4Packet,
+} from "../pack";
+import { find_arg, format_net_error, socket_read_raw, test_args } from "./app.lib";
 import { DNS_CLASSES, DNS_TYPES, get_hostname_ip, resolve_dns } from "./dns.lib";
 
 const DNS_TYPE_NAMES = Object.fromEntries(Object.entries(DNS_TYPES).map(([k, v]) => [v, k]));
@@ -381,5 +390,107 @@ export async function socket(os: OS, args: string[]) {
         .join(" "),
       "\n",
     );
+  }
+}
+
+export async function trace(os: OS, args: string[]) {
+  if (test_args(args, validate_ip)) {
+    const ip = parseIPv4(args[0]);
+
+    const max_ttl = Number(find_arg(args, "-m", "64"));
+    if (Number.isNaN(max_ttl) || max_ttl < 1 || max_ttl > 255) throw new Error("Invalid max ttl");
+
+    const wait_time = Number(find_arg(args, "-w", "1000"));
+    if (Number.isNaN(wait_time) || wait_time <= 0) throw new Error("Invalid wait time");
+
+    const socket = os.net.socket.create("raw");
+    let err = 0;
+
+    try {
+      err = os.net.socket.connect(socket, ip, 0);
+      if (err) throw new Error(`Socket connection error ${format_net_error(err)}`);
+
+      // from any IP
+      socket.dst_ip = 0;
+
+      const udp = {
+        header: {
+          src: 61234,
+          dst: 64321,
+          length: 0,
+          checksum: 0,
+        },
+        payload: Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8]),
+      };
+
+      const trace_ips: number[] = [];
+
+      for_ttl: for (let ttl = 1; ttl < max_ttl; ttl += 1) {
+        os.print(`${ttl}\t`);
+
+        const prob: TIP4Packet = {
+          header: {
+            version: 4,
+            dst: ip,
+            ttl,
+            protocol: IP_PROTOCOLS.UDP,
+            id: 1,
+            checksum: 0,
+            src: 0,
+            flags: 0,
+            ihl: 0,
+            length: 0,
+            offset: 0,
+            options: [],
+            tos: 0,
+          },
+          payload: pack_udp_packet(udp),
+        };
+
+        err = os.net.socket.send_raw_to(socket, prob.header.dst, prob);
+        if (err) throw new Error(`Sending error ${format_net_error(err)}`);
+
+        const sent_at = Date.now();
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(), wait_time);
+
+        while_timeout: while (!controller.signal.aborted) {
+          const res = await socket_read_raw(os, socket, controller.signal, true).catch(() => undefined);
+          if (!res) continue while_timeout;
+
+          if (trace_ips.includes(res.header.src)) break for_ttl;
+          trace_ips.push(res.header.src);
+
+          if (res.header.protocol === IP_PROTOCOLS.ICMP) {
+            const icmp = unpack_icmp_packet(res.payload);
+            const original_ip = unpack_ip4_packet(icmp.payload);
+            if (original_ip.header.protocol !== IP_PROTOCOLS.UDP) continue while_timeout;
+
+            const original_udp = unpack_udp_packet(original_ip.payload);
+
+            if (original_udp.header.src !== udp.header.src || original_udp.header.dst !== udp.header.dst)
+              continue while_timeout;
+
+            if (icmp.type === ICMP_TYPES.TIME_EXCEEDED) {
+              os.print(`${formatIPv4(res.header.src)} ${formatTime(Date.now() - sent_at)}\n`);
+              continue for_ttl;
+            } else if (icmp.type === ICMP_TYPES.DEST_UNREACHABLE) {
+              os.print("UNREACHABLE\n");
+              break for_ttl;
+            }
+          }
+
+          if (res.header.src === prob.header.dst) break for_ttl;
+        }
+
+        os.print("*\n");
+      }
+
+      os.print("done\n");
+    } finally {
+      os.net.socket.close(socket);
+    }
+  } else {
+    os.print("usage: <ip> [-m max_ttl] [-w wait_time_ms]\n");
   }
 }

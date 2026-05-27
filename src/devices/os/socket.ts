@@ -1,5 +1,6 @@
 import { SEC } from "../format";
 import {
+  ICMP_TYPES,
   IP_PROTOCOLS,
   pack_tcp_packet,
   pack_udp_packet,
@@ -278,7 +279,13 @@ export class Socket {
 
       if (socket.type === "raw") {
         if (socket.protocol === 0 || socket.protocol === src_packet.header.protocol) {
-          socket.on_error?.(icmp.type);
+          const { type } = icmp;
+
+          if (type === ICMP_TYPES.DEST_UNREACHABLE) {
+            socket.on_error?.(NET_ERRORS.UNREACHABLE);
+          } else if (type === ICMP_TYPES.TIME_EXCEEDED) {
+            socket.on_error?.(NET_ERRORS.TIMEOUT);
+          }
         }
       } else if (
         (socket.type === "udp" && src_packet.header.protocol === IP_PROTOCOLS.UDP) ||
@@ -290,7 +297,13 @@ export class Socket {
           (socket.src_port === 0 || socket.src_port === src_udp.header.src) &&
           (socket.dst_port === 0 || socket.dst_port === src_udp.header.dst)
         ) {
-          socket.on_error?.(icmp.type);
+          const { type } = icmp;
+
+          if (type === ICMP_TYPES.DEST_UNREACHABLE) {
+            socket.on_error?.(NET_ERRORS.UNREACHABLE);
+          } else if (type === ICMP_TYPES.TIME_EXCEEDED) {
+            socket.on_error?.(NET_ERRORS.TIMEOUT);
+          }
         }
       }
     }

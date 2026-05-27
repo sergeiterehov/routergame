@@ -1,6 +1,7 @@
 import { NET_ERRORS } from "../os/net";
 import type { OS } from "../os/os";
 import type { TSocket } from "../os/socket";
+import type { TIP4Packet } from "../pack";
 
 export function test_args(args: string[], ...ps: (string | RegExp | ((arg: string) => unknown))[]) {
   if (ps.length > args.length) return false;
@@ -83,7 +84,7 @@ export async function socket_connected(os: OS, socket: TSocket, signal?: AbortSi
   });
 }
 
-export async function socket_read(os: OS, socket: TSocket, signal?: AbortSignal) {
+export async function socket_read(os: OS, socket: TSocket, signal?: AbortSignal): Promise<Uint8Array> {
   if (signal?.aborted) throw new Error("Aborted");
   if (socket.state !== "established") throw new Error("Socket not opened");
 
@@ -100,6 +101,30 @@ export async function socket_read(os: OS, socket: TSocket, signal?: AbortSignal)
     if (signal) signal.onabort = () => reject(new Error("Aborted"));
   }).finally(() => {
     delete socket.on_recv;
+    delete socket.on_error;
+    delete socket.on_close;
+    if (signal) signal.onabort = null;
+  });
+}
+
+export async function socket_read_raw(
+  os: OS,
+  socket: TSocket,
+  signal?: AbortSignal,
+  no_reject: boolean = false,
+): Promise<TIP4Packet> {
+  if (signal?.aborted) throw new Error("Aborted");
+  if (socket.type !== "raw") throw new Error("Socket is not raw");
+
+  return new Promise<TIP4Packet>((resolve, reject) => {
+    socket.on_raw_recv = (recv) => resolve(recv.packet);
+    if (!no_reject) {
+      socket.on_error = (e) => reject(new Error(`Socket error ${format_net_error(e)}`));
+    }
+    socket.on_close = () => reject(new Error("Socket closed"));
+    if (signal) signal.onabort = () => reject(new Error("Aborted"));
+  }).finally(() => {
+    delete socket.on_raw_recv;
     delete socket.on_error;
     delete socket.on_close;
     if (signal) signal.onabort = null;
