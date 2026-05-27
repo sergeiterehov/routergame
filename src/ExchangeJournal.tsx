@@ -176,6 +176,7 @@ export const ExchangeJournal = observer(function ExchangeJournal() {
               e.stopPropagation();
               if (confirm("Are you sure?")) {
                 store.exchange_clear();
+                store.exchange_close();
               }
             }}
           >

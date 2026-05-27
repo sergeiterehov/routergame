@@ -87,6 +87,12 @@ export function uint32(n: number) {
   return new Uint8Array([(n >> 24) & 0xff, (n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff]);
 }
 
+export function compare_bytes(a: Uint8Array, b: Uint8Array) {
+  if (a.byteLength !== b.byteLength) return false;
+  for (let i = 0; i < a.byteLength; i += 1) if (a[i] !== b[i]) return false;
+  return true;
+}
+
 export function mac_to_bytes(mac: bigint) {
   return new Uint8Array([
     Number((mac >> 40n) & 0xffn),

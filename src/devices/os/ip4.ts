@@ -58,7 +58,7 @@ export class IP4 {
     if (_input) {
       if (this.fw.handle_chain(FW_CHAINS.INPUT, packet, fw_context)) return;
 
-      this._handle_protocol(iInterface, packet);
+      this._handle_input(iInterface, packet, fw_context);
       return;
     }
 
@@ -243,35 +243,32 @@ export class IP4 {
     }
   }
 
-  private _handle_protocol(iInterface: number, packet: TIP4Packet) {
+  private _handle_input(iInterface: number, packet: TIP4Packet, fw_context: TPacketContext) {
     this._channel.postMessage({ direction: "in", iInterface, packet });
 
-    // icmp
+    // ICMP Reply
     if (packet.header.protocol === IP_PROTOCOLS.ICMP) {
-      this._icmp_handle(iInterface, packet);
+      const icmp = unpack_icmp_packet(packet.payload);
+
+      if (icmp.type === ICMP_TYPES.ECHO_REQUEST) {
+        const reply = pack_icmp_packet({
+          type: ICMP_TYPES.ECHO_REPLY,
+          code: 0,
+          checksum: 0,
+          data: icmp.data,
+          payload: icmp.payload,
+        });
+
+        const err = this.send(undefined, packet.header.src, IP_PROTOCOLS.ICMP, reply, packet.header.dst);
+        if (err) this._icmp_send_unreachable(iInterface, packet, fw_context);
+
+        return;
+      }
     }
 
-    this.net.socket.handle_packet(iInterface, packet);
-  }
-
-  private _icmp_handle(iInterface: number, packet: TIP4Packet) {
-    const icmp = unpack_icmp_packet(packet.payload);
-
-    // TODO: types 0,3,8
-
-    if (icmp.type === ICMP_TYPES.ECHO_REQUEST) {
-      const reply = pack_icmp_packet({
-        type: 0,
-        code: 0,
-        checksum: 0,
-        data: icmp.data,
-        payload: icmp.payload,
-      });
-
-      this.send(undefined, packet.header.src, IP_PROTOCOLS.ICMP, reply, packet.header.dst);
-    } else if (icmp.type === ICMP_TYPES.DEST_UNREACHABLE || icmp.type === ICMP_TYPES.TIME_EXCEEDED) {
-      this.net.socket.handle_icmp_error(iInterface, icmp);
-    }
+    // Sockets
+    const socket_err = this.net.socket.handle_packet(iInterface, packet);
+    if (socket_err) this._icmp_send_unreachable(iInterface, packet, fw_context);
   }
 
   private _icmp_send_response(iInterface: number, packet: TIP4Packet, fw_context: TPacketContext, icmp: TIcmpPacket) {

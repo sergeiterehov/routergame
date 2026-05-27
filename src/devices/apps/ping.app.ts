@@ -2,13 +2,13 @@ import { formatIPv4, formatTime, hexdump, parseIPv4, validate_ip } from "../form
 import type { OS } from "../os/os";
 import type { TSocket } from "../os/socket";
 import {
+  compare_bytes,
   ICMP_TYPES,
   IP_PROTOCOLS,
   pack_icmp_packet,
-  pack_udp_packet,
   unpack_icmp_packet,
   unpack_ip4_packet,
-  unpack_udp_packet,
+  type TIcmpPacket,
   type TIP4Packet,
 } from "../pack";
 import { find_arg, format_net_error, socket_read_raw, test_args } from "./app.lib";
@@ -413,13 +413,14 @@ export async function trace(os: OS, args: string[]) {
       // from any IP
       socket.dst_ip = 0;
 
-      const udp = {
-        header: {
-          src: 61234,
-          dst: 64321,
-          length: 0,
-          checksum: 0,
-        },
+      const id = 1337;
+      const seq = 1;
+
+      const icmp_request: TIcmpPacket = {
+        type: ICMP_TYPES.ECHO_REQUEST,
+        code: 0,
+        checksum: 0,
+        data: new Uint8Array([id >> 8, id & 0xff, seq >> 8, seq & 0xff]),
         payload: Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8]),
       };
 
@@ -433,7 +434,7 @@ export async function trace(os: OS, args: string[]) {
             version: 4,
             dst: ip,
             ttl,
-            protocol: IP_PROTOCOLS.UDP,
+            protocol: IP_PROTOCOLS.ICMP,
             id: 1,
             checksum: 0,
             src: 0,
@@ -444,7 +445,7 @@ export async function trace(os: OS, args: string[]) {
             options: [],
             tos: 0,
           },
-          payload: pack_udp_packet(udp),
+          payload: pack_icmp_packet(icmp_request),
         };
 
         err = os.net.socket.send_raw_to(socket, prob.header.dst, prob);
@@ -455,32 +456,47 @@ export async function trace(os: OS, args: string[]) {
         setTimeout(() => controller.abort(), wait_time);
 
         while_timeout: while (!controller.signal.aborted) {
-          const res = await socket_read_raw(os, socket, controller.signal, true).catch(() => undefined);
+          const res = await socket_read_raw(os, socket, controller.signal).catch(() => undefined);
           if (!res) continue while_timeout;
 
-          if (trace_ips.includes(res.header.src)) break for_ttl;
+          if (trace_ips.includes(res.header.src)) {
+            os.print(`LOOP\n`);
+            break for_ttl;
+          }
           trace_ips.push(res.header.src);
 
-          if (res.header.protocol === IP_PROTOCOLS.ICMP) {
-            const icmp = unpack_icmp_packet(res.payload);
-            const original_ip = unpack_ip4_packet(icmp.payload);
-            if (original_ip.header.protocol !== IP_PROTOCOLS.UDP) continue while_timeout;
+          if (res.header.protocol !== IP_PROTOCOLS.ICMP) continue while_timeout;
 
-            const original_udp = unpack_udp_packet(original_ip.payload);
+          const icmp = unpack_icmp_packet(res.payload);
 
-            if (original_udp.header.src !== udp.header.src || original_udp.header.dst !== udp.header.dst)
-              continue while_timeout;
-
-            if (icmp.type === ICMP_TYPES.TIME_EXCEEDED) {
-              os.print(`${formatIPv4(res.header.src)} ${formatTime(Date.now() - sent_at)}\n`);
-              continue for_ttl;
-            } else if (icmp.type === ICMP_TYPES.DEST_UNREACHABLE) {
-              os.print("UNREACHABLE\n");
-              break for_ttl;
-            }
+          if (
+            res.header.src === prob.header.dst &&
+            icmp.type === ICMP_TYPES.ECHO_REPLY &&
+            compare_bytes(icmp.payload, icmp_request.payload)
+          ) {
+            os.print(`${formatIPv4(res.header.src)}\t${formatTime(Date.now() - sent_at)}\t<- TARGET\n`);
+            break for_ttl;
           }
 
-          if (res.header.src === prob.header.dst) break for_ttl;
+          if (icmp.type !== ICMP_TYPES.DEST_UNREACHABLE && icmp.type !== ICMP_TYPES.TIME_EXCEEDED)
+            continue while_timeout;
+
+          const original_ip = unpack_ip4_packet(icmp.payload);
+          if (original_ip.header.protocol !== IP_PROTOCOLS.ICMP) continue while_timeout;
+
+          const original_icmp = unpack_icmp_packet(original_ip.payload);
+
+          if (original_icmp.type !== icmp_request.type || !compare_bytes(original_icmp.data, icmp_request.data))
+            continue while_timeout;
+
+          os.print(`${formatIPv4(res.header.src)}\t${formatTime(Date.now() - sent_at)}\n`);
+
+          if (icmp.type === ICMP_TYPES.TIME_EXCEEDED) {
+            continue for_ttl;
+          } else if (icmp.type === ICMP_TYPES.DEST_UNREACHABLE) {
+            os.print(`UNREACHABLE\n`);
+            break for_ttl;
+          }
         }
 
         os.print("*\n");

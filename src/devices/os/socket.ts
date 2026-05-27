@@ -5,6 +5,7 @@ import {
   pack_tcp_packet,
   pack_udp_packet,
   TCP_FLAGS,
+  unpack_icmp_packet,
   unpack_ip4_packet,
   unpack_tcp_packet,
   unpack_udp_packet,
@@ -239,8 +240,9 @@ export class Socket {
     return this.send_to(socket, socket.dst_ip, socket.dst_port, data);
   }
 
-  handle_packet(iInterface: number, packet: TIP4Packet) {
+  handle_packet(iInterface: number, packet: TIP4Packet): number {
     const iface = this.net.iface(iInterface);
+    let handlers = 0;
 
     for (const socket of this._sockets) {
       if (socket.src_ip !== 0 && socket.src_ip !== packet.header.dst) continue;
@@ -249,6 +251,7 @@ export class Socket {
       if (socket.type === "raw") {
         if (socket.protocol === 0 || socket.protocol === packet.header.protocol) {
           socket.on_raw_recv?.({ packet, ip: packet.header.src, iface });
+          handlers += 1;
         }
       } else if (socket.type === "udp" && packet.header.protocol === IP_PROTOCOLS.UDP) {
         const udp = unpack_udp_packet(packet.payload);
@@ -257,6 +260,7 @@ export class Socket {
           (socket.dst_port === 0 || socket.dst_port === udp.header.src)
         ) {
           socket.on_recv?.({ data: udp.payload, ip: packet.header.src, port: udp.header.src, iface });
+          handlers += 1;
         }
       } else if (socket.type === "tcp" && packet.header.protocol === IP_PROTOCOLS.TCP) {
         const tcp = unpack_tcp_packet(packet.payload);
@@ -265,29 +269,33 @@ export class Socket {
           (socket.dst_port === 0 || socket.dst_port === tcp.header.src)
         ) {
           this._handle_tcp(socket, iface, packet, tcp);
+          handlers += 1;
+          if (socket.state !== "listen") break;
         }
       }
     }
+
+    if (packet.header.protocol === IP_PROTOCOLS.ICMP) {
+      const icmp = unpack_icmp_packet(packet.payload);
+      if (icmp.type === ICMP_TYPES.DEST_UNREACHABLE || icmp.type === ICMP_TYPES.TIME_EXCEEDED) {
+        this._handle_icmp_error(iInterface, icmp);
+        return 0;
+      }
+    }
+
+    if (handlers === 0) return NET_ERRORS.UNREACHABLE;
+
+    return 0;
   }
 
-  handle_icmp_error(iInterface: number, icmp: TIcmpPacket) {
+  private _handle_icmp_error(iInterface: number, icmp: TIcmpPacket) {
     const src_packet = unpack_ip4_packet(icmp.payload);
 
     for (const socket of this._sockets) {
       if (socket.src_ip !== 0 && socket.src_ip !== src_packet.header.src) continue;
       if (socket.dst_ip !== 0 && socket.dst_ip !== src_packet.header.dst) continue;
 
-      if (socket.type === "raw") {
-        if (socket.protocol === 0 || socket.protocol === src_packet.header.protocol) {
-          const { type } = icmp;
-
-          if (type === ICMP_TYPES.DEST_UNREACHABLE) {
-            socket.on_error?.(NET_ERRORS.UNREACHABLE);
-          } else if (type === ICMP_TYPES.TIME_EXCEEDED) {
-            socket.on_error?.(NET_ERRORS.TIMEOUT);
-          }
-        }
-      } else if (
+      if (
         (socket.type === "udp" && src_packet.header.protocol === IP_PROTOCOLS.UDP) ||
         (socket.type === "tcp" && src_packet.header.protocol === IP_PROTOCOLS.TCP)
       ) {

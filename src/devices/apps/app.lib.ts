@@ -107,20 +107,13 @@ export async function socket_read(os: OS, socket: TSocket, signal?: AbortSignal)
   });
 }
 
-export async function socket_read_raw(
-  os: OS,
-  socket: TSocket,
-  signal?: AbortSignal,
-  no_reject: boolean = false,
-): Promise<TIP4Packet> {
+export async function socket_read_raw(os: OS, socket: TSocket, signal?: AbortSignal): Promise<TIP4Packet> {
   if (signal?.aborted) throw new Error("Aborted");
   if (socket.type !== "raw") throw new Error("Socket is not raw");
 
   return new Promise<TIP4Packet>((resolve, reject) => {
     socket.on_raw_recv = (recv) => resolve(recv.packet);
-    if (!no_reject) {
-      socket.on_error = (e) => reject(new Error(`Socket error ${format_net_error(e)}`));
-    }
+    socket.on_error = (e) => reject(new Error(`Socket error ${format_net_error(e)}`));
     socket.on_close = () => reject(new Error("Socket closed"));
     if (signal) signal.onabort = () => reject(new Error("Aborted"));
   }).finally(() => {
