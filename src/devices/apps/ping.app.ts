@@ -17,16 +17,6 @@ import { DNS_CLASSES, DNS_TYPES, get_hostname_ip, resolve_dns } from "./dns.lib"
 const DNS_TYPE_NAMES = Object.fromEntries(Object.entries(DNS_TYPES).map(([k, v]) => [v, k]));
 const DNS_CLASS_NAMES = Object.fromEntries(Object.entries(DNS_CLASSES).map(([k, v]) => [v, k]));
 
-function find_config(args: string[], key: string, initial: string = "") {
-  for (let i = 1; i < args.length; i++) {
-    if (args[i] === key && args[i + 1]) {
-      return args[i + 1];
-    }
-  }
-
-  return initial;
-}
-
 export async function ping(os: OS, args: string[]) {
   if (test_args(args, Boolean)) {
     let ip = 0;
@@ -49,19 +39,19 @@ export async function ping(os: OS, args: string[]) {
       ip = resolved_ip;
     }
 
-    const count = parseInt(find_config(args, "-c", "1"));
+    const count = parseInt(find_arg(args, "-c", "1"));
     if (Number.isNaN(count) || count < 0) throw new Error("Invalid count");
 
-    const size = parseInt(find_config(args, "-s", "56"));
+    const size = parseInt(find_arg(args, "-s", "56"));
     if (Number.isNaN(size) || size < 0) throw new Error("Invalid packet size");
 
-    const timeout = parseInt(find_config(args, "-t", "1000"));
+    const timeout = parseInt(find_arg(args, "-t", "1000"));
     if (Number.isNaN(timeout) || timeout < 0) throw new Error("Invalid timeout");
 
-    const ttl = parseInt(find_config(args, "-m", "64"));
+    const ttl = parseInt(find_arg(args, "-m", "64"));
     if (Number.isNaN(ttl) || ttl < 0 || ttl > 255) throw new Error("Invalid TTL");
 
-    const wait = parseInt(find_config(args, "-i", "1000"));
+    const wait = parseInt(find_arg(args, "-i", "1000"));
     if (Number.isNaN(wait) || wait < 0) throw new Error("Invalid wait");
 
     os.print(`PING ${formatIPv4(ip)}: ${size} data bytes\n`);
