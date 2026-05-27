@@ -4,6 +4,7 @@ import {
   parseIPv4,
   parseMAC,
   prefixToMask,
+  SEC,
   validate_address,
   validate_ip,
   validate_mac,
@@ -100,7 +101,7 @@ function _flush_interface(os: OS, iface: TInterface) {
   }
 }
 
-export function iface(os: OS, args: string[]) {
+export async function iface(os: OS, args: string[]) {
   const name = args.shift();
   if (!name) return _print_interfaces(os);
 
@@ -113,6 +114,7 @@ export function iface(os: OS, args: string[]) {
         "\t<interface> (up|down)",
         "\t<interface> (add|del) <ip/prefix>",
         "\t<interface> flush",
+        "\t<interface> wait",
       ].join("\n"),
     );
 
@@ -180,6 +182,29 @@ export function iface(os: OS, args: string[]) {
     }
 
     iface.flags.UP = false;
+  } else if (op === "wait") {
+    if (test_args(args, "link")) {
+      args.shift();
+
+      const timeout = Number(find_arg(args, "-t", "1"));
+      if (Number.isNaN(timeout) || timeout < 0) throw new Error("Invalid timeout");
+
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), timeout * SEC);
+
+      while (!controller.signal.aborted) {
+        if (iface.flags.LOWER_UP) {
+          os.print(`Ok, ${iface.name} is LOWER_UP\n`);
+          return;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+
+      throw new Error(`Timeout, ${iface.name} not LOWER_UP`);
+    } else {
+      throw new Error("usage: iface <interface> wait link [-t timeout_s]");
+    }
   }
 }
 

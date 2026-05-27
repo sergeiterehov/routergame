@@ -1,6 +1,6 @@
 import { Device, Port } from "../device";
 import { System } from "../system";
-import { expose, onMessage } from "./helpers";
+import { expose } from "./helpers";
 
 const EXPIRE_INTERVAL_MS = 1_000;
 const TTL_MS = 30_000;
@@ -102,18 +102,10 @@ function begin() {
 
   const sys = new L2(16);
 
-  onMessage((msg) => {
-    if (msg.$ === "link/up") {
-      const dev = sys._devices[msg.port];
-      if (!(dev instanceof HardwareEthernet)) return;
-      if (dev.port._outsides.length) return;
-      expose(msg.port, dev.port);
-    } else if (msg.$ === "link/down") {
-      const dev = sys._devices[msg.port];
-      if (!(dev instanceof HardwareEthernet)) return;
-      dev.port.disconnect();
-    }
-  });
+  for (let i = 0; i < sys._devices.length; i += 1) {
+    const dev = sys._devices[i];
+    if (dev instanceof HardwareEthernet) expose(i, dev.port);
+  }
 }
 
 begin();

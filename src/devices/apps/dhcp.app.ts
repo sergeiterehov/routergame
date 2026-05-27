@@ -17,6 +17,7 @@ import {
   type TDhcpPacket,
   type TEthernetFrame,
 } from "../pack";
+import { format_net_error, socket_read } from "./app.lib";
 
 const LEASE_TIME_S = 86_400;
 
@@ -346,7 +347,8 @@ export async function dhcp(os: OS, args: string[]) {
       }),
     };
 
-    os.net.send_frame(iface.index, frame);
+    const err = os.net.send_frame(iface.index, frame);
+    if (err) throw new Error(`Send error: ${format_net_error(err)}`);
   }
 
   function send_request() {
@@ -412,7 +414,8 @@ export async function dhcp(os: OS, args: string[]) {
       }),
     };
 
-    os.net.send_frame(iface.index, frame);
+    const err = os.net.send_frame(iface.index, frame);
+    if (err) throw new Error(`Send error: ${format_net_error(err)}`);
   }
 
   function save_options(packet: TDhcpPacket) {
@@ -437,62 +440,63 @@ export async function dhcp(os: OS, args: string[]) {
     }
   }
 
+  let err = 0;
+
   const socket = os.net.socket.create("udp");
-  os.net.socket.bind(socket, 0, 68);
+  socket.iInterface = iface.index;
+
+  err = os.net.socket.bind(socket, 0, 68);
+  if (err) throw new Error(`Bind error: ${format_net_error(err)}`);
 
   socket.on_error = (error) => os.print(`Socket error: ${error}\n`);
 
   try {
-    await new Promise((resolve, reject) => {
-      socket.on_error = (e) => reject(new Error(`Socket error: ${e}`));
-      socket.on_recv = (recv) => {
-        const { data: payload, iface: _iface } = recv;
-        if (iface.index !== _iface.index) return;
+    state = "discovering";
+    refresh_xid();
+    send_discover();
 
-        const packet = unpack_dhcp_packet(payload);
-        if (packet.header.xid !== xid) return;
+    for (;;) {
+      const payload = await socket_read(os, socket);
 
-        const type_opt = get_option(DHCP_OPTIONS.MESSAGE_TYPE, packet);
-        if (!type_opt) return;
-        const type = type_opt[0];
+      const packet = unpack_dhcp_packet(payload);
+      if (packet.header.xid !== xid) return;
 
-        if (state === "discovering") {
-          if (type === DHCP_TYPES.OFFER) {
-            requested_ip = packet.header.yiaddr;
-            save_options(packet);
+      const type_opt = get_option(DHCP_OPTIONS.MESSAGE_TYPE, packet);
+      if (!type_opt) return;
+      const type = type_opt[0];
 
-            if (server_id !== -1 && mask !== -1 && lease_time !== -1) {
-              state = "requesting";
-              refresh_xid();
-              send_request();
-            } else {
-              reset(); // FIXME:
-            }
-          }
-        } else if (state === "requesting") {
-          if (type === DHCP_TYPES.ACK) {
-            save_options(packet);
+      if (state === "discovering") {
+        if (type === DHCP_TYPES.OFFER) {
+          requested_ip = packet.header.yiaddr;
+          save_options(packet);
 
-            os.exec("iface", [iface.name, "add", `${formatIPv4(packet.header.yiaddr)}/${maskToPrefix(mask)}`]);
-            os.exec("route", ["add", `${formatIPv4(packet.header.yiaddr)}/${maskToPrefix(mask)}`, "dev", iface.name]);
-
-            if (router !== -1) {
-              os.exec("route", ["add", "default", "via", formatIPv4(router)]);
-            }
-
-            state = "leasing";
+          if (server_id !== -1 && mask !== -1 && lease_time !== -1) {
+            state = "requesting";
+            refresh_xid();
+            send_request();
           } else {
             reset(); // FIXME:
           }
-        } else {
-          // FIXME:
         }
-      };
+      } else if (state === "requesting") {
+        if (type === DHCP_TYPES.ACK) {
+          save_options(packet);
 
-      state = "discovering";
-      refresh_xid();
-      send_discover();
-    });
+          os.exec("iface", [iface.name, "add", `${formatIPv4(packet.header.yiaddr)}/${maskToPrefix(mask)}`]);
+          os.exec("route", ["add", `${formatIPv4(packet.header.yiaddr)}/${maskToPrefix(mask)}`, "dev", iface.name]);
+
+          if (router !== -1) {
+            os.exec("route", ["add", "default", "via", formatIPv4(router)]);
+          }
+
+          state = "leasing";
+        } else {
+          reset(); // FIXME:
+        }
+      } else {
+        // FIXME:
+      }
+    }
   } finally {
     os.net.socket.close(socket);
   }

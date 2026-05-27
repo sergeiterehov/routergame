@@ -47,7 +47,14 @@ export class Store {
   arch: TArchitecture = initial_arch;
   instances: { [key: string]: Worker } = {};
   consoles: { [key: string]: string } = {};
-  connection_metrics: { [key: string]: { ab: number; ba: number } } = {};
+  connection_metrics: {
+    [key: string]: {
+      ab: number;
+      ba: number;
+      ab_beacon_at: number;
+      ba_beacon_at: number;
+    };
+  } = {};
   exchange_journal: {
     id: number;
     created_at: number;
@@ -177,15 +184,6 @@ export class Store {
     w.postMessage(msg);
   }
 
-  private _node_worker_link_set(node: TArchNode, pid: string, up: boolean) {
-    for (let i = 0; i < node.ports.length; i += 1) {
-      if (node.ports[i].id === pid) {
-        this._node_worker_send(node.id, { $: up ? "link/up" : "link/down", port: i });
-        return;
-      }
-    }
-  }
-
   node_by_id(id: string) {
     for (const n of this.arch.node) {
       if (n.id === id) return n;
@@ -234,13 +232,6 @@ export class Store {
 
     w.addEventListener("message", (e) => this._handle_node_message(node, e.data));
 
-    for (const c of this.arch.connections) {
-      const pid = c.a_id === node.id ? c.a_pid : c.b_id === node.id ? c.b_pid : undefined;
-      if (!pid) continue;
-
-      this._node_worker_link_set(node, pid, true);
-    }
-
     if ("ethernetPorts" in node) {
       for (const eth of node.ethernetPorts) {
         this._node_worker_send(node.id, { $: "exec", app: "iface", args: [eth.id, "mac", eth.mac] });
@@ -251,13 +242,27 @@ export class Store {
     this._node_worker_send(node.id, { $: "exec", app: "init", args: [] });
   }
 
+  private _connection_metrics_get(id: string) {
+    let m = this.connection_metrics[id];
+    if (!m) m = this.connection_metrics[id] = { ab: 0, ba: 0, ab_beacon_at: 0, ba_beacon_at: 0 };
+    return m;
+  }
+
   private _connection_metrics_update(src: TArchNode, via: TArchConnection, size: number) {
-    let m = this.connection_metrics[via.id];
-    if (!m) m = this.connection_metrics[via.id] = { ab: 0, ba: 0 };
+    const m = this._connection_metrics_get(via.id);
     if (via.a_id === src.id) {
       m.ab += size;
     } else {
       m.ba += size;
+    }
+  }
+
+  private _connection_metrics_beacon(src: TArchNode, via: TArchConnection, byte: number) {
+    const m = this._connection_metrics_get(via.id);
+    if (via.a_id === src.id) {
+      m.ab_beacon_at = byte ? Date.now() : 0;
+    } else {
+      m.ba_beacon_at = byte ? Date.now() : 0;
     }
   }
 
@@ -288,6 +293,14 @@ export class Store {
         const target = this.instances[targetNode.id];
         if (!target) continue;
 
+        // Link status single-byte. Do not throttle or log
+        if (msg.frame.length === 1) {
+          // console.log(`[${node.id}:${msg.port}] => [${targetNode.id}:${targetPort}] ${hexdump(msg.frame)}`);
+          this._node_worker_send(targetNode.id, { $: "ethernet_frame", port: targetPort, frame: msg.frame });
+          this._connection_metrics_beacon(node, c, msg.frame[0]);
+          return;
+        }
+
         if (c.speed <= 0) {
           console.log(`[${node.id}:${msg.port}] => [${targetNode.id}:${targetPort}] DROP, speed=0`);
           return;
@@ -306,13 +319,13 @@ export class Store {
 
         const time = c.delay + (1000 * msg.frame.length) / c.speed;
         setTimeout(() => {
-          target.postMessage({ $: "ethernet_frame", port: targetPort, frame: msg.frame });
+          this._node_worker_send(targetNode.id, { $: "ethernet_frame", port: targetPort, frame: msg.frame });
           this._connection_metrics_update(node, c, msg.frame.length);
         }, time);
         return;
       }
 
-      console.log(`[${node.id}:${msg.port}] => [X] DROP`);
+      // console.log(`[${node.id}:${msg.port}] => [X] DROP`);
     } else if (msg.$ === "fs") {
       this._node_fs_set(node.id, msg.fs);
     }
@@ -413,9 +426,6 @@ export class Store {
 
     this.arch.connections.push(connection);
 
-    this._node_worker_link_set(a, a_pid, true);
-    this._node_worker_link_set(b, b_pid, true);
-
     return connection;
   }
 
@@ -425,12 +435,6 @@ export class Store {
     for (let i = this.arch.connections.length - 1; i >= 0; i -= 1) {
       const c = this.arch.connections[i];
       if (c.id !== id) continue;
-
-      const a = this.node_by_id(c.a_id);
-      const b = this.node_by_id(c.b_id);
-
-      if (a) this._node_worker_link_set(a, c.a_pid, false);
-      if (b) this._node_worker_link_set(b, c.b_pid, false);
 
       this.arch.connections.splice(i, 1);
       return;

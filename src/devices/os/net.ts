@@ -23,6 +23,7 @@ export const NET_ERRORS = {
   NOT_CONNECTED: 7,
   IS_CONNECTED: 8,
   TIMEOUT: 9,
+  INTERFACE_DOWN: 10,
 } as const;
 
 export type TIP4 = { address: number; prefix: number };
@@ -73,24 +74,25 @@ export class Net {
     driver.call({ $: "change_mac", mac });
   }
 
-  send_frame(iInterface: number, frame: TEthernetFrame) {
+  send_frame(iInterface: number, frame: TEthernetFrame): number {
     const iface = this._interfaces[iInterface];
 
-    if (!iface.flags.UP) return;
+    if (!iface.flags.UP) return NET_ERRORS.INTERFACE_DOWN;
 
     if (iface.type === "bridge") {
       this.br.br_send_frame(iface.index, frame);
-      return;
+      return 0;
     }
 
     if (iface.type === "vlan") {
       this.br.vlan_send_frame(iface.index, frame);
-      return;
+      return 0;
     }
 
     const driver = this.os._drivers[iface.iDriver];
     const raw = pack_ethernet_frame(frame);
     driver.net_send_frame?.(iInterface, raw);
+    return 0;
   }
 
   handle_raw_ingress(iInterface: number, raw: Uint8Array) {

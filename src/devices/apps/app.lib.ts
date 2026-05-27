@@ -86,7 +86,8 @@ export async function socket_connected(os: OS, socket: TSocket, signal?: AbortSi
 
 export async function socket_read(os: OS, socket: TSocket, signal?: AbortSignal): Promise<Uint8Array> {
   if (signal?.aborted) throw new Error("Aborted");
-  if (socket.state !== "established") throw new Error("Socket not opened");
+  if (socket.state === "listen") throw new Error("Socket is listen");
+  if (socket.type === "tcp" && socket.state !== "established") throw new Error("Socket not opened");
 
   if (socket.recv_queue.length) {
     const buffers = socket.recv_queue.splice(0).map((r) => r.data);

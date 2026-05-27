@@ -89,10 +89,14 @@ export class SimpleEthernetDriver extends Driver {
     this._device.tx(data);
   };
 
-  call(cmd: { $: "change_mac"; mac: bigint }) {
+  call(cmd: { $: "change_mac"; mac: bigint } | { $: "up" } | { $: "down" }) {
     if (cmd.$ === "change_mac") {
       this._device.change_mac(cmd.mac);
       this._os.net._interfaces[this._iInterface].mac = cmd.mac;
+    } else if (cmd.$ === "up") {
+      this._device.port._enabled = true;
+    } else if (cmd.$ === "down") {
+      this._device.port._enabled = false;
     }
   }
 }

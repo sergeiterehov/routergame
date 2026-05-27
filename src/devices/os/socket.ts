@@ -27,6 +27,7 @@ export type TSocketRecv = { data: Uint8Array; ip: number; port: number; iface: T
 export type TSocket = {
   type: "raw" | "udp" | "tcp";
   protocol: number;
+  iInterface: number;
   src_ip: number;
   src_port: number;
   dst_ip: number;
@@ -71,6 +72,7 @@ export class Socket {
   create<P extends TSocket["type"]>(type: P): TSocket {
     const socket: TSocket = {
       type,
+      iInterface: -1,
       protocol: 0,
       dst_ip: 0,
       dst_port: 0,
@@ -247,6 +249,7 @@ export class Socket {
     for (const socket of this._sockets) {
       if (socket.src_ip !== 0 && socket.src_ip !== packet.header.dst) continue;
       if (socket.dst_ip !== 0 && socket.dst_ip !== packet.header.src) continue;
+      if (socket.iInterface >= 0 && socket.iInterface !== iInterface) continue;
 
       if (socket.type === "raw") {
         if (socket.protocol === 0 || socket.protocol === packet.header.protocol) {

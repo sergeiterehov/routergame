@@ -1,6 +1,6 @@
 import type { OS } from "../os/os";
 
-const PATH = "/init";
+const _PATH = "/init";
 
 let _initialized = false;
 
@@ -10,9 +10,9 @@ export async function init(os: OS, args: string[]) {
   if (_initialized) throw new Error("Already initialized");
   _initialized = true;
 
-  if (!os.fs.exists(PATH) || os.fs.is_dir(PATH)) throw new Error("No /init script found");
+  if (!os.fs.exists(_PATH) || os.fs.is_dir(_PATH)) throw new Error("No /init script found");
 
-  const init = os.fs.read(PATH);
+  const init = os.fs.read(_PATH);
 
   for (const line of init.split("\n")) {
     const [app, ...args] = line.trim().split(/\s+/);
@@ -26,4 +26,6 @@ export async function init(os: OS, args: string[]) {
       await os.exec(app, args);
     }
   }
+
+  os.print("Welcome!\n");
 }

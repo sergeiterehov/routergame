@@ -63,6 +63,7 @@ export const initial_arch: TArchitecture = {
       ],
       fs: {
         "/init": [
+          "iface eth0 wait link",
           "iface eth0 add 192.168.0.100/24",
           "route add 192.168.0.0/24 dev eth0",
           "route add default via 192.168.0.1",
@@ -100,7 +101,7 @@ server:
       name: "PC A",
       ports: [{ id: "eth0", type: "ethernet" }],
       ethernetPorts: [{ id: "eth0", mac: "00:00:00:aa:00:00" }],
-      fs: { "/init": ["dhcp eth0"].join("\n"), "/etc/resolv.conf": "nameserver 192.168.0.100" },
+      fs: { "/init": ["iface eth0 wait link", "dhcp eth0"].join("\n"), "/etc/resolv.conf": "nameserver 192.168.0.100" },
       ui: { x: 50, y: 100 },
     },
     {
@@ -109,7 +110,7 @@ server:
       name: "PC B",
       ports: [{ id: "eth0", type: "ethernet" }],
       ethernetPorts: [{ id: "eth0", mac: "00:00:00:aa:01:00" }],
-      fs: { "/init": ["dhcp eth0"].join("\n") },
+      fs: { "/init": ["iface eth0 wait link", "dhcp eth0"].join("\n") },
       ui: { x: 350, y: 100 },
     },
   ],

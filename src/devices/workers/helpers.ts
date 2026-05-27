@@ -52,8 +52,11 @@ export function beginWorker(config: { type: string; ethernet?: { mac: bigint }[]
   const system = new System();
 
   if (config.ethernet) {
+    let pid = 0;
     for (const { mac } of config.ethernet) {
-      system.addDevice(new SimpleEthernet(mac));
+      const dev = new SimpleEthernet(mac);
+      system.addDevice(dev);
+      expose(pid++, dev.port);
     }
   }
 
@@ -76,17 +79,6 @@ export function beginWorker(config: { type: string; ethernet?: { mac: bigint }[]
   onMessage((msg) => {
     if (msg.$ === "exec") {
       os.exec(msg.app, msg.args);
-    } else if (msg.$ === "link/up") {
-      const dev = system._devices.at(msg.port);
-      if (!(dev instanceof SimpleEthernet)) return;
-      if (dev.port._outsides.length) return;
-
-      expose(msg.port, dev.port);
-    } else if (msg.$ === "link/down") {
-      const dev = system._devices.at(msg.port);
-      if (!(dev instanceof SimpleEthernet)) return;
-
-      dev.port.disconnect();
     } else if (msg.$ === "fs") {
       for (const [key, value] of Object.entries(msg.fs)) {
         if (typeof value === "string") {
