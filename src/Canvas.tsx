@@ -7,10 +7,10 @@ import { IconDeviceImac, IconServer2, IconTopologyBus, IconSwitch3 } from "@tabl
 const itemSize = 64;
 
 const Type2Color: { [key in TArchNode["type"]]?: string } = {
-  pc: "bg-sky-200",
-  router: "bg-violet-200",
-  server: "bg-green-200",
-  l2: "bg-gray-200",
+  pc: "bg-sky-500/50",
+  router: "bg-violet-500/50",
+  server: "bg-green-500/50",
+  l2: "bg-gray-500/50",
 };
 const Type2Icon: { [key in TArchNode["type"]]?: typeof IconDeviceImac } = {
   pc: IconDeviceImac,
@@ -27,13 +27,13 @@ const ConnectionPortSelector = observer(function ConnectionPortSelector() {
 
   return (
     <div
-      className="absolute rounded-lg bg-white outline outline-black/5 p-1 shadow-md ml-2 min-w-25 select-none"
+      className="absolute rounded-lg bg-base-200 outline outline-base-300 p-1 shadow-lg ml-2 min-w-25 select-none"
       style={{ left: node.ui.x + itemSize, top: node.ui.y }}
     >
       {free_ports.map((p) => {
         return (
           <div
-            className="px-2 py-1 rounded-md cursor-pointer hover:bg-black/5"
+            className="px-2 py-1 rounded-md cursor-pointer hover:bg-base-300"
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -161,7 +161,7 @@ export const Canvas = observer(function Canvas() {
             return (
               <line
                 key={c.id}
-                className={`cursor-pointer stroke-2 ${selected_connection_ids.includes(c.id) ? "stroke-black stroke-4" : connections.includes(c) ? "stroke-gray-700" : "stroke-gray-400"}`}
+                className={`cursor-pointer stroke-2 ${selected_connection_ids.includes(c.id) ? "stroke-base-content stroke-4" : connections.includes(c) ? "stroke-base-content/70" : "stroke-base-content/50"}`}
                 x1={a.ui.x + itemSize / 2}
                 y1={a.ui.y + itemSize / 2}
                 x2={b.ui.x + itemSize / 2}
@@ -189,16 +189,16 @@ export const Canvas = observer(function Canvas() {
             <div
               key={n.id}
               className={[
-                "absolute cursor-pointer flex text-center text-xs justify-center items-center overflow-hidden rounded-lg border-2",
+                "absolute backdrop-blur-md shadow-2xl cursor-pointer flex text-center text-xs justify-center items-center overflow-hidden rounded-lg border-2",
                 "flex flex-col",
                 selected_node_ids.includes(n.id)
-                  ? "border-black"
+                  ? "border-base-content"
                   : siblings_ids.includes(n.id)
-                    ? `border-black/50 border-dashed`
+                    ? `border-base-content/50 border-dashed`
                     : "border-transparent",
                 !store.instances[n.id] ? "outline-2 outline-red-300" : "",
                 tool === TOOL.CONNECT && store.connecting_tool.a_id === n.id ? "outline-4 outline-indigo-500!" : "",
-                color ?? "bg-gray-500 text-gray-400",
+                color ?? "bg-base-200 text-base-content/30",
               ]
                 .filter(Boolean)
                 .join(" ")}

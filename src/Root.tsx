@@ -30,19 +30,19 @@ export const Root = observer(function Root() {
         <div className="grow overflow-hidden flex flex-col">
           <div className="relative grow overflow-hidden">
             <Canvas />
-            <div className="absolute shadow-lg outline outline-black/5 rounded-xl bg-white top-2 left-1/2 -translate-x-1/2">
+            <div className="absolute shadow-md outline outline-base-content/5 rounded-xl bg-base-200 top-2 left-1/2 -translate-x-1/2">
               <Tools />
             </div>
           </div>
           {console_visible && (
-            <div className="shrink-0 flex bg-gray-100" style={{ height: console_height }}>
+            <div className="shrink-0 flex bg-gray-500/5 border-t border-gray-500/10" style={{ height: console_height }}>
               {selected_node && selected_node.type !== "l2" ? <Console id={selected_node.id} /> : null}
             </div>
           )}
         </div>
         {sidebar_visible && (
           <div
-            className="shrink-0 bg-gray-50 top-2 bottom-2 right-2 p-2 overflow-x-hidden overflow-y-auto *:grow"
+            className="shrink-0 bg-gray-500/5 border-l border-gray-500/10 top-2 bottom-2 right-2 p-2 overflow-x-hidden overflow-y-auto *:grow"
             style={{ width: props_width }}
           >
             {selected_node ? (

@@ -23,9 +23,9 @@ function Btn({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
     <div
       {...props}
       className={[
-        "p-2 rounded-md hover:bg-black/5 cursor-pointer",
+        "p-2 rounded-md hover:bg-base-content/5 cursor-pointer",
         "data-active:bg-indigo-500 data-active:hover:bg-indigo-600 data-active:text-white",
-        "data-active:data-gray:bg-gray-200 data-active:data-gray:text-black data-active:data-gray:hover:bg-gray-300",
+        "data-active:data-gray:bg-base-content/10 data-active:data-gray:text-base-content data-active:data-gray:hover:bg-base-content/15",
         className,
       ]
         .filter(Boolean)
