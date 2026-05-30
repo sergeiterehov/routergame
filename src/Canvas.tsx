@@ -7,10 +7,10 @@ import { IconDeviceImac, IconServer2, IconTopologyBus, IconSwitch3 } from "@tabl
 const itemSize = 64;
 
 const Type2Color: { [key in TArchNode["type"]]?: string } = {
-  pc: "bg-sky-500/50",
-  router: "bg-violet-500/50",
-  server: "bg-green-500/50",
-  l2: "bg-gray-500/50",
+  pc: "bg-sky-500/40",
+  router: "bg-violet-500/40",
+  server: "bg-green-500/40",
+  l2: "bg-gray-500/40",
 };
 const Type2Icon: { [key in TArchNode["type"]]?: typeof IconDeviceImac } = {
   pc: IconDeviceImac,
