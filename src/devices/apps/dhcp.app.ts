@@ -451,6 +451,8 @@ export async function dhcp(os: OS, args: string[]) {
   socket.on_error = (error) => os.print(`Socket error: ${error}\n`);
 
   try {
+    os.print(`[DHCP] Client request on ${iface.name}\n`);
+
     state = "discovering";
     refresh_xid();
     send_discover();
@@ -490,11 +492,20 @@ export async function dhcp(os: OS, args: string[]) {
           }
 
           state = "leasing";
+
+          os.print(`[DHCP] IP address: ${formatIPv4(packet.header.yiaddr)}\n`);
+
+          return;
         } else {
-          reset(); // FIXME:
+          reset();
+          // FIXME:
+          os.print("[DHCP] Server not responding\n");
+          return;
         }
       } else {
         // FIXME:
+        os.print("[DHCP] Unknown state\n");
+        return;
       }
     }
   } finally {
