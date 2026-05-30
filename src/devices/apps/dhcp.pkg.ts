@@ -484,11 +484,20 @@ export async function dhclient(os: OS, args: string[]) {
         if (type === DHCP_TYPES.ACK) {
           save_options(packet);
 
-          os.exec("iface", [iface.name, "add", `${formatIPv4(packet.header.yiaddr)}/${maskToPrefix(mask)}`]);
-          os.exec("route", ["add", `${formatIPv4(packet.header.yiaddr)}/${maskToPrefix(mask)}`, "dev", iface.name]);
+          iface.ips.push({ address: packet.header.yiaddr, prefix: maskToPrefix(mask) });
+          os.net.ip4._routes.push({
+            iInterface: iface.index,
+            network: packet.header.yiaddr,
+            prefix: maskToPrefix(mask),
+          });
 
           if (router !== -1) {
-            os.exec("route", ["add", "default", "via", formatIPv4(router)]);
+            os.net.ip4._routes.push({
+              iInterface: iface.index,
+              network: 0,
+              prefix: 0,
+              gateway: router,
+            });
           }
 
           state = "leasing";
