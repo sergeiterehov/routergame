@@ -1,6 +1,5 @@
 import { makeAutoObservable, toJS } from "mobx";
 import * as Workers from "../devices/workers";
-import { hexdump } from "../devices/format";
 import type { Bus } from "../devices/bus";
 import { initial_arch } from "./initial";
 import { ConnectionTool } from "./connection.tool";
@@ -233,13 +232,18 @@ export class Store {
     w.addEventListener("message", (e) => this._handle_node_message(node, e.data));
 
     if ("ethernetPorts" in node) {
-      for (const eth of node.ethernetPorts) {
-        this._node_worker_send(node.id, { $: "exec", app: "iface", args: [eth.id, "mac", eth.mac] });
-      }
+      this._node_worker_send(node.id, {
+        $: "configure",
+        hw_address: node.ethernetPorts.map((eth, port) => ({ port, mac: eth.mac })),
+      });
     }
 
     this._node_worker_send(node.id, { $: "fs", fs: toJS(node.fs) });
-    this._node_worker_send(node.id, { $: "exec", app: "init", args: [] });
+    this._node_worker_send(node.id, { $: "init", args: [] });
+  }
+
+  node_send_input(id: string, text: string) {
+    this._node_worker_send(id, { $: "input", text });
   }
 
   private _connection_metrics_get(id: string) {
@@ -293,16 +297,16 @@ export class Store {
         const target = this.instances[targetNode.id];
         if (!target) continue;
 
+        if (c.speed <= 0) {
+          // console.log(`[${node.id}:${msg.port}] => [${targetNode.id}:${targetPort}] DROP, speed=0`);
+          return;
+        }
+
         // Link status single-byte. Do not throttle or log
         if (msg.frame.length === 1) {
           // console.log(`[${node.id}:${msg.port}] => [${targetNode.id}:${targetPort}] ${hexdump(msg.frame)}`);
           this._node_worker_send(targetNode.id, { $: "ethernet_frame", port: targetPort, frame: msg.frame });
           this._connection_metrics_beacon(node, c, msg.frame[0]);
-          return;
-        }
-
-        if (c.speed <= 0) {
-          console.log(`[${node.id}:${msg.port}] => [${targetNode.id}:${targetPort}] DROP, speed=0`);
           return;
         }
 
@@ -473,7 +477,12 @@ export class Store {
       id: this.randomize_id(),
       ethernetPorts: [{ id: "eth0", mac: this.randomize_mac() }],
       ports: [{ id: "eth0", type: "ethernet" }],
-      fs: {},
+      fs: {
+        "/init": ["pkg install net_tools iputils dhcp curl", "iface eth0 wait link", "sleep 1", "dhclient eth0"].join(
+          "\n",
+        ),
+        "/etc/resolv.conf": "#nameserver 192.168.0.1",
+      },
       name: config.name || "New PC",
       ui: config.ui || { x: 0, y: 0 },
     });
@@ -490,13 +499,27 @@ export class Store {
       id: this.randomize_id(),
       ports: [],
       ethernetPorts: [],
-      fs: {},
+      fs: {
+        "/init": [
+          "pkg install net_tools iputils dhcp fw",
+          "iface eth0 rename wan",
+          "br add lan eth1 eth2 eth3 eth4 eth5 eth6 eth7",
+          "iface lan up",
+          "iface lan add 192.168.0.1/24",
+          "route add 192.168.0.0/24 dev lan",
+          "fw masquerade wan",
+          "dhcp_server lan 192.168.0.10 192.168.0.250 -g 192.168.0.1 &",
+          "iface wan wait link",
+          "sleep 1",
+          "dhclient wan",
+        ].join("\n"),
+      },
       name: config.name || "Router",
       ui: config.ui || { x: 0, y: 0 },
     });
 
     for (let i = 0; i < 8; i += 1) {
-      const id = `eth${i}`;
+      const id = i === 0 ? "wan" : `lan${i}`;
       node.ports.push({ id, type: "ethernet" });
       node.ethernetPorts.push({ id, mac: this.randomize_mac() });
     }
@@ -519,7 +542,9 @@ export class Store {
         { id: "eth0", type: "ethernet" },
         { id: "eth1", type: "ethernet" },
       ],
-      fs: {},
+      fs: {
+        "/init": "# make your own initial script",
+      },
       name: config.name || "New Server",
       ui: config.ui || { x: 0, y: 0 },
     });

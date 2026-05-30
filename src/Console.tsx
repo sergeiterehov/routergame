@@ -26,15 +26,15 @@ class State {
 
   send() {
     const { id, actualCmd } = this;
-    store.console_append(id, `# ${actualCmd}\n`);
 
     this.history.push(actualCmd);
     this.cmd_set("");
 
-    const [app, ...args] = actualCmd.split(/\s+/);
+    store.node_send_input(id, `${actualCmd}\n`);
+  }
 
-    if (app === "clear") return store.console_clear(id);
-    store.instances[id]?.postMessage({ $: "exec", app, args });
+  send_ctrl_c() {
+    store.node_send_input(this.id, `^c`);
   }
 
   prev() {
@@ -88,7 +88,9 @@ export const Console = observer(function Console(props: { id: string }) {
         onKeyDown={(e) => {
           let prevent = true;
 
-          if (e.key === "Enter") {
+          if (e.key === "c" && e.ctrlKey) {
+            state.send_ctrl_c();
+          } else if (e.key === "Enter") {
             state.send();
           } else if (e.key === "ArrowUp") {
             state.prev();

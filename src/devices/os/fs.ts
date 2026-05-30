@@ -46,15 +46,15 @@ export class FS {
     if (!path.startsWith("/")) path = "/" + path;
     if (!path.endsWith("/")) path += "/";
 
-    const result: string[] = [];
+    const result = new Set<string>();
     for (const key of Object.keys(this._fs)) {
       if (!key.startsWith(path)) continue;
       const inner = key.substring(path.length);
       const index = inner.indexOf("/");
-      result.push(index === -1 ? inner : inner.substring(0, index));
+      result.add(index === -1 ? inner : inner.substring(0, index));
     }
 
-    return result;
+    return [...result];
   }
   is_dir(path: string) {
     if (!path.startsWith("/")) path = "/" + path;

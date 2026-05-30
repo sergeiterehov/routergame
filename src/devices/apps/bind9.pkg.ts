@@ -4,7 +4,7 @@ import { format_net_error } from "./app.lib";
 import { answer_dns, DNS_CLASSES, DNS_TYPES, type TDnsRecord } from "./dns.lib";
 
 const _DNS_PORT = 53;
-const _RECORDS_PATH = "/etc/dnsd.conf";
+const _RECORDS_PATH = "/etc/names.conf";
 
 const _DNS_NAME_TO_TYPE: Record<string, number> = {
   A: DNS_TYPES.A,
@@ -73,7 +73,7 @@ function _resolve_name(os: OS, name: string, type: number): TDnsRecord[] {
   }
 }
 
-export async function dnsd(os: OS, args: string[]) {
+export async function bind9(os: OS, args: string[]) {
   if (args.length) throw new Error("No arguments expected");
 
   const socket = os.net.socket.create("udp");

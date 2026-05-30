@@ -1,17 +1,10 @@
 import { Port } from "../device";
 import { System } from "../system";
 import { OS } from "../os/os";
-import { init } from "../apps/init.app";
-import * as ifconfig from "../apps/ifconfig.app";
-import * as arp from "../apps/arp.app";
-import * as ping from "../apps/ping.app";
-import * as dhcp from "../apps/dhcp.app";
-import * as fw from "../apps/fw.app";
-import * as cat from "../apps/cat.app";
-import * as dnsd from "../apps/dnsd.app";
-import * as nginx from "../apps/http.app";
+import { software } from "../apps";
 import type { Bus } from "../bus";
 import { SimpleEthernet, SimpleEthernetDriver } from "../simpleEthernet";
+import { parseMAC } from "../format";
 
 export function onMessage(handler: (message: Bus.Message.Master) => void, options: AddEventListenerOptions = {}) {
   self.addEventListener("message", (e: MessageEvent<Bus.Message.Master>) => handler(e.data), options);
@@ -46,7 +39,7 @@ export function expose(port: number, devicePort: Port) {
   });
 }
 
-export function beginWorker(config: { type: string; ethernet?: { mac: bigint }[] } = { type: "unknown" }) {
+export function beginWorkerOS(config: { type: string; ethernet?: { mac: bigint }[] } = { type: "unknown" }) {
   console.log("Hello", config.type, self.name);
 
   const system = new System();
@@ -64,21 +57,14 @@ export function beginWorker(config: { type: string; ethernet?: { mac: bigint }[]
   os.on_print = (text) => sendMessage({ $: "print", text });
   os.fs.on_change = (fs) => sendMessage({ $: "fs", fs });
 
-  for (let i = 0; i < system._devices.length; i += 1) {
-    const dev = system._devices[i];
-
-    // Устанавливаем драйверы
-    if (dev instanceof SimpleEthernet) {
-      new SimpleEthernetDriver(os, i);
-    }
-  }
-
   os.print(`Host ${self.name}\n`);
-  os.install({ init, ...ifconfig, ...arp, ...ping, ...dhcp, ...dnsd, ...fw, ...cat, ...nginx });
+  os.install(software);
+
+  const init_controller = new AbortController();
 
   onMessage((msg) => {
-    if (msg.$ === "exec") {
-      os.exec(msg.app, msg.args);
+    if (msg.$ === "input") {
+      os.on_input?.(msg.text);
     } else if (msg.$ === "fs") {
       for (const [key, value] of Object.entries(msg.fs)) {
         if (typeof value === "string") {
@@ -87,6 +73,26 @@ export function beginWorker(config: { type: string; ethernet?: { mac: bigint }[]
           delete os.fs._fs[key];
         }
       }
+    } else if (msg.$ === "configure") {
+      const { hw_address } = msg;
+
+      if (hw_address) {
+        for (const hw of hw_address) {
+          const dev = system._devices[hw.port];
+
+          if (dev instanceof SimpleEthernet) {
+            dev.mac = parseMAC(hw.mac);
+            new SimpleEthernetDriver(os, hw.port);
+          } else {
+            console.error(`Device ${hw.port} is not SimpleEthernet`);
+          }
+        }
+      }
+    } else if (msg.$ === "init") {
+      os.exec("init", [], { cwd: "/", signal: init_controller.signal }).catch((e) => {
+        console.error(e);
+        sendMessage({ $: "print", text: `[init error] ${e}\n` });
+      });
     }
   });
 

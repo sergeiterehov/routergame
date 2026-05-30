@@ -2,6 +2,12 @@ import { FS } from "./fs";
 import type { System, Driver } from "../system";
 import { Net } from "./net";
 
+export type TAppContext = {
+  cwd: string;
+  signal: AbortSignal;
+};
+export type TApp = (os: OS, args: string[], ctx: TAppContext) => Promise<void>;
+
 export class OSChannel<T = unknown> extends EventTarget {
   private _eventMap = {
     message: new MessageEvent("message", { data: null as T }),
@@ -52,9 +58,10 @@ export class OS {
   _system: System;
 
   _drivers: Driver[] = [];
-  _apps: { [key: string]: (os: OS, args: string[]) => void } = {};
+  _apps: { [key: string]: TApp } = {};
 
   on_print?: (text: string) => void;
+  on_input?: (text: string) => void;
 
   readonly fs = new FS(this);
   readonly net = new Net(this);
@@ -105,15 +112,11 @@ export class OS {
     this.print(`Installed: ${Object.keys(apps).join(", ")}\n`);
   }
 
-  async exec(name: string, args: string[] = []) {
+  async exec(name: string, args: string[], ctx: TAppContext) {
     const app = this._apps[name];
-    if (!app) return this.print(`Unknown app: ${name}\n`);
-    try {
-      await app(this, args);
-    } catch (e) {
-      console.error(e);
-      this.print(`[${name} exit error] ${e}\n`);
-    }
+    if (!app) throw new Error(`${name} not found`);
+
+    await app(this, args, ctx);
   }
 
   _interruptHandlers: { [key: number]: () => void } = {};

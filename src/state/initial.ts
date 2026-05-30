@@ -29,13 +29,14 @@ export const initial_arch: TArchitecture = {
       ],
       fs: {
         "/init": [
+          "pkg install net_tools iputils dhcp fw",
           "iface eth0 add 192.168.0.1/24",
           "route add 192.168.0.0/24 dev eth0",
           "br add br0 eth1 eth2",
           "iface br0 up",
           "iface br0 add 10.0.0.1/24",
           "route add 10.0.0.0/24 dev br0",
-          "dhcpd br0 10.0.0.10 10.0.0.20 -g 10.0.0.1 &",
+          "dhcp_server br0 10.0.0.10 10.0.0.20 -g 10.0.0.1 &",
           "fw masquerade eth0",
         ].join("\n"),
       },
@@ -63,14 +64,15 @@ export const initial_arch: TArchitecture = {
       ],
       fs: {
         "/init": [
+          "pkg install net_tools iputils bind9 nginx",
           "iface eth0 wait link",
           "iface eth0 add 192.168.0.100/24",
           "route add 192.168.0.0/24 dev eth0",
           "route add default via 192.168.0.1",
-          "dnsd &",
+          "bind9 &",
           "nginx &",
         ].join("\n"),
-        "/etc/dnsd.conf": `
+        "/etc/names.conf": `
 # NAME TYPE VALUE TTL
 example.com A 192.168.0.100 3600
 dns.google A 8.8.8.8 3600
@@ -101,7 +103,10 @@ server:
       name: "PC A",
       ports: [{ id: "eth0", type: "ethernet" }],
       ethernetPorts: [{ id: "eth0", mac: "00:00:00:aa:00:00" }],
-      fs: { "/init": ["iface eth0 wait link", "dhcp eth0"].join("\n"), "/etc/resolv.conf": "nameserver 192.168.0.100" },
+      fs: {
+        "/init": ["pkg install net_tools iputils dhcp", "iface eth0 wait link", "sleep 1", "dhclient eth0"].join("\n"),
+        "/etc/resolv.conf": "nameserver 192.168.0.100",
+      },
       ui: { x: 50, y: 100 },
     },
     {
@@ -110,7 +115,9 @@ server:
       name: "PC B",
       ports: [{ id: "eth0", type: "ethernet" }],
       ethernetPorts: [{ id: "eth0", mac: "00:00:00:aa:01:00" }],
-      fs: { "/init": ["iface eth0 wait link", "dhcp eth0"].join("\n") },
+      fs: {
+        "/init": ["pkg install net_tools iputils dhcp", "iface eth0 wait link", "sleep 1", "dhclient eth0"].join("\n"),
+      },
       ui: { x: 350, y: 100 },
     },
   ],

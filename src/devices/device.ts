@@ -92,11 +92,5 @@ export class Port {
 
     this._link = link;
     this._inside.link(link);
-
-    if (link) {
-      this._handle_timer_beacon();
-    } else {
-      this._tx_outside(_down_bytes);
-    }
   }
 }

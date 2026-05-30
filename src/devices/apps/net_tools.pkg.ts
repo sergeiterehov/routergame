@@ -106,17 +106,7 @@ export async function iface(os: OS, args: string[]) {
   if (!name) return _print_interfaces(os);
 
   const iface = _get_iface(os, name);
-  if (!iface)
-    throw new Error(
-      [
-        `Interface ${name} not found`,
-        "Usage:",
-        "\t<interface> (up|down)",
-        "\t<interface> (add|del) <ip/prefix>",
-        "\t<interface> flush",
-        "\t<interface> wait",
-      ].join("\n"),
-    );
+  if (!iface) throw new Error(`Interface ${name} not found`);
 
   const op = args.shift();
   if (!op) return _print_interface(os, name);
@@ -205,10 +195,31 @@ export async function iface(os: OS, args: string[]) {
     } else {
       throw new Error("usage: iface <interface> wait link [-t timeout_s]");
     }
+  } else if (op === "rename") {
+    if (test_args(args, Boolean)) {
+      const name = args.shift()!;
+      if (os.net.iface_by_name(name)) throw new Error(`Interface ${name} already exists`);
+
+      iface.name = name;
+    } else {
+      throw new Error("usage: iface <interface> rename <new_name>");
+    }
+  } else {
+    throw new Error(
+      [
+        `Interface ${name} not found`,
+        "Usage:",
+        "\t<interface> (up|down)",
+        "\t<interface> (add|del) <ip/prefix>",
+        "\t<interface> flush",
+        "\t<interface> wait",
+        "\t<interface> rename",
+      ].join("\n"),
+    );
   }
 }
 
-export function route(os: OS, args: string[]) {
+export async function route(os: OS, args: string[]) {
   const op = args.shift();
   if (!op) {
     for (let i = 0; i < os.net.ip4._routes.length; i++) {
@@ -356,7 +367,7 @@ export function route(os: OS, args: string[]) {
   }
 }
 
-export function br(os: OS, args: string[]) {
+export async function br(os: OS, args: string[]) {
   if (!args.length) {
     for (const _br of os.net._interfaces) {
       if (_br.type !== "bridge") continue;

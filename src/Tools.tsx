@@ -68,7 +68,7 @@ export const Tools = observer(function Tools() {
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          const name = prompt("Name", "New Router");
+          const name = prompt("Name", "New Server");
           if (!name) return;
           store.node_create_server({ name });
         }}

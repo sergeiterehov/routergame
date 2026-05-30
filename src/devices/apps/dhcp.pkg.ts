@@ -33,7 +33,7 @@ type TLease = { iface: TInterface; ip: number; mac: bigint; expiresAt: number };
 
 const leases: TLease[] = [];
 let server_started = false;
-export async function dhcpd(os: OS, args: string[]) {
+export async function dhcp_server(os: OS, args: string[]) {
   if (!args.length) {
     os.print("usage:\n");
     os.print("\t<interface> <ip_start> <ip_end> [-g gateway_ip]\n");
@@ -254,7 +254,7 @@ export async function dhcpd(os: OS, args: string[]) {
   server_started = false;
 }
 
-export async function dhcp(os: OS, args: string[]) {
+export async function dhclient(os: OS, args: string[]) {
   if (!args.length) {
     os.print("usage: <interface>\n");
     return;

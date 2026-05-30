@@ -1,6 +1,6 @@
-import { beginWorker } from "./helpers";
+import { beginWorkerOS } from "./helpers";
 
-beginWorker({
+beginWorkerOS({
   type: "Router",
   ethernet: [
     { mac: 0x00n },
