@@ -1,3 +1,4 @@
+import { setIntervalRecursive } from "../helpers";
 import {
   ARP_OPCODES,
   ETHER_TYPES,
@@ -27,7 +28,7 @@ export class ARP {
   _channel = new OSChannel<"pending" | "fail" | "success" | "retry">();
 
   constructor(public readonly net: Net) {
-    setInterval(this._timer_handle_1s.bind(this), 1000);
+    setIntervalRecursive(this._timer_handle_1s.bind(this), 1000);
   }
 
   private _timer_handle_1s() {

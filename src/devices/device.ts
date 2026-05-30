@@ -1,4 +1,5 @@
 import { SEC } from "./format";
+import { setIntervalRecursive } from "./helpers";
 
 export class Device {
   type: string = "Device";
@@ -39,7 +40,7 @@ export class Port {
     this._multicast = multicast;
     this._inside = handle_connect({ tx: this._tx_outside.bind(this) });
 
-    setInterval(this._handle_timer_beacon.bind(this), _BEACON_INTERVAL_MS);
+    setIntervalRecursive(this._handle_timer_beacon.bind(this), _BEACON_INTERVAL_MS);
   }
 
   private _handle_timer_beacon() {

@@ -1,4 +1,5 @@
 import { Device, Port } from "../device";
+import { setIntervalRecursive } from "../helpers";
 import { System } from "../system";
 import { expose } from "./helpers";
 
@@ -51,7 +52,7 @@ class L2 extends System {
       this.addDevice(dev);
     }
 
-    setInterval(this._timer_expire_learned.bind(this), EXPIRE_INTERVAL_MS);
+    setIntervalRecursive(this._timer_expire_learned.bind(this), EXPIRE_INTERVAL_MS);
   }
 
   private _handle_link(port: number, connected: boolean) {

@@ -1,4 +1,5 @@
 import { SEC, MINUTE, DAY } from "../format";
+import { setIntervalRecursive } from "../helpers";
 import {
   ICMP_TYPES,
   IP_BROADCAST,
@@ -85,7 +86,7 @@ export class Tracker {
   _table: TConnection[] = [];
 
   constructor(public readonly ip4: IP4) {
-    setInterval(this._timer_handle_1s.bind(this), 1000);
+    setIntervalRecursive(this._timer_handle_1s.bind(this), 1000);
   }
 
   _timer_handle_1s() {

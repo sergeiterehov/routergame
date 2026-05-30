@@ -1,3 +1,4 @@
+import { setIntervalRecursive } from "../helpers";
 import { MAC_BROADCAST, type TEthernetFrame } from "../pack";
 import type { Net, TInterface } from "./net";
 
@@ -22,7 +23,7 @@ export class Bridge {
   _fdb: TBridgeFDB[] = [];
 
   constructor(readonly net: Net) {
-    setInterval(this._timer_handle_1s.bind(this), 1000);
+    setIntervalRecursive(this._timer_handle_1s.bind(this), 1000);
   }
 
   private _timer_handle_1s() {

@@ -1,4 +1,5 @@
 import { SEC } from "../format";
+import { setIntervalRecursive } from "../helpers";
 import {
   ICMP_TYPES,
   IP_PROTOCOLS,
@@ -66,7 +67,7 @@ export class Socket {
   _sockets: TSocket[] = [];
 
   constructor(public readonly net: Net) {
-    setInterval(this._handle_timer_1s.bind(this), 1_000);
+    setIntervalRecursive(this._handle_timer_1s.bind(this), 1_000);
   }
 
   create<P extends TSocket["type"]>(type: P): TSocket {
