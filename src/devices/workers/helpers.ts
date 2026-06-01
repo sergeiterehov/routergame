@@ -54,17 +54,14 @@ export function beginWorkerOS(config: { type: string; ethernet?: { mac: bigint }
   }
 
   const os = new OS(system);
-  os.on_print = (text) => sendMessage({ $: "print", text });
+  os._hostname = self.name;
+  os.on_output = (text) => sendMessage({ $: "print", text });
   os.fs.on_change = (fs) => sendMessage({ $: "fs", fs });
-
-  os.print(`Host ${self.name}\n`);
   os.install(software);
-
-  const init_controller = new AbortController();
 
   onMessage((msg) => {
     if (msg.$ === "input") {
-      os.on_input?.(msg.text);
+      os.input(msg.text);
     } else if (msg.$ === "fs") {
       for (const [key, value] of Object.entries(msg.fs)) {
         if (typeof value === "string") {
@@ -89,7 +86,7 @@ export function beginWorkerOS(config: { type: string; ethernet?: { mac: bigint }
         }
       }
     } else if (msg.$ === "init") {
-      os.exec("init", [], { cwd: "/", signal: init_controller.signal }).catch((e) => {
+      os.exec("init", [], os._root_app_ctx).catch((e) => {
         console.error(e);
         sendMessage({ $: "print", text: `[init error] ${e}\n` });
       });

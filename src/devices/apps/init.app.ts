@@ -1,5 +1,5 @@
 import { SEC } from "../format";
-import { async_timeout } from "../helpers";
+import { async_timeout, create_input_buffer } from "../helpers";
 import type { TApp, TAppContext } from "../os/os";
 import { test_args } from "./app.lib";
 
@@ -57,9 +57,6 @@ export const init: TApp = async (os, args, ctx) => {
     }
   };
 
-  let queue = Promise.resolve();
-  let user_controller = new AbortController();
-
   try {
     for (const line of init.split("\n")) {
       await _eval(line, ctx);
@@ -68,30 +65,70 @@ export const init: TApp = async (os, args, ctx) => {
     os.print(`Initial script error: ${e}\n`);
   }
 
-  os.print("Welcome!\n");
+  os.print(`Welcome! Host name ${os._hostname}\n`);
 
-  os.on_input = (text) => {
-    if (text.trim() === "^c") {
-      user_controller.abort();
-      return;
-    }
+  const input_buffer: string[] = [""];
+  let evaluating: { cmd: string; ctx: TAppContext; controller: AbortController } | undefined;
 
-    queue = queue
-      .catch(() => null)
-      .then(async () => {
-        os.print(`# ${text}`);
-
-        user_controller = new AbortController();
-        const user_ctx: TAppContext = { ...ctx, signal: AbortSignal.any([user_controller.signal, ctx.signal]) };
-
-        try {
-          await _eval(text, user_ctx);
-        } catch (e) {
-          os.print(`${e}\n`);
+  const input = create_input_buffer(
+    ctx.input,
+    (text, buffer) => {
+      if (evaluating) {
+        if (text.trim() === "^c") {
+          buffer.splice(0);
+          evaluating.controller.abort();
+          return "";
         }
-      });
+      }
+
+      return text;
+    },
+    ctx.signal,
+  );
+
+  const _process_buffer = async () => {
+    if (evaluating) return;
+    if (!input_buffer.length) return;
+
+    try {
+      while (input_buffer.length) {
+        const text = input_buffer.shift();
+        if (!text) continue;
+
+        os.print(text);
+
+        const cmd_controller = new AbortController();
+        evaluating = {
+          cmd: text,
+          controller: cmd_controller,
+          ctx: {
+            ...ctx,
+            input,
+            signal: AbortSignal.any([cmd_controller.signal, ctx.signal]),
+          },
+        };
+
+        await _eval(text, evaluating.ctx);
+      }
+    } catch (e) {
+      os.print(`${e}\n`);
+    } finally {
+      evaluating = undefined;
+      os.print(`# `);
+    }
   };
 
-  await new Promise((resolve) => ctx.signal.addEventListener("abort", resolve, { once: true }));
+  await _process_buffer();
+
+  while (!ctx.signal.aborted) {
+    const text = await new Promise<string>((resolve, reject) => {
+      input(resolve, ctx.signal);
+      ctx.signal.addEventListener("abort", () => reject(new Error("Aborted")), { once: true });
+    });
+
+    input_buffer.push(text);
+    await _process_buffer();
+  }
+
   os.print("[done]");
 };

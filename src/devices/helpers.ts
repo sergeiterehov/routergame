@@ -23,3 +23,42 @@ export const async_timeout = (ms: number, signal?: AbortSignal) =>
       { once: true },
     );
   });
+
+export function create_input_buffer(
+  input: (cb: (text: string) => void, signal?: AbortSignal) => void,
+  transform?: (text: string, buffer: string[]) => string,
+  signal?: AbortSignal,
+): (cb: (text: string) => void, signal?: AbortSignal) => void {
+  const buffer: string[] = [];
+  let _cb: (() => void) | undefined;
+
+  const read = () => {
+    input((text) => {
+      if (signal?.aborted) return;
+
+      try {
+        if (transform) text = transform(text, buffer);
+      } finally {
+        try {
+          if (text) {
+            buffer.push(text);
+            _cb?.();
+          }
+        } finally {
+          _cb = undefined;
+          read();
+        }
+      }
+    }, signal);
+  };
+
+  read();
+
+  return (cb, signal) => {
+    if (signal?.aborted) return;
+
+    if (buffer.length) return cb(buffer.shift()!);
+
+    _cb = () => cb(buffer.shift()!);
+  };
+}
