@@ -11,7 +11,6 @@ import {
   type TIcmpPacket,
   type TIP4Packet,
 } from "../pack";
-import { OSChannel } from "./os";
 import { testSameNetwork } from "../format";
 import { Tracker } from "./tracker";
 import { Firewall, FW_CHAINS, type TPacketContext } from "./fw";
@@ -25,7 +24,6 @@ export class IP4 {
 
   _buffer: { iInterface: number; ip: number; frame: TEthernetFrame; socket?: TSocket }[] = [];
   _routes: TRoute[] = [];
-  _channel = new OSChannel<{ direction: "in" | "out"; iInterface: number; packet: TIP4Packet }>();
 
   readonly tracker = new Tracker(this);
   readonly fw = new Firewall(this);
@@ -88,8 +86,6 @@ export class IP4 {
 
     const route_iface = this.net._interfaces[iInterface];
     if (route_iface.mac === undefined) return NET_ERRORS.NO_ROUTE;
-
-    this._channel.postMessage({ direction: "out", iInterface, packet });
 
     let local_iface: TInterface | undefined;
     for (const _iface of this.net._interfaces) {
@@ -244,7 +240,6 @@ export class IP4 {
   }
 
   private _handle_input(iInterface: number, packet: TIP4Packet, fw_context: TPacketContext) {
-    this._channel.postMessage({ direction: "in", iInterface, packet });
 
     // ICMP Reply
     if (packet.header.protocol === IP_PROTOCOLS.ICMP) {

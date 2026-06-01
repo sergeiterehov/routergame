@@ -10,7 +10,7 @@ import {
   validate_mac,
 } from "../format";
 import type { TInterface } from "../os/net";
-import type { OS } from "../os/os";
+import type { OS, TApp } from "../os/os";
 import { find_arg, find_args, has_arg, test_args } from "./app.lib";
 
 function _get_iface(os: OS, name: string) {
@@ -101,7 +101,7 @@ function _flush_interface(os: OS, iface: TInterface) {
   }
 }
 
-export async function iface(os: OS, args: string[]) {
+export const iface: TApp = async (os, args, ctx) => {
   const name = args.shift();
   if (!name) return _print_interfaces(os);
 
@@ -179,10 +179,9 @@ export async function iface(os: OS, args: string[]) {
       const timeout = Number(find_arg(args, "-t", "1"));
       if (Number.isNaN(timeout) || timeout < 0) throw new Error("Invalid timeout");
 
-      const controller = new AbortController();
-      setTimeout(() => controller.abort(), timeout * SEC);
+      const signal = AbortSignal.any([AbortSignal.timeout(timeout * SEC), ctx.signal]);
 
-      while (!controller.signal.aborted) {
+      while (!signal.aborted) {
         if (iface.flags.LOWER_UP) {
           os.print(`Ok, ${iface.name} is LOWER_UP\n`);
           return;
@@ -217,7 +216,7 @@ export async function iface(os: OS, args: string[]) {
       ].join("\n"),
     );
   }
-}
+};
 
 export async function route(os: OS, args: string[]) {
   const op = args.shift();

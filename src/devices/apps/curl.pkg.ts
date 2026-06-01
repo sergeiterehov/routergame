@@ -1,9 +1,9 @@
 import { SEC, validate_ip, parseIPv4, formatIPv4, validate_port } from "../format";
-import type { OS } from "../os/os";
+import type { TApp } from "../os/os";
 import { test_args, has_arg, format_net_error, socket_connected, to_utf8, from_utf8, socket_read } from "./app.lib";
 import { get_hostname_ip } from "./dns.lib";
 
-export async function curl(os: OS, args: string[]) {
+export const curl: TApp = async (os, args, ctx) => {
   if (!test_args(args, Boolean)) throw new Error(`usage: curl <url> [-v]`);
 
   const verbose = has_arg(args, "-v");
@@ -16,12 +16,11 @@ export async function curl(os: OS, args: string[]) {
 
   if (protocol !== "http:") throw new Error(`Unsupported protocol ${protocol}`);
 
-  const controller = new AbortController();
-  setTimeout(() => controller.abort(), 30 * SEC);
+  const signal = AbortSignal.any([AbortSignal.timeout(30 * SEC), ctx.signal]);
 
   const ip = validate_ip(hostname)
     ? parseIPv4(hostname)
-    : await get_hostname_ip(os, `${hostname}.`, undefined, controller.signal).then((_ip) => {
+    : await get_hostname_ip(os, `${hostname}.`, undefined, signal).then((_ip) => {
         if (!_ip) throw new Error(`Could not resolve ${hostname}`);
         log_verbose(`* Resolved ${hostname} to ${formatIPv4(_ip)}\n`);
         return _ip;
@@ -39,7 +38,7 @@ export async function curl(os: OS, args: string[]) {
     err = os.net.socket.connect(socket, ip, port);
     if (err) throw new Error(`Connect error ${format_net_error(err)}`);
 
-    await socket_connected(os, socket, controller.signal);
+    await socket_connected(os, socket, signal);
 
     const request = `GET ${pathname}${search} HTTP/1.1\r\nHost: ${hostname}\r\n\r\n`;
     log_verbose(
@@ -56,7 +55,7 @@ export async function curl(os: OS, args: string[]) {
 
     try {
       for (;;) {
-        const chunk = from_utf8(await socket_read(os, socket, controller.signal));
+        const chunk = from_utf8(await socket_read(os, socket, signal));
         response += chunk;
         if (response.includes("\r\n\r\n")) break;
       }
@@ -73,7 +72,7 @@ export async function curl(os: OS, args: string[]) {
       const body_start = response.slice(end_index);
       os.print(body_start);
       for (;;) {
-        const chunk = from_utf8(await socket_read(os, socket, controller.signal));
+        const chunk = from_utf8(await socket_read(os, socket, signal));
         response += chunk;
         os.print(chunk);
       }
@@ -85,4 +84,4 @@ export async function curl(os: OS, args: string[]) {
     os.net.socket.close(socket);
     log_verbose(`* Connection closed\n`);
   }
-}
+};

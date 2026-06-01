@@ -29,16 +29,20 @@ export const FW_ACTIONS = {
 
 export type TPacketContext = {
   conn?: TConnection;
+  state?: "new" | "established" | "invalid";
   in?: number;
   out?: number;
 };
 
 export type TPredicate = {
-  in?: number;
-  out?: number;
-  src?: number;
-  dst?: number;
-  protocol?: number;
+  in?: number[];
+  out?: number[];
+  src?: number[];
+  dst?: number[];
+  src_port?: number[];
+  dst_port?: number[];
+  protocol?: number[];
+  state?: string[];
 };
 
 export type TAction = { action: string; to_ip?: number; to_port?: number };
@@ -53,13 +57,24 @@ export type TRule = {
 } & TPredicate;
 
 function _test_rule(rule: TRule, packet: TIP4Packet, ctx: TPacketContext) {
-  if (rule.in !== undefined && rule.in !== ctx.in) return false;
-  if (rule.out !== undefined && rule.out !== ctx.out) return false;
+  if (rule.in !== undefined && !rule.in.includes(ctx.in!)) return false;
+  if (rule.out !== undefined && !rule.out.includes(ctx.out!)) return false;
+
+  if (rule.state !== undefined && !rule.state.includes(ctx.state!)) return false;
 
   const { header } = packet;
-  if (rule.src !== undefined && rule.src !== header.src) return false;
-  if (rule.dst !== undefined && rule.dst !== header.dst) return false;
-  if (rule.protocol !== undefined && rule.protocol !== header.protocol) return false;
+  if (rule.src !== undefined && !rule.src.includes(header.src!)) return false;
+  if (rule.dst !== undefined && !rule.dst.includes(header.dst!)) return false;
+  if (rule.protocol !== undefined && !rule.protocol.includes(header.protocol!)) return false;
+
+  if (rule.src_port !== undefined || rule.dst_port !== undefined) {
+    const { protocol } = header;
+    if (protocol === IP_PROTOCOLS.TCP || protocol === IP_PROTOCOLS.UDP) {
+      const ports = extract_ip_ports(packet);
+      if (rule.src_port !== undefined && !rule.src_port.includes(ports.src)) return false;
+      if (rule.dst_port !== undefined && !rule.dst_port.includes(ports.dst)) return false;
+    }
+  }
 
   return true;
 }
@@ -127,7 +142,7 @@ export class Firewall {
 
     if (chain === FW_CHAINS.PRE_ROUTING) {
       if (this._handle_rules(FW_TABLES.RAW, chain, packet, ctx)) return true;
-      ctx.conn = this.ip4.tracker.handle_packet(packet);
+      this.ip4.tracker.handle_packet(packet, ctx);
       if (this._handle_rules(FW_TABLES.NAT, chain, packet, ctx)) return true;
       if (this._handle_rules(FW_TABLES.FILTER, chain, packet, ctx)) return true;
     } else if (chain === FW_CHAINS.DST_NAT) {
@@ -140,7 +155,7 @@ export class Firewall {
       if (this._handle_rules(FW_TABLES.FILTER, chain, packet, ctx)) return true;
     } else if (chain === FW_CHAINS.OUTPUT) {
       if (this._handle_rules(FW_TABLES.RAW, chain, packet, ctx)) return true;
-      ctx.conn = this.ip4.tracker.handle_packet(packet);
+      this.ip4.tracker.handle_packet(packet, ctx);
       if (this._handle_rules(FW_TABLES.NAT, chain, packet, ctx)) return true;
       if (this._handle_rules(FW_TABLES.FILTER, chain, packet, ctx)) return true;
     } else if (chain === FW_CHAINS.POST_ROUTING) {

@@ -1,5 +1,5 @@
-import { FS } from "./fs";
 import type { System, Driver } from "../system";
+import { FS } from "./fs";
 import { Net } from "./net";
 
 export type TAppContext = {
@@ -7,52 +7,6 @@ export type TAppContext = {
   signal: AbortSignal;
 };
 export type TApp = (os: OS, args: string[], ctx: TAppContext) => Promise<void>;
-
-export class OSChannel<T = unknown> extends EventTarget {
-  private _eventMap = {
-    message: new MessageEvent("message", { data: null as T }),
-  };
-
-  postMessage(message: T): void {
-    this.dispatchEvent(new MessageEvent("message", { data: message }));
-  }
-
-  addEventListener<K extends keyof typeof this._eventMap>(
-    type: K,
-    listener: (this: OSChannel, ev: (typeof this._eventMap)[K]) => void,
-    options?: boolean | AddEventListenerOptions,
-  ): void;
-  addEventListener(
-    type: string,
-    listener: EventListenerOrEventListenerObject,
-    options?: boolean | AddEventListenerOptions,
-  ): void;
-  addEventListener(
-    type: string,
-    listener: EventListenerOrEventListenerObject,
-    options?: boolean | AddEventListenerOptions,
-  ): void {
-    super.addEventListener(type, listener, options);
-  }
-
-  removeEventListener<K extends keyof typeof this._eventMap>(
-    type: K,
-    listener: (this: OSChannel, ev: (typeof this._eventMap)[K]) => void,
-    options?: boolean | EventListenerOptions,
-  ): void;
-  removeEventListener(
-    type: string,
-    listener: EventListenerOrEventListenerObject,
-    options?: boolean | EventListenerOptions,
-  ): void;
-  removeEventListener(
-    type: string,
-    listener: EventListenerOrEventListenerObject,
-    options?: boolean | EventListenerOptions,
-  ): void {
-    super.removeEventListener(type, listener, options);
-  }
-}
 
 export class OS {
   _system: System;
@@ -71,36 +25,6 @@ export class OS {
     this._system._interrupt = (deviceIndex) => {
       this._interruptHandlers[deviceIndex]?.();
     };
-  }
-
-  deadline(ms: number) {
-    const start = Date.now();
-    return {
-      get start() {
-        return start;
-      },
-      get left() {
-        return ms - (Date.now() - start);
-      },
-    };
-  }
-
-  async channel_sync<T>(channel: OSChannel<T>, deadline: { left: number }) {
-    return new Promise<[T] | [void, Error]>((resolve) => {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => {
-        controller.abort();
-        resolve([undefined, new Error("TIMEOUT")]);
-      }, deadline.left);
-      channel.addEventListener(
-        "message",
-        (e) => {
-          clearTimeout(timeout);
-          resolve([e.data]);
-        },
-        { signal: controller.signal },
-      );
-    });
   }
 
   print(...text: string[]) {

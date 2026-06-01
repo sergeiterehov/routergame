@@ -11,6 +11,7 @@ import {
   type TIP4Packet,
   type TTcpPacket,
 } from "../pack";
+import type { TPacketContext } from "./fw";
 import type { IP4 } from "./ip4";
 
 const TIMEOUTS_MS = {
@@ -22,33 +23,20 @@ const TIMEOUTS_MS = {
   UDP_REPLY: 3 * MINUTE,
 
   TCP_SYN_SENT: 5 * SEC,
-  TCP_SYN_RECV: 5 * SEC,
   TCP_ESTABLISHED: 1 * DAY,
   TCP_FIN_WAIT: 10 * SEC,
   TCP_CLOSE_WAIT: 10 * SEC,
-  TCP_LAST_ACK: 10 * SEC,
   TCP_TIME_WAIT: 10 * SEC,
   TCP_CLOSE: 10 * SEC,
-  TCP_ESTABLISHED_WAIT_ACK: 10 * SEC, // TODO: отслеживать отставание
 } as const;
 
-type _TTcpState =
-  | "syn-sent"
-  | "syn-recv"
-  | "established"
-  | "fin-wait"
-  | "close-wait"
-  | "last-ack"
-  | "time-wait"
-  | "close";
+type _TTcpState = "syn-sent" | "established" | "fin-wait" | "close-wait" | "time-wait" | "close";
 
 const _STATE_TIMEOUTS_MS: Record<_TTcpState, number> = {
   "syn-sent": TIMEOUTS_MS.TCP_SYN_SENT,
-  "syn-recv": TIMEOUTS_MS.TCP_SYN_RECV,
   established: TIMEOUTS_MS.TCP_ESTABLISHED,
   "fin-wait": TIMEOUTS_MS.TCP_FIN_WAIT,
   "close-wait": TIMEOUTS_MS.TCP_CLOSE_WAIT,
-  "last-ack": TIMEOUTS_MS.TCP_LAST_ACK,
   "time-wait": TIMEOUTS_MS.TCP_TIME_WAIT,
   close: TIMEOUTS_MS.TCP_CLOSE,
 } as const;
@@ -102,14 +90,16 @@ export class Tracker {
     }
   }
 
-  handle_packet(packet: TIP4Packet) {
+  handle_packet(packet: TIP4Packet, ctx: TPacketContext) {
     if (!this._enabled) return;
 
     const { protocol, src, dst } = packet.header;
 
-    if (src === 0 || dst === 0 || dst === IP_BROADCAST) return;
+    ctx.state = "new";
 
-    if (protocol !== IP_PROTOCOLS.ICMP && protocol !== IP_PROTOCOLS.UDP && protocol !== IP_PROTOCOLS.TCP) return;
+    if (src === 0 || dst === 0) return this._invalidate(ctx);
+
+    if (dst === IP_BROADCAST) return;
 
     const udp = protocol === IP_PROTOCOLS.UDP ? unpack_udp_packet(packet.payload) : undefined;
     const tcp = protocol === IP_PROTOCOLS.TCP ? unpack_tcp_packet(packet.payload) : undefined;
@@ -118,14 +108,15 @@ export class Tracker {
     let src_port = 0;
     let dst_port = 0;
     if (protocol === IP_PROTOCOLS.UDP) {
-      if (!udp) return;
+      if (!udp) return this._invalidate(ctx);
       src_port = udp.header.src;
       dst_port = udp.header.dst;
     } else if (protocol === IP_PROTOCOLS.ICMP) {
+      if (!icmp) return this._invalidate(ctx);
       src_port = 1;
       dst_port = 1;
     } else if (protocol === IP_PROTOCOLS.TCP) {
-      if (!tcp) return;
+      if (!tcp) return this._invalidate(ctx);
       src_port = tcp.header.src;
       dst_port = tcp.header.dst;
     } else {
@@ -196,7 +187,7 @@ export class Tracker {
         conn.expires_at = now + TIMEOUTS_MS.UDP;
       } else if (protocol === IP_PROTOCOLS.TCP) {
         if (!tcp) return;
-        if (tcp.header.flags !== TCP_FLAGS.SYN) return;
+        if (tcp.header.flags !== TCP_FLAGS.SYN) return this._invalidate(ctx);
         conn.tcp = { state: "syn-sent" };
         this._tcp_set_state(conn, "syn-sent");
       }
@@ -205,85 +196,69 @@ export class Tracker {
       this._table.push(conn);
     } else {
       conn.flags.has_reply ||= reply;
+      ctx.state = "established";
     }
 
     if (protocol === IP_PROTOCOLS.ICMP) {
       conn.expires_at = now + TIMEOUTS_MS.ICMP;
     } else if (protocol === IP_PROTOCOLS.UDP) {
-      conn.expires_at = now + (conn.flags.has_reply ? TIMEOUTS_MS.UDP_REPLY : TIMEOUTS_MS.UDP);
+      if (conn.flags.has_reply) {
+        conn.expires_at = now + TIMEOUTS_MS.UDP_REPLY;
+      } else {
+        conn.expires_at = now + TIMEOUTS_MS.UDP;
+      }
     } else if (protocol === IP_PROTOCOLS.TCP) {
-      if (tcp) this._update_tcp(conn, reply, tcp);
+      if (tcp) this._update_tcp(conn, ctx, reply, tcp);
     }
 
-    return conn;
+    ctx.conn = conn;
   }
 
-  _update_tcp(conn: TConnection, reply: boolean, packet: TTcpPacket) {
+  private _update_tcp(conn: TConnection, ctx: TPacketContext, reply: boolean, packet: TTcpPacket) {
     const { tcp } = conn;
     if (!tcp) return;
 
     const { flags } = packet.header;
     const { state } = tcp;
 
-    if (flags & TCP_FLAGS.RST) {
-      this._tcp_set_state(conn, "close");
-    } else if (state === "syn-sent") {
-      if (!reply && flags & TCP_FLAGS.SYN) {
-        this._tcp_set_state(conn, "syn-sent");
-      } else if (!reply && flags & TCP_FLAGS.ACK) {
-        this._tcp_set_state(conn, "established");
-      } else if (reply && flags & TCP_FLAGS.SYN && flags & TCP_FLAGS.ACK) {
-        this._tcp_set_state(conn, "syn-recv");
-      } else if (reply && flags & TCP_FLAGS.ACK) {
-        this._tcp_set_state(conn, "established");
-      }
-    } else if (state === "syn-recv") {
-      if (reply && flags & TCP_FLAGS.FIN) {
-        this._tcp_set_state(conn, "close-wait");
-      } else if (!reply && flags & TCP_FLAGS.SYN) {
-        this._tcp_set_state(conn, "syn-recv");
-      } else if (!reply && flags & TCP_FLAGS.ACK) {
-        this._tcp_set_state(conn, "established");
-      } else if (reply && flags & TCP_FLAGS.ACK) {
-        this._tcp_set_state(conn, "established");
+    if (state !== "close" && flags & TCP_FLAGS.RST) return this._tcp_set_state(conn, "close");
+
+    if (state === "syn-sent") {
+      if (reply) {
+        if (flags & TCP_FLAGS.SYN && flags & TCP_FLAGS.ACK) return this._tcp_set_state(conn, "established");
+      } else {
+        if (flags & TCP_FLAGS.SYN) return this._tcp_set_state(conn, "syn-sent");
       }
     } else if (state === "established") {
-      if (!reply && flags & TCP_FLAGS.FIN) {
-        this._tcp_set_state(conn, "fin-wait");
-      } else if (reply && flags & TCP_FLAGS.FIN) {
-        this._tcp_set_state(conn, "close-wait");
-      } else if (flags & TCP_FLAGS.ACK) {
-        this._tcp_set_state(conn, "established");
+      if (reply) {
+        if (flags & TCP_FLAGS.FIN) return this._tcp_set_state(conn, "close-wait");
+        if (flags & TCP_FLAGS.ACK) return this._tcp_set_state(conn, "established");
+      } else {
+        if (flags & TCP_FLAGS.FIN) return this._tcp_set_state(conn, "fin-wait");
+        if (flags & TCP_FLAGS.ACK) return this._tcp_set_state(conn, "established");
       }
     } else if (state === "fin-wait") {
-      if (!reply && flags & TCP_FLAGS.FIN) {
-        this._tcp_set_state(conn, "time-wait");
-      } else if (reply && flags & TCP_FLAGS.FIN) {
-        this._tcp_set_state(conn, "last-ack");
-      } else if (reply && flags & TCP_FLAGS.ACK) {
-        this._tcp_set_state(conn, "close-wait");
-      } else if (!reply && flags & TCP_FLAGS.ACK) {
-        this._tcp_set_state(conn, "fin-wait");
+      if (reply) {
+        if (flags & TCP_FLAGS.FIN) return this._tcp_set_state(conn, "time-wait");
+        if (flags & TCP_FLAGS.ACK) return this._tcp_set_state(conn, "fin-wait");
+      } else {
+        if (flags & TCP_FLAGS.FIN) return this._tcp_set_state(conn, "fin-wait");
+        if (flags & TCP_FLAGS.ACK) return this._tcp_set_state(conn, "fin-wait");
       }
     } else if (state === "close-wait") {
-      if (!reply && flags & TCP_FLAGS.FIN) {
-        this._tcp_set_state(conn, "last-ack");
-      } else if (!reply && flags & TCP_FLAGS.ACK) {
-        this._tcp_set_state(conn, "close-wait");
-      } else if (reply && flags & (TCP_FLAGS.ACK | TCP_FLAGS.FIN)) {
-        this._tcp_set_state(conn, "close-wait");
-      }
-    } else if (state === "last-ack") {
-      if (!reply && flags & TCP_FLAGS.ACK) {
-        this._tcp_set_state(conn, "close");
-      } else if (reply && flags & TCP_FLAGS.ACK) {
-        this._tcp_set_state(conn, "last-ack");
+      if (reply) {
+        if (flags & TCP_FLAGS.FIN) return this._tcp_set_state(conn, "close-wait");
+        if (flags & TCP_FLAGS.ACK) return this._tcp_set_state(conn, "close-wait");
+      } else {
+        if (flags & TCP_FLAGS.FIN) return this._tcp_set_state(conn, "time-wait");
+        if (flags & TCP_FLAGS.ACK) return this._tcp_set_state(conn, "close-wait");
       }
     } else if (state === "time-wait") {
-      if ((reply && flags & TCP_FLAGS.SYN) || flags & (TCP_FLAGS.ACK | TCP_FLAGS.FIN)) {
-        this._tcp_set_state(conn, "time-wait");
-      }
+      if (flags & TCP_FLAGS.FIN) return;
+      if (flags & TCP_FLAGS.ACK) return;
     }
+
+    this._invalidate(ctx);
   }
 
   private _tcp_set_state(conn: TConnection, state: _TTcpState) {
@@ -291,5 +266,9 @@ export class Tracker {
 
     conn.tcp.state = state;
     conn.expires_at = Date.now() + _STATE_TIMEOUTS_MS[state];
+  }
+
+  private _invalidate(ctx: TPacketContext) {
+    ctx.state = "invalid";
   }
 }

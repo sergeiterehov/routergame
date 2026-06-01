@@ -1,24 +1,23 @@
-import { with_cleanup_signal } from "../helpers";
+import { SEC } from "../format";
+import { async_timeout } from "../helpers";
 import type { TApp, TAppContext } from "../os/os";
+import { test_args } from "./app.lib";
 
 const _PATH = "/init";
 
 let _initialized = false;
 
-const _sleep: TApp = async (os, args, ctx) =>
-  with_cleanup_signal(async ({ cleanup_signal }) => {
-    await new Promise<void>((resolve, reject) => {
-      const id = setTimeout(resolve, parseInt(args[0]) * 1000);
-      ctx.signal.addEventListener(
-        "abort",
-        () => {
-          clearTimeout(id);
-          reject(new Error("Aborted"));
-        },
-        { signal: cleanup_signal },
-      );
-    });
-  });
+const _sleep: TApp = async (_os, args, ctx) => {
+  if (test_args(args, Boolean)) {
+    const _sec = parseInt(args[0]);
+    if (Number.isNaN(_sec)) throw new Error("Invalid sleep time");
+    if (_sec < 0) throw new Error("Negative sleep time");
+
+    await async_timeout(parseInt(args[0]) * SEC, ctx.signal);
+  } else {
+    throw new Error("usage: <seconds>");
+  }
+};
 
 const _CMDS: Record<string, TApp> = {
   sleep: _sleep,
@@ -60,7 +59,6 @@ export const init: TApp = async (os, args, ctx) => {
 
   let queue = Promise.resolve();
   let user_controller = new AbortController();
-  ctx.signal.addEventListener("abort", () => user_controller.abort());
 
   try {
     for (const line of init.split("\n")) {
@@ -84,7 +82,7 @@ export const init: TApp = async (os, args, ctx) => {
         os.print(`# ${text}`);
 
         user_controller = new AbortController();
-        const user_ctx: TAppContext = { ...ctx, signal: user_controller.signal };
+        const user_ctx: TAppContext = { ...ctx, signal: AbortSignal.any([user_controller.signal, ctx.signal]) };
 
         try {
           await _eval(text, user_ctx);
@@ -94,6 +92,6 @@ export const init: TApp = async (os, args, ctx) => {
       });
   };
 
-  await new Promise((resolve) => ctx.signal.addEventListener("abort", resolve));
+  await new Promise((resolve) => ctx.signal.addEventListener("abort", resolve, { once: true }));
   os.print("[done]");
 };

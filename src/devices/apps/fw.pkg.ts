@@ -1,12 +1,15 @@
-import { formatIPv4, formatTime, parseIPv4, validate_ip } from "../format";
+import { formatIPv4, formatTime, parseIPv4, validate_ip, validate_port } from "../format";
 import { FW_ACTIONS, FW_CHAINS, FW_TABLES, type TAction, type TPredicate } from "../os/fw";
 import type { OS } from "../os/os";
 import { IP_PROTOCOLS } from "../pack";
-import { find_arg, run_command_of, test_args } from "./app.lib";
+import { find_arg, find_args, run_command_of, test_args } from "./app.lib";
+
+const PROTOCOL_NAMES = Object.fromEntries(Object.entries(IP_PROTOCOLS).map(([k, v]) => [v, k]));
 
 const TABLES = Object.values(FW_TABLES as object);
 const CHAINS = Object.values(FW_CHAINS as object);
 const ACTIONS = Object.values(FW_ACTIONS as object);
+const STATES = ["new", "established", "invalid"];
 
 const CHAINS_BY_TABLE: Record<string, string[]> = {
   [FW_TABLES.RAW]: [FW_CHAINS.PRE_ROUTING, FW_CHAINS.OUTPUT],
@@ -99,11 +102,11 @@ async function _ls(os: OS, args: string[]) {
     os.print(
       `${i + 1}) ${rule.table} ${rule.chain} [${action}]:\n`,
       [
-        rule.in !== undefined && `in=${os.net.iface(rule.in).name}`,
-        rule.out !== undefined && `out=${os.net.iface(rule.out).name}`,
-        rule.src !== undefined && `src=${formatIPv4(rule.src)}`,
-        rule.dst !== undefined && `dst=${formatIPv4(rule.dst)}`,
-        rule.protocol !== undefined && `proto=${rule.protocol}`,
+        rule.in !== undefined && `in=${rule.in.map((v) => os.net.iface(v).name).join(",")}`,
+        rule.out !== undefined && `out=${rule.out.map((v) => os.net.iface(v).name).join(",")}`,
+        rule.src !== undefined && `src=${rule.src.map((v) => formatIPv4(v)).join(",")}`,
+        rule.dst !== undefined && `dst=${rule.dst.map((v) => formatIPv4(v)).join(",")}`,
+        rule.protocol !== undefined && `proto=${rule.protocol.map((v) => PROTOCOL_NAMES[v] || v).join(",")}`,
         `PACKETS: ${rule.counters.packets}`,
       ]
         .filter(Boolean)
@@ -125,7 +128,7 @@ async function _masquerade(os: OS, args: string[]) {
     FW_TABLES.NAT,
     FW_CHAINS.SRC_NAT,
     {
-      out: iface.index,
+      out: [iface.index],
     },
     { action: FW_ACTIONS.MASQUERADE },
   );
@@ -141,6 +144,9 @@ async function _add(os: OS, args: string[]) {
           "[-out name]",
           "[-src ip]",
           "[-dst ip]",
+          "[-src-port number]",
+          "[-dst-port number]",
+          `[-state ${STATES.join("|")}]`,
           "[-protocol icmp|udp|tcp]",
           "[-to-ip ip]",
           "[-to-port ip]",
@@ -155,56 +161,85 @@ async function _add(os: OS, args: string[]) {
   const predicate: TPredicate = {};
   const action: TAction = { action: action_action };
 
-  const in_arg = find_arg(args, "-in");
-  if (in_arg) {
+  const in_args = find_args(args, "-in");
+  for (const in_arg in in_args) {
     const iface = os.net.iface_by_name(in_arg);
     if (!iface) throw new Error(`Interface ${in_arg} not found`);
-    predicate.in = iface.index;
+    predicate.in ||= [];
+    predicate.in.push(iface.index);
   }
 
-  const out_arg = find_arg(args, "-out");
-  if (out_arg) {
+  const out_args = find_args(args, "-out");
+  for (const out_arg in out_args) {
     const iface = os.net.iface_by_name(out_arg);
     if (!iface) throw new Error(`Interface ${out_arg} not found`);
-    predicate.out = iface.index;
+    predicate.out ||= [];
+    predicate.out.push(iface.index);
   }
 
-  const src_arg = find_arg(args, "-src");
-  if (src_arg) {
+  const src_args = find_args(args, "-src");
+  for (const src_arg in src_args) {
     if (!validate_ip(src_arg)) throw new Error(`Invalid src IP address ${src_arg}`);
-    predicate.src = parseIPv4(src_arg);
+    predicate.src ||= [];
+    predicate.src.push(parseIPv4(src_arg));
   }
 
-  const dst_arg = find_arg(args, "-dst");
-  if (dst_arg) {
+  const src_port_args = find_args(args, "-src-port");
+  for (const src_port_arg in src_port_args) {
+    if (!validate_port(src_port_arg)) throw new Error(`Invalid src port ${src_port_arg}`);
+    predicate.src_port ||= [];
+    predicate.src_port.push(Number.parseInt(src_port_arg));
+  }
+
+  const dst_args = find_args(args, "-dst");
+  for (const dst_arg in dst_args) {
     if (!validate_ip(dst_arg)) throw new Error(`Invalid dst IP address ${dst_arg}`);
-    predicate.dst = parseIPv4(dst_arg);
+    predicate.dst ||= [];
+    predicate.dst.push(parseIPv4(dst_arg));
   }
 
-  const to_ip = find_arg(args, "-to-ip");
-  if (to_ip) {
-    if (!validate_ip(to_ip)) throw new Error(`Invalid target IP address ${dst_arg}`);
-    action.to_ip = parseIPv4(to_ip);
+  const dst_port_args = find_args(args, "-dst-port");
+  for (const dst_port_arg in dst_port_args) {
+    if (!validate_port(dst_port_arg)) throw new Error(`Invalid src port ${dst_port_arg}`);
+    predicate.dst_port ||= [];
+    predicate.dst_port.push(Number.parseInt(dst_port_arg));
   }
 
-  const to_port = find_arg(args, "-to-port");
-  if (to_port) {
-    const port = Number.parseInt(to_port, 10);
-    if (port <= 0 || port > 0xffff) throw new Error(`Invalid target port ${to_port}`);
-    action.to_port = parseIPv4(to_port);
-  }
-
-  const protocol_arg = find_arg(args, "-protocol");
-  if (protocol_arg) {
+  const protocol_args = find_args(args, "-protocol");
+  for (const protocol_arg of protocol_args) {
+    predicate.protocol ||= [];
     if (protocol_arg === "icmp") {
-      predicate.protocol = IP_PROTOCOLS.ICMP;
+      predicate.protocol.push(IP_PROTOCOLS.ICMP);
     } else if (protocol_arg === "udp") {
-      predicate.protocol = IP_PROTOCOLS.UDP;
+      predicate.protocol.push(IP_PROTOCOLS.UDP);
     } else if (protocol_arg === "tcp") {
-      predicate.protocol = IP_PROTOCOLS.TCP;
+      predicate.protocol.push(IP_PROTOCOLS.TCP);
     } else {
       throw new Error(`Invalid protocol ${protocol_arg}`);
     }
+  }
+
+  const state_args = find_args(args, "-state");
+  for (const state_arg of state_args) {
+    if (STATES.includes(state_arg)) {
+      predicate.state ||= [];
+      predicate.state.push("state_arg");
+    } else {
+      throw new Error(`Invalid state ${state_arg}, allowed: ${STATES.join()}`);
+    }
+  }
+
+  const to_ip_arg = find_arg(args, "-to-ip");
+  if (to_ip_arg) {
+    if (!validate_ip(to_ip_arg)) throw new Error(`Invalid target IP address ${to_ip_arg}`);
+    action.to_ip = parseIPv4(to_ip_arg);
+  }
+
+  const to_port_arg = find_arg(args, "-to-port");
+  if (to_port_arg) {
+    const port = Number.parseInt(to_port_arg, 10);
+    if (port <= 0 || port > 0xffff) throw new Error(`Invalid target port ${to_port_arg}`);
+    action.to_port = parseIPv4(to_port_arg);
   }
 
   os.net.ip4.fw.add(table, chain, predicate, action);

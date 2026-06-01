@@ -38,7 +38,7 @@ const _PACKAGES: Record<
   },
 };
 
-export async function pkg(os: OS, args: string[]) {
+export const pkg: TApp = async (os, args, ctx) => {
   if (test_args(args, "install", Boolean)) {
     const names = args.slice(1);
 
@@ -60,7 +60,11 @@ export async function pkg(os: OS, args: string[]) {
       const pkg = _PACKAGES[name];
       os.print(`${name}: ${pkg.description}\n`);
 
-      const apps = await pkg.get();
+      const apps = await new Promise<Record<string, TApp>>((resolve, reject) => {
+        pkg.get().then(resolve, reject);
+        ctx.signal.addEventListener("abort", () => reject(new Error("Aborted")), { once: true });
+      });
+
       for (const app of Object.keys(apps)) {
         os.print(`\t- ${app}\n`);
         apps_counter += 1;
@@ -70,4 +74,4 @@ export async function pkg(os: OS, args: string[]) {
   } else {
     throw new Error("usage:\n\tls\n\tinstall <package>");
   }
-}
+};

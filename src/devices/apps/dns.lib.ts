@@ -184,12 +184,11 @@ export async function resolve_dns(
         socket.on_recv = ({ data }) => resolve(data);
         socket.on_close = () => reject(new Error("Socket closed"));
         socket.on_error = (e) => reject(new Error(`Socket error: ${format_net_error(e)}`));
-        if (signal) signal.onabort = () => reject(new Error("Aborted"));
+        signal?.addEventListener("abort", () => reject(new Error("Aborted")), { once: true });
       }).finally(() => {
         delete socket.on_recv;
         delete socket.on_close;
         delete socket.on_error;
-        if (signal) signal.onabort = null;
       });
 
       const $ = new DataView(response.buffer, response.byteOffset);

@@ -1,6 +1,7 @@
-import { formatIPv4, formatMAC, formatTime, hexdump, parseIPv4, validate_ip } from "../format";
+import { formatIPv4, formatMAC, formatTime, hexdump, parseIPv4, SEC, validate_ip } from "../format";
+import { async_timeout } from "../helpers";
 import type { TArpRecord } from "../os/arp";
-import type { OS } from "../os/os";
+import type { OS, TApp } from "../os/os";
 import type { TSocket } from "../os/socket";
 import {
   compare_bytes,
@@ -15,10 +16,12 @@ import {
 import { find_arg, format_net_error, socket_read_raw, test_args } from "./app.lib";
 import { DNS_CLASSES, DNS_TYPES, get_hostname_ip, resolve_dns } from "./dns.lib";
 
-const DNS_TYPE_NAMES = Object.fromEntries(Object.entries(DNS_TYPES).map(([k, v]) => [v, k]));
-const DNS_CLASS_NAMES = Object.fromEntries(Object.entries(DNS_CLASSES).map(([k, v]) => [v, k]));
+const _RESOLVE_NAME_TIMEOUT_MS = 5 * SEC;
 
-export async function arp(os: OS, args: string[]) {
+const _DNS_TYPE_NAMES = Object.fromEntries(Object.entries(DNS_TYPES).map(([k, v]) => [v, k]));
+const _DNS_CLASS_NAMES = Object.fromEntries(Object.entries(DNS_CLASSES).map(([k, v]) => [v, k]));
+
+export const arp: TApp = async (os, args, ctx) => {
   if (!args.length) {
     if (!os.net.arp._table.length) os.print("empty\n");
 
@@ -51,12 +54,22 @@ export async function arp(os: OS, args: string[]) {
 
     let arp: TArpRecord | undefined;
 
-    const dl = os.deadline(1000);
-    while (dl.left) {
-      arp = os.net.arp.get_record(iface_index, who_ip);
-      if (arp && arp.state !== "pending") break;
-      const [, err] = await os.channel_sync(os.net.arp._channel, dl);
-      if (err) throw err;
+    const signal = AbortSignal.any([AbortSignal.timeout(5 * SEC), ctx.signal]);
+
+    const listener = os.net.arp.create_listener(who_ip);
+
+    try {
+      while (!signal.aborted) {
+        arp = os.net.arp.get_record(iface_index, who_ip);
+        if (arp && arp.state !== "pending") break;
+
+        await new Promise((resolve) => {
+          listener.on_change = resolve;
+          signal.addEventListener("abort", resolve, { once: true });
+        });
+      }
+    } finally {
+      os.net.arp.remove_listener(listener);
     }
 
     if (arp) {
@@ -68,25 +81,21 @@ export async function arp(os: OS, args: string[]) {
     os.print("Usage:\n");
     os.print("[who <ip> [on <interface>]]\n");
   }
-}
+};
 
-export async function ping(os: OS, args: string[]) {
+export const ping: TApp = async (os, args, ctx) => {
+  ctx.signal.addEventListener("abort", () => os.print("Aborted\n"), { once: true });
+
   if (test_args(args, Boolean)) {
     let ip = 0;
 
     if (validate_ip(args[0])) {
       ip = parseIPv4(args[0]);
     } else {
-      const controller = new AbortController();
-      setTimeout(() => controller.abort(), 5000);
+      const signal = AbortSignal.any([AbortSignal.timeout(_RESOLVE_NAME_TIMEOUT_MS), ctx.signal]);
 
       const name = args[0];
-      const resolved_ip = await get_hostname_ip(
-        os,
-        name.endsWith(".") ? name : `${name}.`,
-        undefined,
-        controller.signal,
-      );
+      const resolved_ip = await get_hostname_ip(os, name.endsWith(".") ? name : `${name}.`, undefined, signal);
       if (!resolved_ip) throw new Error("Failed to resolve hostname");
 
       ip = resolved_ip;
@@ -111,8 +120,13 @@ export async function ping(os: OS, args: string[]) {
 
     const id = Math.floor(Math.random() * 65535);
 
+    const socket = os.net.socket.create("raw");
+
+    let err = os.net.socket.connect(socket, ip, 0);
+    if (err) throw new Error(`Connection socket error ${format_net_error(err)}`);
+
     for (let i = 0; i < count; i++) {
-      if (i) await new Promise((resolve) => setTimeout(resolve, wait));
+      if (i) await async_timeout(wait, ctx.signal);
 
       const seq = i;
       const data = new Uint8Array([id >> 8, id & 0xff, seq >> 8, seq & 0xff]);
@@ -122,7 +136,7 @@ export async function ping(os: OS, args: string[]) {
           version: 4,
           dst: ip,
           src: 0,
-          protocol: 1,
+          protocol: IP_PROTOCOLS.ICMP,
           ttl,
           flags: 0,
           id: 0,
@@ -134,7 +148,7 @@ export async function ping(os: OS, args: string[]) {
           checksum: 0,
         },
         payload: pack_icmp_packet({
-          type: 8,
+          type: ICMP_TYPES.ECHO_REQUEST,
           code: 0,
           data,
           payload: new Uint8Array(size),
@@ -142,43 +156,39 @@ export async function ping(os: OS, args: string[]) {
         }),
       };
 
-      const err_send = os.net.ip4.send_raw(ip, packet, undefined);
-      if (err_send) throw new Error(`Failed to send packet: ${format_net_error(err_send)}`);
+      err = os.net.socket.send_raw(socket, packet);
+      if (err) throw new Error(`Failed to send packet ${format_net_error(err)}`);
 
       const start = Date.now();
 
-      const dl = os.deadline(timeout);
-      while (dl.left) {
-        const [msg, err] = await os.channel_sync(os.net.ip4._channel, dl);
-        if (err || !msg) {
-          os.print(`timeout for seq=${seq}/${count - 1}\n`);
+      const signal = AbortSignal.any([AbortSignal.timeout(timeout), ctx.signal]);
+
+      try {
+        while (!signal.aborted) {
+          const reply = await socket_read_raw(os, socket, signal);
+          const time = Date.now() - start;
+
+          if (reply.header.protocol !== IP_PROTOCOLS.ICMP) continue;
+
+          const icmp_struct = unpack_icmp_packet(reply.payload);
+          if (icmp_struct.type !== 0) continue;
+
+          let rest_eq = true;
+          for (let j = 0; j < data.length; j++) {
+            if (data[j] !== icmp_struct.data[j]) {
+              rest_eq = false;
+              break;
+            }
+          }
+          if (!rest_eq) continue;
+
+          os.print(
+            `${reply.payload.length} bytes seq=${seq}/${count - 1} ttl=${reply.header.ttl} time=${formatTime(time)}\n`,
+          );
           break;
         }
-
-        const time = Date.now() - start;
-
-        if (msg.direction !== "in") continue;
-
-        const reply = msg.packet;
-        if (reply.header.src !== ip) continue;
-        if (reply.header.protocol !== 1) continue;
-
-        const icmp_struct = unpack_icmp_packet(reply.payload);
-        if (icmp_struct.type !== 0) continue;
-
-        let rest_eq = true;
-        for (let j = 0; j < data.length; j++) {
-          if (data[j] !== icmp_struct.data[j]) {
-            rest_eq = false;
-            break;
-          }
-        }
-        if (!rest_eq) continue;
-
-        os.print(
-          `${reply.payload.length} bytes seq=${seq}/${count - 1} ttl=${reply.header.ttl} time=${formatTime(time)}\n`,
-        );
-        break;
+      } catch (e) {
+        os.print(`${e} for seq=${seq}/${count - 1}\n`);
       }
     }
 
@@ -187,9 +197,9 @@ export async function ping(os: OS, args: string[]) {
   }
 
   os.print("Usage: <host> [-c count] [-s packet_size] [-t timeout_ms] [-m TTL] [-i wait_ms]\n");
-}
+};
 
-export async function nc(os: OS, args: string[]) {
+export const nc: TApp = async (os: OS, args: string[]) => {
   if (!args.length) {
     os.print(
       "Usage: [-l] [-u] [-s source_ip] [-p source_port] [-w data] [ip] [port]\n",
@@ -289,16 +299,17 @@ export async function nc(os: OS, args: string[]) {
           err = os.net.socket.bind(server_sock, ip, port);
           if (err) throw new Error(`Bind error ${format_net_error(err)}`);
 
+          os.print(`Listening TCP ${formatIPv4(ip)}:${params.port}\n`);
+
           const sock = await new Promise<TSocket>((resolve, reject) => {
-            server_sock!.on_connected = resolve;
-            server_sock!.on_error = (e) => reject(new Error(`Socket error ${format_net_error(e)}`));
+            server_sock.on_connected = resolve;
+            server_sock.on_error = (e) => reject(new Error(`Socket error ${format_net_error(e)}`));
           });
 
           delete server_sock.on_connected;
           delete server_sock.on_error;
 
           sock.on_recv = (recv) => print(recv.data);
-          os.print(`Listening TCP ${formatIPv4(ip)}:${params.port}\n`);
 
           await new Promise<void>((resolve, reject) => {
             sock.on_close = resolve;
@@ -373,9 +384,9 @@ export async function nc(os: OS, args: string[]) {
     }
   }
   os.print("\n[closed]\n");
-}
+};
 
-export async function dig(os: OS, args: string[]) {
+export const dig: TApp = async (os, args, ctx) => {
   if (!args.length) os.print("usage:\n\t<hostname>\n\t-x <ip>\n");
 
   let name = "";
@@ -391,27 +402,26 @@ export async function dig(os: OS, args: string[]) {
 
   if (!name.endsWith(".")) name += ".";
 
-  const controller = new AbortController();
-  setTimeout(() => controller.abort(), 5_000);
+  const signal = AbortSignal.any([AbortSignal.timeout(5 * SEC), ctx.signal]);
 
-  const records = await resolve_dns(os, name, type, undefined, controller.signal);
-  if (!records.length) throw new Error(`No ${DNS_TYPE_NAMES[type]} records for ${name}`);
+  const records = await resolve_dns(os, name, type, undefined, signal);
+  if (!records.length) throw new Error(`No ${_DNS_TYPE_NAMES[type]} records for ${name}`);
 
   for (const record of records) {
     os.print(
       [
         record.name,
         record.ttl,
-        DNS_CLASS_NAMES[record.class] || record.class,
-        DNS_TYPE_NAMES[record.type] || record.type,
+        _DNS_CLASS_NAMES[record.class] || record.class,
+        _DNS_TYPE_NAMES[record.type] || record.type,
         record.text,
       ].join("\t"),
       "\n",
     );
   }
-}
+};
 
-export async function socket(os: OS, args: string[]) {
+export const socket: TApp = async (os, args) => {
   if (args.length) throw new Error("Arguments not supported");
 
   if (!os.net.socket._sockets.length) {
@@ -434,9 +444,9 @@ export async function socket(os: OS, args: string[]) {
       "\n",
     );
   }
-}
+};
 
-export async function trace(os: OS, args: string[]) {
+export const trace: TApp = async (os, args, ctx) => {
   if (test_args(args, validate_ip)) {
     const ip = parseIPv4(args[0]);
 
@@ -470,6 +480,8 @@ export async function trace(os: OS, args: string[]) {
       const trace_ips: number[] = [];
 
       for_ttl: for (let ttl = 1; ttl < max_ttl; ttl += 1) {
+        if (ctx.signal.aborted) throw new Error("Aborted");
+
         os.print(`${ttl}\t`);
 
         const prob: TIP4Packet = {
@@ -495,11 +507,10 @@ export async function trace(os: OS, args: string[]) {
         if (err) throw new Error(`Sending error ${format_net_error(err)}`);
 
         const sent_at = Date.now();
-        const controller = new AbortController();
-        setTimeout(() => controller.abort(), wait_time);
+        const signal = AbortSignal.any([AbortSignal.timeout(wait_time), ctx.signal]);
 
-        while_timeout: while (!controller.signal.aborted) {
-          const res = await socket_read_raw(os, socket, controller.signal).catch(() => undefined);
+        while_timeout: while (!signal.aborted) {
+          const res = await socket_read_raw(os, socket, signal).catch(() => undefined);
           if (!res) continue while_timeout;
 
           if (trace_ips.includes(res.header.src)) {
@@ -552,4 +563,4 @@ export async function trace(os: OS, args: string[]) {
   } else {
     os.print("usage: <ip> [-m max_ttl] [-w wait_time_ms]\n");
   }
-}
+};

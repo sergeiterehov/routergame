@@ -1,5 +1,5 @@
 import { load } from "js-yaml";
-import type { OS } from "../os/os";
+import type { TApp } from "../os/os";
 import z from "zod";
 import { format_net_error, from_utf8, socket_read, test_args, to_utf8 } from "./app.lib";
 import type { TSocket } from "../os/socket";
@@ -49,7 +49,7 @@ let _started = false;
 let _on_reload: () => void = () => null;
 let _on_stop: () => void = () => null;
 
-export async function nginx(os: OS, args: string[]) {
+export const nginx: TApp = async (os, args, ctx) => {
   if (test_args(args, "-s", "reload")) return _on_reload();
 
   if (test_args(args, "-s", "stop")) return _on_stop();
@@ -70,12 +70,11 @@ export async function nginx(os: OS, args: string[]) {
     os.print(`[NGINX] Connection ${formatIPv4(socket.dst_ip)}:${socket.dst_port}\n`);
 
     try {
-      const controller = new AbortController();
-      setTimeout(() => controller.abort(), _TIMEOUTS.READ_HEADER);
+      const signal = AbortSignal.any([AbortSignal.timeout(_TIMEOUTS.READ_HEADER), ctx.signal]);
 
       let header = "";
       for (;;) {
-        const chunk = from_utf8(await socket_read(os, socket, controller.signal));
+        const chunk = from_utf8(await socket_read(os, socket, signal));
         header += chunk;
         if (header.includes("\r\n\r\n")) break;
       }
@@ -159,6 +158,8 @@ export async function nginx(os: OS, args: string[]) {
   const sockets: TSocket[] = [];
 
   await new Promise<void>((resolve, reject) => {
+    ctx.signal.addEventListener("abort", () => reject(new Error("Aborted")), { once: true });
+
     for (const port of ports) {
       const socket = os.net.socket.create("tcp");
       sockets.push(socket);
@@ -195,4 +196,4 @@ export async function nginx(os: OS, args: string[]) {
   });
 
   os.print("[NGINX] stopped\n");
-}
+};

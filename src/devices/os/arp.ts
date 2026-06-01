@@ -8,7 +8,6 @@ import {
   type TEthernetFrame,
 } from "../pack";
 import type { Net } from "./net";
-import { OSChannel } from "./os";
 
 const ARP_TIMEOUT_MS = 3_000;
 const ARP_TTL_MS = 60_000;
@@ -22,10 +21,11 @@ export type TArpRecord = {
   state: "pending" | "success" | "fail";
 };
 
+export type TArpListener = { ip: number; on_change?: (arp: TArpRecord) => void };
+
 export class ARP {
   _table: TArpRecord[] = [];
-
-  _channel = new OSChannel<"pending" | "fail" | "success" | "retry">();
+  _listeners: TArpListener[] = [];
 
   constructor(public readonly net: Net) {
     setIntervalRecursive(this._timer_handle_1s.bind(this), 1000);
@@ -33,6 +33,17 @@ export class ARP {
 
   private _timer_handle_1s() {
     this._actualize();
+  }
+
+  create_listener(ip: number) {
+    const listener: TArpListener = { ip };
+    return listener;
+  }
+
+  remove_listener(listener: TArpListener) {
+    const index = this._listeners.indexOf(listener);
+    if (index === -1) return;
+    this._listeners.splice(index, 1);
   }
 
   send_request(iInterface: number, ip: number) {
@@ -62,39 +73,49 @@ export class ARP {
 
     this.net.send_frame(iInterface, frame);
 
-    this._table.push({
+    const arp: TArpRecord = {
       iInterface,
       ip,
       mac: 0n,
       state: "pending",
       expiresAt: Date.now() + ARP_TIMEOUT_MS,
-    });
+    };
 
-    this._channel.postMessage("pending");
+    this._table.push(arp);
+
+    this._notify_listeners(arp);
   }
 
   update(iInterface: number, ip: number, mac: bigint) {
-    for (const entry of this._table) {
-      if (entry.iInterface === iInterface && entry.ip === ip) {
-        entry.mac = mac;
-        entry.state = "success";
-        entry.expiresAt = Date.now() + ARP_TTL_MS;
+    for (const _arp of this._table) {
+      if (_arp.iInterface === iInterface && _arp.ip === ip) {
+        _arp.mac = mac;
+        _arp.state = "success";
+        _arp.expiresAt = Date.now() + ARP_TTL_MS;
+
+        this._notify_listeners(_arp);
         return;
       }
     }
 
-    this._table.push({
+    const arp: TArpRecord = {
       iInterface,
       mac,
       ip,
       state: "success",
       expiresAt: Date.now() + ARP_TTL_MS,
-    });
+    };
+
+    this._table.push(arp);
+
+    this._notify_listeners(arp);
   }
 
   handle(iInterface: number, frame: TEthernetFrame) {
     const iface = this.net._interfaces[iInterface];
     if (!iface.mac) return;
+
+    if (frame.etherType !== ETHER_TYPES.ARP) return;
 
     const arp = unpack_arp_packet(frame.payload);
     const { opcode, src_mac, src_ip, dst_ip } = arp;
@@ -142,9 +163,9 @@ export class ARP {
       arp.mac = src_mac;
       arp.expiresAt = Date.now() + ARP_TTL_MS;
 
-      this._channel.postMessage("success");
-
       this.net.ip4.buffer_process(iInterface, src_ip);
+
+      this._notify_listeners(arp);
     }
   }
 
@@ -156,10 +177,15 @@ export class ARP {
     }
   }
 
+  private _notify_listeners(arp: TArpRecord) {
+    for (const listener of this._listeners) {
+      if (listener.ip !== 0 && listener.ip !== arp.ip) continue;
+      listener.on_change?.(arp);
+    }
+  }
+
   private _actualize() {
     const now = Date.now();
-    let failed = 0;
-    let removed = 0;
 
     for (let i = 0; i < this._table.length; i++) {
       const arp = this._table[i];
@@ -170,17 +196,13 @@ export class ARP {
 
           this.net.ip4.buffer_process(arp.iInterface, arp.ip);
 
-          failed += 1;
+          this._notify_listeners(arp);
         } else {
           this._table.splice(i, 1);
-          removed += 1;
           i--;
         }
         continue;
       }
     }
-
-    if (failed) this._channel.postMessage("fail");
-    if (removed) this._channel.postMessage("retry");
   }
 }

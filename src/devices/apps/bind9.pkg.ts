@@ -1,5 +1,5 @@
 import z from "zod";
-import type { OS } from "../os/os";
+import type { OS, TApp } from "../os/os";
 import { format_net_error } from "./app.lib";
 import { answer_dns, DNS_CLASSES, DNS_TYPES, type TDnsRecord } from "./dns.lib";
 
@@ -73,7 +73,7 @@ function _resolve_name(os: OS, name: string, type: number): TDnsRecord[] {
   }
 }
 
-export async function bind9(os: OS, args: string[]) {
+export const bind9: TApp = async (os, args, ctx) => {
   if (args.length) throw new Error("No arguments expected");
 
   const socket = os.net.socket.create("udp");
@@ -91,6 +91,7 @@ export async function bind9(os: OS, args: string[]) {
         socket.on_recv = resolve;
         socket.on_error = (e) => reject(new Error(`Socket error ${format_net_error(e)}`));
         socket.on_close = () => reject(new Error("Socket closed"));
+        ctx.signal.addEventListener("abort", () => reject(new Error("Aborted")), { once: true });
       }).finally(() => {
         delete socket.on_recv;
         delete socket.on_error;
@@ -111,4 +112,4 @@ export async function bind9(os: OS, args: string[]) {
   } finally {
     os.net.socket.close(socket);
   }
-}
+};

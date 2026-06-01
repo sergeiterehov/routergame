@@ -273,8 +273,10 @@ export class Socket {
           (socket.dst_port === 0 || socket.dst_port === tcp.header.src)
         ) {
           this._handle_tcp(socket, iface, packet, tcp);
-          handlers += 1;
-          if (socket.state !== "listen") break;
+          if (socket.state !== "listen") {
+            handlers += 1;
+            break;
+          }
         }
       }
     }
@@ -283,8 +285,8 @@ export class Socket {
       const icmp = unpack_icmp_packet(packet.payload);
       if (icmp.type === ICMP_TYPES.DEST_UNREACHABLE || icmp.type === ICMP_TYPES.TIME_EXCEEDED) {
         this._handle_icmp_error(iInterface, icmp);
-        return 0;
       }
+      return 0;
     }
 
     if (handlers === 0) return NET_ERRORS.UNREACHABLE;

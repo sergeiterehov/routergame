@@ -280,6 +280,9 @@ export function unpack_ip4_packet(packet: Uint8Array): TIP4Packet {
 }
 
 export function pack_ip4_packet(obj: TIP4Packet): Uint8Array {
+  // id
+  if (obj.header.id === 0) obj.header.id = Math.round(Math.random() * 0xffff);
+
   // IHL
   {
     let ihl = 5;

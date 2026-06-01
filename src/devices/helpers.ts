@@ -11,11 +11,15 @@ export function setIntervalRecursive(cb: () => void, interval: number) {
   return ref;
 }
 
-export const with_cleanup_signal = async <T>(fn: (config: { cleanup_signal: AbortSignal }) => Promise<T>) => {
-  const self_controller = new AbortController();
-  try {
-    return await fn({ cleanup_signal: self_controller.signal });
-  } finally {
-    self_controller.abort();
-  }
-};
+export const async_timeout = (ms: number, signal?: AbortSignal) =>
+  new Promise((resolve, reject) => {
+    const id = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(id);
+        reject(new Error("Aborted"));
+      },
+      { once: true },
+    );
+  });
