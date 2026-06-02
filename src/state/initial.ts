@@ -41,14 +41,14 @@ export const initial_arch: TArchitecture = {
           "fw enable",
         ].join("\n"),
       },
-      ui: { x: 150, y: 100 },
+      ui: { x: 150, y: 200 },
     },
     {
       id: "sw",
       type: "l2",
       name: "Switch",
       ports: new Array(16).fill(0).map((_, i) => ({ id: `eth${i}`, type: "ethernet" })),
-      ui: { x: 250, y: 100 },
+      ui: { x: 200, y: 300 },
       fs: {},
     },
     {
@@ -96,7 +96,7 @@ server:
         - body: '{"error": "Access deny"}'
         `.trim(),
       },
-      ui: { x: 150, y: 200 },
+      ui: { x: 150, y: 100 },
     },
     {
       id: "pc_a",
@@ -108,7 +108,7 @@ server:
         "/init": ["pkg install net_tools iputils dhcp", "iface eth0 wait link", "sleep 1", "dhclient eth0"].join("\n"),
         "/etc/resolv.conf": "nameserver 192.168.0.100",
       },
-      ui: { x: 50, y: 100 },
+      ui: { x: 100, y: 300 },
     },
     {
       id: "pc_b",
@@ -119,7 +119,7 @@ server:
       fs: {
         "/init": ["pkg install net_tools iputils dhcp", "iface eth0 wait link", "sleep 1", "dhclient eth0"].join("\n"),
       },
-      ui: { x: 350, y: 100 },
+      ui: { x: 200, y: 400 },
     },
   ],
   connections: [

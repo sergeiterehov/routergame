@@ -507,6 +507,7 @@ export class Store {
           "iface lan up",
           "iface lan add 192.168.0.1/24",
           "route add 192.168.0.0/24 dev lan",
+          "fw enable",
           "fw masquerade wan",
           "dhcp_server lan 192.168.0.10 192.168.0.250 -g 192.168.0.1 &",
           "iface wan wait link",
