@@ -283,23 +283,23 @@ async function _move(os: OS, args: string[]) {
 
 async function _enable(os: OS, _args: string[]) {
   os.net.ip4.fw._enabled = true;
+  os.print("Firewall enabled\n");
 }
 
 export async function fw(os: OS, args: string[]) {
   await run_command_of(
-    os.net.ip4.fw._enabled
-      ? {
-          ls: { desc: "show rules", fn: () => _ls(os, args.slice(1)) },
-          connections: { desc: "show active connections", fn: () => _connection(os, args.slice(1)) },
-          masquerade: {
-            desc: "quick add masquerade rule for output interface",
-            fn: () => _masquerade(os, args.slice(1)),
-          },
-          add: { desc: "add new rule", fn: () => _add(os, args.slice(1)) },
-          rm: { desc: "remove rule", fn: () => _rm(os, args.slice(1)) },
-          move: { desc: "change rule priority", fn: () => _move(os, args.slice(1)) },
-        }
-      : { enable: { desc: "enable firewall", fn: () => _enable(os, args.slice(1)) } },
+    {
+      enable: { desc: "enable firewall", fn: () => _enable(os, args.slice(1)) },
+      ls: { desc: "show rules", fn: () => _ls(os, args.slice(1)) },
+      connections: { desc: "show active connections", fn: () => _connection(os, args.slice(1)) },
+      masquerade: {
+        desc: "quick add masquerade rule for output interface",
+        fn: () => _masquerade(os, args.slice(1)),
+      },
+      add: { desc: "add new rule", fn: () => _add(os, args.slice(1)) },
+      rm: { desc: "remove rule", fn: () => _rm(os, args.slice(1)) },
+      move: { desc: "change rule priority", fn: () => _move(os, args.slice(1)) },
+    },
     args[0],
   );
 }
