@@ -1,13 +1,14 @@
 import { SEC, MINUTE, DAY } from "../format";
 import { setIntervalRecursive } from "../helpers";
 import {
+  extract_ip_ports,
   ICMP_TYPES,
   IP_BROADCAST,
   IP_PROTOCOLS,
   TCP_FLAGS,
   unpack_icmp_packet,
+  unpack_ip4_packet,
   unpack_tcp_packet,
-  unpack_udp_packet,
   type TIP4Packet,
   type TTcpPacket,
 } from "../pack";
@@ -93,6 +94,8 @@ export class Tracker {
   handle_packet(packet: TIP4Packet, ctx: TPacketContext) {
     if (!this._enabled) return;
 
+    if (ctx.untracked) return;
+
     const { protocol, src, dst } = packet.header;
 
     ctx.state = "new";
@@ -101,24 +104,27 @@ export class Tracker {
 
     if (dst === IP_BROADCAST) return;
 
-    const udp = protocol === IP_PROTOCOLS.UDP ? unpack_udp_packet(packet.payload) : undefined;
-    const tcp = protocol === IP_PROTOCOLS.TCP ? unpack_tcp_packet(packet.payload) : undefined;
     const icmp = protocol === IP_PROTOCOLS.ICMP ? unpack_icmp_packet(packet.payload) : undefined;
 
     let src_port = 0;
     let dst_port = 0;
-    if (protocol === IP_PROTOCOLS.UDP) {
-      if (!udp) return this._invalidate(ctx);
-      src_port = udp.header.src;
-      dst_port = udp.header.dst;
+    if (protocol === IP_PROTOCOLS.UDP || protocol === IP_PROTOCOLS.TCP) {
+      const ports = extract_ip_ports(packet);
+      src_port = ports.src;
+      dst_port = ports.dst;
     } else if (protocol === IP_PROTOCOLS.ICMP) {
-      if (!icmp) return this._invalidate(ctx);
+      if (!icmp) return;
+
+      // Related ICMP errors
+      if (icmp.type === ICMP_TYPES.DEST_UNREACHABLE || icmp.type === ICMP_TYPES.TIME_EXCEEDED) {
+        const src_packet = unpack_ip4_packet(icmp.payload);
+        ctx.conn = this._find_related(src_packet);
+        ctx.state = "related";
+        return;
+      }
+
       src_port = 1;
       dst_port = 1;
-    } else if (protocol === IP_PROTOCOLS.TCP) {
-      if (!tcp) return this._invalidate(ctx);
-      src_port = tcp.header.src;
-      dst_port = tcp.header.dst;
     } else {
       return;
     }
@@ -186,7 +192,7 @@ export class Tracker {
       } else if (protocol === IP_PROTOCOLS.UDP) {
         conn.expires_at = now + TIMEOUTS_MS.UDP;
       } else if (protocol === IP_PROTOCOLS.TCP) {
-        if (!tcp) return;
+        const tcp = unpack_tcp_packet(packet.payload);
         if (tcp.header.flags !== TCP_FLAGS.SYN) return this._invalidate(ctx);
         conn.tcp = { state: "syn-sent" };
         this._tcp_set_state(conn, "syn-sent");
@@ -197,21 +203,58 @@ export class Tracker {
     } else {
       conn.flags.has_reply ||= reply;
       ctx.state = "established";
-    }
 
-    if (protocol === IP_PROTOCOLS.ICMP) {
-      conn.expires_at = now + TIMEOUTS_MS.ICMP;
-    } else if (protocol === IP_PROTOCOLS.UDP) {
-      if (conn.flags.has_reply) {
-        conn.expires_at = now + TIMEOUTS_MS.UDP_REPLY;
-      } else {
-        conn.expires_at = now + TIMEOUTS_MS.UDP;
+      if (protocol === IP_PROTOCOLS.ICMP) {
+        conn.expires_at = now + TIMEOUTS_MS.ICMP;
+      } else if (protocol === IP_PROTOCOLS.UDP) {
+        if (conn.flags.has_reply) {
+          conn.expires_at = now + TIMEOUTS_MS.UDP_REPLY;
+        } else {
+          conn.expires_at = now + TIMEOUTS_MS.UDP;
+        }
+      } else if (protocol === IP_PROTOCOLS.TCP) {
+        const tcp = unpack_tcp_packet(packet.payload);
+        this._update_tcp(conn, ctx, reply, tcp);
       }
-    } else if (protocol === IP_PROTOCOLS.TCP) {
-      if (tcp) this._update_tcp(conn, ctx, reply, tcp);
     }
 
     ctx.conn = conn;
+  }
+
+  private _find_related(packet: TIP4Packet) {
+    const { protocol, src, dst } = packet.header;
+
+    let src_port = 0;
+    let dst_port = 0;
+    if (protocol === IP_PROTOCOLS.UDP || protocol === IP_PROTOCOLS.TCP) {
+      const ports = extract_ip_ports(packet);
+      src_port = ports.src;
+      dst_port = ports.dst;
+    } else if (protocol === IP_PROTOCOLS.ICMP) {
+      src_port = 1;
+      dst_port = 1;
+    } else {
+      return;
+    }
+
+    for (const c of this._table) {
+      if (c.protocol !== protocol) continue;
+
+      if (c.src === dst && c.dst === src && c.src_port == dst_port && c.dst_port === src_port) {
+        // Same direction
+      } else if (
+        c.reply_src === dst &&
+        c.reply_dst === src &&
+        c.reply_src_port == dst_port &&
+        c.reply_dst_port === src_port
+      ) {
+        // Reverse direction, reply
+      } else {
+        continue;
+      }
+
+      return c;
+    }
   }
 
   private _update_tcp(conn: TConnection, ctx: TPacketContext, reply: boolean, packet: TTcpPacket) {

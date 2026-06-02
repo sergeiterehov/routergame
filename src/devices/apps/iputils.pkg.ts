@@ -199,7 +199,7 @@ export const ping: TApp = async (os, args, ctx) => {
   os.print("Usage: <host> [-c count] [-s packet_size] [-t timeout_ms] [-m TTL] [-i wait_ms]\n");
 };
 
-export const nc: TApp = async (os: OS, args: string[]) => {
+export const nc: TApp = async (os, args, ctx) => {
   if (!args.length) {
     os.print(
       "Usage: [-l] [-u] [-s source_ip] [-p source_port] [-w data] [ip] [port]\n",
@@ -259,7 +259,7 @@ export const nc: TApp = async (os: OS, args: string[]) => {
 
       try {
         err = os.net.socket.bind(sock, 0, 0);
-        if (err) throw new Error(`Bind error ${err}`);
+        if (err) throw new Error(`Bind error ${format_net_error(err)}`);
 
         sock.on_raw_recv = (recv) => print(recv.packet.payload);
 
@@ -288,6 +288,7 @@ export const nc: TApp = async (os: OS, args: string[]) => {
           await new Promise<void>((resolve, reject) => {
             sock.on_close = resolve;
             sock.on_error = (e) => reject(new Error(`Socket error: ${format_net_error(e)}`));
+            ctx.signal.addEventListener("abort", () => reject(new Error("Aborted")), { once: true });
           });
         } finally {
           os.net.socket.close(sock);
@@ -304,6 +305,7 @@ export const nc: TApp = async (os: OS, args: string[]) => {
           const sock = await new Promise<TSocket>((resolve, reject) => {
             server_sock.on_connected = resolve;
             server_sock.on_error = (e) => reject(new Error(`Socket error ${format_net_error(e)}`));
+            ctx.signal.addEventListener("abort", () => reject(new Error("Aborted")), { once: true });
           });
 
           delete server_sock.on_connected;
@@ -313,7 +315,8 @@ export const nc: TApp = async (os: OS, args: string[]) => {
 
           await new Promise<void>((resolve, reject) => {
             sock.on_close = resolve;
-            sock.on_error = (e) => reject(new Error(`Socket error: ${e}`));
+            sock.on_error = (e) => reject(new Error(`Socket error: ${format_net_error(e)}`));
+            ctx.signal.addEventListener("abort", () => reject(new Error("Aborted")), { once: true });
           });
         } finally {
           os.net.socket.close(server_sock);
@@ -348,7 +351,8 @@ export const nc: TApp = async (os: OS, args: string[]) => {
 
         await new Promise<void>((resolve, reject) => {
           sock.on_close = resolve;
-          sock.on_error = (e) => reject(new Error(`Socket error ${e}`));
+          sock.on_error = (e) => reject(new Error(`Socket error ${format_net_error(e)}`));
+          ctx.signal.addEventListener("abort", () => reject(new Error("Aborted")), { once: true });
         });
       } finally {
         os.net.socket.close(sock);
@@ -365,11 +369,13 @@ export const nc: TApp = async (os: OS, args: string[]) => {
         await new Promise<unknown>((resolve, reject) => {
           sock.on_connected = resolve;
           sock.on_error = (e) => reject(new Error(`Socket error ${format_net_error(e)}`));
+          ctx.signal.addEventListener("abort", () => reject(new Error("Aborted")), { once: true });
         });
 
         await new Promise<void>((resolve, reject) => {
           sock.on_close = resolve;
           sock.on_error = (e) => reject(new Error(`Socket error ${format_net_error(e)}`));
+          ctx.signal.addEventListener("abort", () => reject(new Error("Aborted")), { once: true });
 
           if (config.w) {
             err = os.net.socket.send(sock, new TextEncoder().encode(config.w));

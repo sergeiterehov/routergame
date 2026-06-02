@@ -9,7 +9,7 @@ const PROTOCOL_NAMES = Object.fromEntries(Object.entries(IP_PROTOCOLS).map(([k, 
 const TABLES = Object.values(FW_TABLES as object);
 const CHAINS = Object.values(FW_CHAINS as object);
 const ACTIONS = Object.values(FW_ACTIONS as object);
-const STATES = ["new", "established", "invalid"];
+const STATES = ["new", "established", "related", "invalid"];
 
 const CHAINS_BY_TABLE: Record<string, string[]> = {
   [FW_TABLES.RAW]: [FW_CHAINS.PRE_ROUTING, FW_CHAINS.OUTPUT],
@@ -223,7 +223,7 @@ async function _add(os: OS, args: string[]) {
   for (const state_arg of state_args) {
     if (STATES.includes(state_arg)) {
       predicate.state ||= [];
-      predicate.state.push("state_arg");
+      predicate.state.push(state_arg);
     } else {
       throw new Error(`Invalid state ${state_arg}, allowed: ${STATES.join()}`);
     }
@@ -281,16 +281,25 @@ async function _move(os: OS, args: string[]) {
   }
 }
 
+async function _enable(os: OS, _args: string[]) {
+  os.net.ip4.fw._enabled = true;
+}
+
 export async function fw(os: OS, args: string[]) {
   await run_command_of(
-    {
-      ls: { desc: "show rules", fn: () => _ls(os, args.slice(1)) },
-      connections: { desc: "show active connections", fn: () => _connection(os, args.slice(1)) },
-      masquerade: { desc: "quick add masquerade rule for output interface", fn: () => _masquerade(os, args.slice(1)) },
-      add: { desc: "add new rule", fn: () => _add(os, args.slice(1)) },
-      rm: { desc: "remove rule", fn: () => _rm(os, args.slice(1)) },
-      move: { desc: "change rule priority", fn: () => _move(os, args.slice(1)) },
-    },
+    os.net.ip4.fw._enabled
+      ? {
+          ls: { desc: "show rules", fn: () => _ls(os, args.slice(1)) },
+          connections: { desc: "show active connections", fn: () => _connection(os, args.slice(1)) },
+          masquerade: {
+            desc: "quick add masquerade rule for output interface",
+            fn: () => _masquerade(os, args.slice(1)),
+          },
+          add: { desc: "add new rule", fn: () => _add(os, args.slice(1)) },
+          rm: { desc: "remove rule", fn: () => _rm(os, args.slice(1)) },
+          move: { desc: "change rule priority", fn: () => _move(os, args.slice(1)) },
+        }
+      : { enable: { desc: "enable firewall", fn: () => _enable(os, args.slice(1)) } },
     args[0],
   );
 }

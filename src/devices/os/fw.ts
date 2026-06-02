@@ -1,4 +1,14 @@
-import { extract_ip_ports, inject_ip_ports, IP_PROTOCOLS, type TIP4Packet } from "../pack";
+import {
+  extract_ip_ports,
+  ICMP_TYPES,
+  inject_ip_ports,
+  IP_PROTOCOLS,
+  pack_icmp_packet,
+  pack_ip4_packet,
+  unpack_icmp_packet,
+  unpack_ip4_packet,
+  type TIP4Packet,
+} from "../pack";
 import type { IP4 } from "./ip4";
 import type { TConnection } from "./tracker";
 
@@ -28,8 +38,9 @@ export const FW_ACTIONS = {
 } as const;
 
 export type TPacketContext = {
+  untracked?: boolean;
   conn?: TConnection;
-  state?: "new" | "established" | "invalid";
+  state?: "new" | "established" | "invalid" | "related";
   in?: number;
   out?: number;
 };
@@ -89,7 +100,7 @@ function _test_has_ports(packet: TIP4Packet) {
 }
 
 export class Firewall {
-  _enabled = true;
+  _enabled = false;
 
   _table: TRule[] = [];
 
@@ -143,10 +154,10 @@ export class Firewall {
     if (chain === FW_CHAINS.PRE_ROUTING) {
       if (this._handle_rules(FW_TABLES.RAW, chain, packet, ctx)) return true;
       this.ip4.tracker.handle_packet(packet, ctx);
+      this._reverse_snat(packet, ctx);
       if (this._handle_rules(FW_TABLES.NAT, chain, packet, ctx)) return true;
       if (this._handle_rules(FW_TABLES.FILTER, chain, packet, ctx)) return true;
     } else if (chain === FW_CHAINS.DST_NAT) {
-      if (ctx.conn) this._reverse_nat(packet, ctx.conn);
       if (this._handle_rules(FW_TABLES.NAT, chain, packet, ctx)) return true;
     } else if (chain === FW_CHAINS.INPUT) {
       if (this._handle_rules(FW_TABLES.NAT, chain, packet, ctx)) return true;
@@ -159,6 +170,7 @@ export class Firewall {
       if (this._handle_rules(FW_TABLES.NAT, chain, packet, ctx)) return true;
       if (this._handle_rules(FW_TABLES.FILTER, chain, packet, ctx)) return true;
     } else if (chain === FW_CHAINS.POST_ROUTING) {
+      this._reverse_dnat(packet, ctx);
       if (this._handle_rules(FW_TABLES.NAT, chain, packet, ctx)) return true;
     } else if (chain === FW_CHAINS.SRC_NAT) {
       if (this._handle_rules(FW_TABLES.NAT, chain, packet, ctx)) return true;
@@ -167,16 +179,17 @@ export class Firewall {
     return false;
   }
 
-  private _reverse_nat(packet: TIP4Packet, conn: TConnection) {
+  private _reverse_snat(packet: TIP4Packet, ctx: TPacketContext) {
+    const { conn } = ctx;
+    if (!conn) return;
+
     const has_port = _test_has_ports(packet);
 
-    const { dst, src } = packet.header;
+    const { dst } = packet.header;
     let dst_port = conn.reply_dst_port;
-    let src_port = conn.reply_src_port;
     if (has_port) {
       const ports = extract_ip_ports(packet);
       dst_port = ports.dst;
-      src_port = ports.src;
     }
 
     if (conn.flags.src_nat && dst === conn.reply_dst && dst_port === conn.reply_dst_port) {
@@ -184,9 +197,67 @@ export class Firewall {
       if (has_port) inject_ip_ports(packet, { dst: conn.src_port });
     }
 
+    if (packet.header.protocol === IP_PROTOCOLS.ICMP) {
+      const icmp = unpack_icmp_packet(packet.payload);
+      if (icmp.type === ICMP_TYPES.DEST_UNREACHABLE || icmp.type === ICMP_TYPES.TIME_EXCEEDED) {
+        const src_packet = unpack_ip4_packet(icmp.payload);
+        const src_has_port = _test_has_ports(src_packet);
+
+        let src_src_port = conn.reply_src_port;
+        if (src_has_port) {
+          const ports = extract_ip_ports(src_packet);
+          src_src_port = ports.src;
+        }
+
+        if (conn.flags.src_nat && src_packet.header.src === conn.reply_dst && src_src_port === conn.reply_dst_port) {
+          src_packet.header.src = conn.src;
+          if (src_has_port) inject_ip_ports(src_packet, { src: conn.src_port });
+
+          icmp.payload = pack_ip4_packet(src_packet);
+          packet.payload = pack_icmp_packet(icmp);
+        }
+      }
+    }
+  }
+
+  private _reverse_dnat(packet: TIP4Packet, ctx: TPacketContext) {
+    const { conn } = ctx;
+    if (!conn) return;
+
+    const has_port = _test_has_ports(packet);
+
+    const { src } = packet.header;
+    let src_port = conn.reply_src_port;
+    if (has_port) {
+      const ports = extract_ip_ports(packet);
+      src_port = ports.src;
+    }
+
     if (conn.flags.dst_nat && src === conn.reply_src && src_port === conn.reply_src_port) {
       packet.header.src = conn.dst;
       if (has_port) inject_ip_ports(packet, { src: conn.dst_port });
+    }
+
+    if (packet.header.protocol === IP_PROTOCOLS.ICMP) {
+      const icmp = unpack_icmp_packet(packet.payload);
+      if (icmp.type === ICMP_TYPES.DEST_UNREACHABLE || icmp.type === ICMP_TYPES.TIME_EXCEEDED) {
+        const src_packet = unpack_ip4_packet(icmp.payload);
+        const src_has_port = _test_has_ports(src_packet);
+
+        let src_dst_port = conn.reply_dst_port;
+        if (src_has_port) {
+          const ports = extract_ip_ports(src_packet);
+          src_dst_port = ports.dst;
+        }
+
+        if (conn.flags.dst_nat && src_packet.header.dst === conn.reply_src && src_dst_port === conn.reply_src_port) {
+          src_packet.header.dst = conn.dst;
+          if (src_has_port) inject_ip_ports(src_packet, { dst: conn.dst_port });
+
+          icmp.payload = pack_ip4_packet(src_packet);
+          packet.payload = pack_icmp_packet(icmp);
+        }
+      }
     }
   }
 
