@@ -481,6 +481,7 @@ export class Store {
         "/init": ["pkg install net_tools iputils dhcp url", "iface eth0 wait link", "sleep 1", "dhclient eth0"].join(
           "\n",
         ),
+        "/etc/hosts": "127.0.0.1 localhost",
         "/etc/resolv.conf": "#nameserver 192.168.0.1",
       },
       name: config.name || "New PC",
@@ -545,6 +546,7 @@ export class Store {
       ],
       fs: {
         "/init": "# make your own initial script",
+        "/etc/hosts": "127.0.0.1 localhost",
       },
       name: config.name || "New Server",
       ui: config.ui || { x: 0, y: 0 },

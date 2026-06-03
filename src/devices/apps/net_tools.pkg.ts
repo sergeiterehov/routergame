@@ -111,6 +111,8 @@ export const iface: TApp = async (os, args, ctx) => {
   const op = args.shift();
   if (!op) return _print_interface(os, name);
 
+  if (iface.type === "loopback") throw new Error("Loopback interface is readonly");
+
   if (op === "add" || op === "del") {
     const ip = args.shift();
     if (!ip) throw new Error(`Usage: ${name} ${op} <ip/prefix>`);
@@ -392,8 +394,7 @@ export async function br(os: OS, args: string[]) {
       return _slave;
     });
 
-    const index = os.net.add_interface("bridge", name, -1);
-    const br_iface = os.net.iface(index);
+    const br_iface = os.net.add_interface("bridge", name, -1);
 
     br_iface.mac = 0n;
 
@@ -509,8 +510,7 @@ export async function br(os: OS, args: string[]) {
 
     if (bridge.vlans.some((v) => v.vid === vid)) throw new Error(`VLAN ${vid} already exists`);
 
-    const vlan_iface_index = os.net.add_interface("vlan", vlan_name, -1);
-    const vlan_iface = os.net.iface(vlan_iface_index);
+    const vlan_iface = os.net.add_interface("vlan", vlan_name, -1);
     vlan_iface.iMasterInterface = br_iface.index;
     vlan_iface.mac = br_iface.mac;
     bridge.vlans.push({ iVlan: vlan_iface.index, vid });

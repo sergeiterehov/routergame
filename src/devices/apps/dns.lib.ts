@@ -93,6 +93,11 @@ export type TDnsRecord = {
   expired_at: number;
 };
 
+export function normalize_dns_name(name: string): string {
+  if (name.endsWith(".")) return name;
+  return `${name}.`;
+}
+
 export async function resolve_dns(
   os: OS,
   name: string,
@@ -108,12 +113,11 @@ export async function resolve_dns(
     const hosts = os.fs.read(_HOSTS_PATH).split("\n");
 
     for (let line of hosts) {
-      line = line.trim();
+      line = line.split("#")[0].trim();
       if (!line) continue;
-      if (line.startsWith("#")) continue;
 
       const [ip, ...names] = line.split(/\s+/);
-      if (!names.includes(name)) continue;
+      if (!names.some((n) => normalize_dns_name(n) === name)) continue;
       if (!validate_ip(ip)) continue;
 
       records.push({ class: DNS_CLASSES.IN, type, name, text: ip, ttl: 0, expired_at: 0 });
@@ -128,9 +132,8 @@ export async function resolve_dns(
     const resolvers = os.fs.read(_RESOLVE_PATH).split("\n");
 
     for (let line of resolvers) {
-      line = line.trim();
+      line = line.split("#")[0].trim();
       if (!line) continue;
-      if (line.startsWith("#")) continue;
 
       const [prop, resolver] = line.split(/\s+/);
       if (prop !== "nameserver") continue;

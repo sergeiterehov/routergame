@@ -30,7 +30,7 @@ export type TIP4 = { address: number; prefix: number };
 
 export type TInterface = {
   index: number;
-  type: "ethernet" | "bridge" | "vlan";
+  type: "loopback" | "ethernet" | "bridge" | "vlan";
   name: string;
   flags: {
     UP?: boolean;
@@ -64,8 +64,9 @@ export class Net {
 
   add_interface(type: TInterface["type"], name: string, iDriver: number) {
     const index = this._interfaces.length;
-    this._interfaces.push({ index, type, name, iDriver, ips: [], flags: {} });
-    return index;
+    const iface: TInterface = { index, type, name, iDriver, ips: [], flags: {} };
+    this._interfaces.push(iface);
+    return iface;
   }
 
   change_mac(iInterface: number, mac: bigint) {
@@ -78,6 +79,9 @@ export class Net {
     const iface = this._interfaces[iInterface];
 
     if (!iface.flags.UP) return NET_ERRORS.INTERFACE_DOWN;
+
+    // ignore loopback frames
+    if (iface.type === "loopback") return 0;
 
     if (iface.type === "bridge") {
       this.br.br_send_frame(iface.index, frame);
@@ -104,6 +108,9 @@ export class Net {
     const iface = this._interfaces[iInterfaceOrigin];
 
     if (!iface.flags.UP) return;
+
+    // ignore loopback frames
+    if (iface.type === "loopback") return;
 
     const { dst, src, etherType } = frame;
 

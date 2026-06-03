@@ -1,4 +1,5 @@
 import { Device, Port } from "./device";
+import type { TInterface } from "./os/net";
 import type { OS } from "./os/os";
 import { Driver } from "./system";
 
@@ -52,7 +53,7 @@ export class SimpleEthernetDriver extends Driver {
   name = "SimpleEthernet";
 
   _device: SimpleEthernet;
-  _iInterface: number = -1;
+  _iface: TInterface;
 
   constructor(os: OS, iDevice: number) {
     super(os);
@@ -66,23 +67,21 @@ export class SimpleEthernetDriver extends Driver {
 
     this.instance = `SimpleEthernet:${this._device.gid}`;
 
-    this._iInterface = this._os.net.add_interface("ethernet", `eth${iDevice}`, this._iDriver);
-    const iface = this._os.net._interfaces[this._iInterface];
-    iface.mac = this._device.mac;
-    iface.flags.LOWER_UP = this._device.get_link();
-    iface.flags.UP = true;
+    this._iface = this._os.net.add_interface("ethernet", `eth${iDevice}`, this._iDriver);
+    this._iface.mac = this._device.mac;
+    this._iface.flags.LOWER_UP = this._device.get_link();
+    this._iface.flags.UP = true;
   }
 
   _handleInterrupt() {
     const dev = this._device;
 
     if (dev.received) {
-      this._os.net.handle_raw_ingress(this._iInterface, dev.received);
+      this._os.net.handle_raw_ingress(this._iface.index, dev.received);
       dev.received = undefined;
     }
 
-    const iface = this._os.net._interfaces[this._iInterface];
-    iface.flags.LOWER_UP = dev.get_link();
+    this._iface.flags.LOWER_UP = dev.get_link();
   }
 
   net_send_frame = (iInterface: number, data: Uint8Array) => {
@@ -92,7 +91,7 @@ export class SimpleEthernetDriver extends Driver {
   call(cmd: { $: "change_mac"; mac: bigint } | { $: "up" } | { $: "down" }) {
     if (cmd.$ === "change_mac") {
       this._device.change_mac(cmd.mac);
-      this._os.net._interfaces[this._iInterface].mac = cmd.mac;
+      this._iface.mac = cmd.mac;
     } else if (cmd.$ === "up") {
       this._device.port._enabled = true;
     } else if (cmd.$ === "down") {

@@ -14,7 +14,7 @@ import {
   type TIP4Packet,
 } from "../pack";
 import { find_arg, format_net_error, socket_read_raw, test_args } from "./app.lib";
-import { DNS_CLASSES, DNS_TYPES, get_hostname_ip, resolve_dns } from "./dns.lib";
+import { DNS_CLASSES, DNS_TYPES, get_hostname_ip, normalize_dns_name, resolve_dns } from "./dns.lib";
 
 const _RESOLVE_NAME_TIMEOUT_MS = 5 * SEC;
 
@@ -398,15 +398,13 @@ export const dig: TApp = async (os, args, ctx) => {
   let name = "";
   let type = 0;
 
-  if (test_args(args, "-x", Boolean)) {
+  if (test_args(args, "-x", validate_ip)) {
     name = args[1].split(".").reverse().concat(["in-addr", "arpa", ""]).join(".");
     type = DNS_TYPES.PTR;
   } else if (test_args(args, Boolean)) {
-    name = args.shift()!;
+    name = normalize_dns_name(args.shift()!);
     type = DNS_TYPES.A;
   }
-
-  if (!name.endsWith(".")) name += ".";
 
   const signal = AbortSignal.any([AbortSignal.timeout(5 * SEC), ctx.signal]);
 

@@ -4,7 +4,7 @@ import { OS } from "../os/os";
 import { software } from "../apps";
 import type { Bus } from "../bus";
 import { SimpleEthernet, SimpleEthernetDriver } from "../simpleEthernet";
-import { parseMAC } from "../format";
+import { parseIPv4, parseMAC } from "../format";
 
 export function onMessage(handler: (message: Bus.Message.Master) => void, options: AddEventListenerOptions = {}) {
   self.addEventListener("message", (e: MessageEvent<Bus.Message.Master>) => handler(e.data), options);
@@ -57,6 +57,12 @@ export function beginWorkerOS(config: { type: string; ethernet?: { mac: bigint }
   os._hostname = self.name;
   os.on_output = (text) => sendMessage({ $: "print", text });
   os.fs.on_change = (fs) => sendMessage({ $: "fs", fs });
+  {
+    const lo = os.net.add_interface("loopback", "lo", -1);
+    lo.flags.UP = true;
+    lo.ips.push({ address: (127 << 24) + 1, prefix: 8 });
+    os.net.ip4._routes.push({ iInterface: lo.index, network: 127 << 24, prefix: 8 });
+  }
   os.install(software);
 
   onMessage((msg) => {

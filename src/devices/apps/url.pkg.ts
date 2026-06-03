@@ -1,7 +1,7 @@
 import { SEC, validate_ip, parseIPv4, formatIPv4, validate_port } from "../format";
 import type { OS, TApp, TAppContext } from "../os/os";
 import { run_command_of, format_net_error, socket_connected, to_utf8, from_utf8, socket_read } from "./app.lib";
-import { get_hostname_ip } from "./dns.lib";
+import { get_hostname_ip, normalize_dns_name } from "./dns.lib";
 
 const _url = async (os: OS, ctx: TAppContext, args: { url: string; verbose: boolean }) => {
   const { url, verbose } = args;
@@ -16,7 +16,7 @@ const _url = async (os: OS, ctx: TAppContext, args: { url: string; verbose: bool
 
   const ip = validate_ip(hostname)
     ? parseIPv4(hostname)
-    : await get_hostname_ip(os, `${hostname}.`, undefined, signal).then((_ip) => {
+    : await get_hostname_ip(os, normalize_dns_name(hostname), undefined, signal).then((_ip) => {
         if (!_ip) throw new Error(`Could not resolve ${hostname}`);
         log_verbose(`* Resolved ${hostname} to ${formatIPv4(_ip)}\n`);
         return _ip;

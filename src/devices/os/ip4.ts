@@ -84,9 +84,6 @@ export class IP4 {
   ): number {
     fw_context.out = iInterface;
 
-    const route_iface = this.net._interfaces[iInterface];
-    if (route_iface.mac === undefined) return NET_ERRORS.NO_ROUTE;
-
     let local_iface: TInterface | undefined;
     for (const _iface of this.net._interfaces) {
       for (const _ip of _iface.ips) {
@@ -99,6 +96,15 @@ export class IP4 {
       setTimeout(() => this.handle_packet(local_iface.index, packet));
       return 0;
     }
+
+    const route_iface = this.net.iface(iInterface);
+
+    if (route_iface.type === "loopback") {
+      this.handle_packet(iInterface, packet);
+      return 0;
+    }
+
+    if (route_iface.mac === undefined) return NET_ERRORS.NO_ROUTE;
 
     const src_mac = route_iface.mac;
     let dst_mac = -1n; // -1 unknown, -2 pending, -3 fail
@@ -240,7 +246,6 @@ export class IP4 {
   }
 
   private _handle_input(iInterface: number, packet: TIP4Packet, fw_context: TPacketContext) {
-
     // ICMP Reply
     if (packet.header.protocol === IP_PROTOCOLS.ICMP) {
       const icmp = unpack_icmp_packet(packet.payload);

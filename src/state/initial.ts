@@ -106,6 +106,7 @@ server:
       ethernetPorts: [{ id: "eth0", mac: "00:00:00:aa:00:00" }],
       fs: {
         "/init": ["pkg install net_tools iputils dhcp", "iface eth0 wait link", "sleep 1", "dhclient eth0"].join("\n"),
+        "/etc/hosts": "127.0.0.1 localhost",
         "/etc/resolv.conf": "nameserver 192.168.0.100",
       },
       ui: { x: 100, y: 300 },
@@ -118,6 +119,8 @@ server:
       ethernetPorts: [{ id: "eth0", mac: "00:00:00:aa:01:00" }],
       fs: {
         "/init": ["pkg install net_tools iputils dhcp", "iface eth0 wait link", "sleep 1", "dhclient eth0"].join("\n"),
+        "/etc/hosts": "127.0.0.1 localhost",
+        "/etc/resolv.conf": "nameserver 192.168.0.100",
       },
       ui: { x: 200, y: 400 },
     },
