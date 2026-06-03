@@ -288,18 +288,19 @@ async function _enable(os: OS, _args: string[]) {
 
 export async function fw(os: OS, args: string[]) {
   await run_command_of(
+    os,
     {
-      enable: { desc: "enable firewall", fn: () => _enable(os, args.slice(1)) },
-      ls: { desc: "show rules", fn: () => _ls(os, args.slice(1)) },
-      connections: { desc: "show active connections", fn: () => _connection(os, args.slice(1)) },
+      enable: { desc: "enable firewall", fn: (_args) => _enable(os, _args) },
+      ls: { desc: "show rules", fn: (_args) => _ls(os, _args) },
+      connections: { desc: "show active connections", fn: (_args) => _connection(os, _args) },
       masquerade: {
         desc: "quick add masquerade rule for output interface",
-        fn: () => _masquerade(os, args.slice(1)),
+        fn: (_args) => _masquerade(os, _args),
       },
-      add: { desc: "add new rule", fn: () => _add(os, args.slice(1)) },
-      rm: { desc: "remove rule", fn: () => _rm(os, args.slice(1)) },
-      move: { desc: "change rule priority", fn: () => _move(os, args.slice(1)) },
+      add: { desc: "add new rule", fn: (_args) => _add(os, _args) },
+      rm: { desc: "remove rule", fn: (_args) => _rm(os, _args) },
+      move: { desc: "change rule priority", fn: (_args) => _move(os, _args) },
     },
-    args[0],
+    args,
   );
 }

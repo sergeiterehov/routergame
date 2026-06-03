@@ -478,7 +478,7 @@ export class Store {
       ethernetPorts: [{ id: "eth0", mac: this.randomize_mac() }],
       ports: [{ id: "eth0", type: "ethernet" }],
       fs: {
-        "/init": ["pkg install net_tools iputils dhcp curl", "iface eth0 wait link", "sleep 1", "dhclient eth0"].join(
+        "/init": ["pkg install net_tools iputils dhcp url", "iface eth0 wait link", "sleep 1", "dhclient eth0"].join(
           "\n",
         ),
         "/etc/resolv.conf": "#nameserver 192.168.0.1",

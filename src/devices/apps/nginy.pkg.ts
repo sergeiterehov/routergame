@@ -5,7 +5,7 @@ import { format_net_error, from_utf8, socket_read, test_args, to_utf8 } from "./
 import type { TSocket } from "../os/socket";
 import { formatIPv4, SEC } from "../format";
 
-const _CONF_PATH = "/etc/nginx.yaml";
+const _CONF_PATH = "/nginy.yaml";
 
 const _TIMEOUTS = {
   READ_HEADER: 10 * SEC,
@@ -49,12 +49,12 @@ let _started = false;
 let _on_reload: () => void = () => null;
 let _on_stop: () => void = () => null;
 
-export const nginx: TApp = async (os, args, ctx) => {
+export const nginy: TApp = async (os, args, ctx) => {
   if (test_args(args, "-s", "reload")) return _on_reload();
 
   if (test_args(args, "-s", "stop")) return _on_stop();
 
-  if (args.length) throw new Error("Usage: nginx [-s reload|stop]");
+  if (args.length) throw new Error("Usage: [-s reload|stop]");
 
   if (_started) throw new Error("Already started");
   _started = true;
@@ -67,7 +67,7 @@ export const nginx: TApp = async (os, args, ctx) => {
   let conf = load_config();
 
   const handle_connection = async (socket: TSocket) => {
-    os.print(`[NGINX] Connection ${formatIPv4(socket.dst_ip)}:${socket.dst_port}\n`);
+    os.print(`[NGINY] Connection ${formatIPv4(socket.dst_ip)}:${socket.dst_port}\n`);
 
     try {
       const signal = AbortSignal.any([AbortSignal.timeout(_TIMEOUTS.READ_HEADER), ctx.signal]);
@@ -94,7 +94,7 @@ export const nginx: TApp = async (os, args, ctx) => {
       const host = headers.Host?.[0] || formatIPv4(socket.src_ip);
       const port = socket.src_port;
 
-      os.print(`[NGINX] [${method}] [${host}:${port}] ${path}\n`);
+      os.print(`[NGINY] [${method}] [${host}:${port}] ${path}\n`);
 
       if (method !== "GET") throw new Error(`Unsupported method ${method}`);
 
@@ -172,7 +172,7 @@ export const nginx: TApp = async (os, args, ctx) => {
       socket.on_connected = handle_connection;
     }
 
-    os.print("NGINX EMULATOR STARTED\n");
+    os.print("NGINY EMULATOR STARTED\n");
 
     _on_stop = resolve;
     _on_reload = () => {
@@ -183,7 +183,7 @@ export const nginx: TApp = async (os, args, ctx) => {
       if (ports_changed) os.print("[WARNING] Ports changed, restarting need\n");
 
       conf = new_conf;
-      os.print("[NGINX] Reloaded\n");
+      os.print("[NGINY] Reloaded\n");
     };
   }).finally(() => {
     for (const socket of sockets) {
@@ -195,5 +195,5 @@ export const nginx: TApp = async (os, args, ctx) => {
     _started = false;
   });
 
-  os.print("[NGINX] stopped\n");
+  os.print("[NGINY] stopped\n");
 };

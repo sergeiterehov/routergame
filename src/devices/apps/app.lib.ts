@@ -1,7 +1,112 @@
+import { validate_address, validate_ip } from "../format";
 import { NET_ERRORS } from "../os/net";
 import type { OS } from "../os/os";
 import type { TSocket } from "../os/socket";
 import type { TIP4Packet } from "../pack";
+
+export type TArg = {
+  name?: string;
+  alias?: string;
+  type: "flag" | "string" | "number" | "ip" | "ip/";
+  multiple?: boolean;
+  required?: boolean;
+  desc?: string;
+  default?: string[];
+};
+
+export type TCommand = {
+  desc: string;
+  args?: TArg[];
+  fn: (args: string[], parsed: Record<string, string[] | undefined>) => unknown;
+};
+
+export function parse_args(types: TArg[], args: string[]) {
+  if (!types.length && args.length) throw new Error("Arguments not expected");
+
+  const _args = [...args];
+
+  const type_names = new Map<TArg, string>(
+    types.map((type) => [
+      type,
+      (type.name || type.alias)?.replace(/^-+/, "") ??
+        types
+          .filter((t) => !t.name)
+          .indexOf(type)
+          .toString(),
+    ]),
+  );
+
+  const result: Record<string, string[]> = {};
+  const found = new Set<TArg>();
+  const ejected = new Set<TArg>();
+
+  while (_args.length) {
+    const arg = _args.shift()!;
+
+    let matched = types.filter((t) => !ejected.has(t) && (!t.name || t.name === arg || t.alias == arg));
+    // Skip all noname if some named found
+    if (matched.some((t) => t.name)) {
+      matched = matched.filter((t) => t.name);
+    } else {
+      matched = matched.slice(0, 1);
+    }
+
+    if (!matched.length) throw new Error(`Unknown argument "${arg}"`);
+    if (matched.length > 1) throw new Error(`Ambiguous argument "${arg}"`);
+
+    const [type] = matched;
+
+    const name = type_names.get(type)!;
+
+    result[name] ||= [];
+
+    if (type.type === "flag") {
+      result[name].push("1");
+    } else {
+      const value = type.name ? _args.shift()! : arg;
+      if (!value) throw new Error(`Argument ${name} requires value`);
+
+      if (type.type === "string") {
+        result[name].push(value);
+      } else if (type.type === "number") {
+        if (/^[0-9_]+$/.test(value)) {
+          result[name].push(value.replaceAll("_", ""));
+        } else if (/^0x[0-9a-f_]+$/i.test(value)) {
+          result[name].push(Number.parseInt(value.slice(2).replaceAll("_", ""), 16).toString());
+        } else {
+          throw new Error(`Argument "${name}" must be a number`);
+        }
+      } else if (type.type === "ip") {
+        if (!validate_ip(value)) throw new Error(`Argument ${name} must be a valid IP`);
+        result[name].push(value);
+      } else if (type.type === "ip/") {
+        if (!validate_address(value)) throw new Error(`Argument ${name} must be a valid IP/mask`);
+      } else {
+        throw new Error(`Unknown argument type "${type.type}"`);
+      }
+    }
+
+    found.add(type);
+
+    if (!type.multiple) ejected.add(type);
+  }
+
+  for (const type of types) {
+    if (!found.has(type) && type.default) {
+      result[type_names.get(type)!] = type.default;
+    }
+  }
+
+  for (const type of types) {
+    if (type.required && !found.has(type)) {
+      throw new Error(`Argument ${type_names.get(type)} is required`);
+    }
+  }
+
+  console.log(result);
+
+  return result;
+}
 
 export function test_args(args: string[], ...ps: (string | RegExp | ((arg: string) => unknown))[]) {
   if (ps.length > args.length) return false;
@@ -42,22 +147,68 @@ export function find_args(args: string[], key: string) {
   return result;
 }
 
-export async function run_command_of(record: Record<string, { fn: () => unknown; desc: string }>, cmd: string) {
-  const cmds = Object.keys(record).filter((c) => c.startsWith(cmd));
-  if (cmds.length > 1) throw new Error(`Multiple commands found: ${cmds.join(", ")}`);
+export async function run_command_of(os: OS, commands: Record<string, TCommand>, args: string[]) {
+  const _commands: typeof commands = {
+    ...commands,
+    "--help": {
+      desc: "show this help",
+      fn: ([name, ..._args]) => {
+        if ("" in _commands) name = "";
 
-  if (cmds.length === 0) {
-    throw new Error(
-      [
-        "usage:",
-        Object.keys(record)
-          .map((c) => `\t${c} - ${record[c].desc}`)
-          .join("\n"),
-      ].join("\n"),
-    );
+        if (commands.help) {
+          os.print(commands.help.desc, "\n\n");
+          commands.help.fn(_args, commands.help.args ? parse_args(commands.help.args, _args) : {});
+        }
+
+        if (name !== undefined && !_commands[name]) throw new Error(`Unknown command "${name}"`);
+
+        for (const [_cmd_name, _cmd] of Object.entries(_commands)) {
+          if (name !== undefined && _cmd_name !== name) continue;
+
+          if (_cmd_name) os.print(`${_cmd_name} - `);
+          os.print(`${_cmd.desc}\n`);
+          if (_cmd.args) {
+            for (const arg of _cmd.args) {
+              os.print("\t");
+              os.print(arg.name || `<${arg.alias || arg.type}>`);
+              if (arg.multiple) os.print("...");
+              if (arg.desc) os.print(" - ", arg.desc);
+              os.print(", ", arg.required ? "required" : "optional");
+              os.print(", ", arg.type);
+              if (arg.default) os.print(", default = ", arg.default.join(","));
+              os.print("\n");
+            }
+          }
+          os.print(`\n`);
+        }
+      },
+    },
+  };
+
+  const _args = [...args];
+  let _name = "";
+
+  const _input = _args.at(0) || "";
+
+  const names = Object.keys(_commands).filter((c) => (_input ? c.startsWith(_input) : c === ""));
+  if (names.length > 1) throw new Error(`Multiple commands found: ${names.join(", ")}`);
+
+  if (names.length === 0 && "" in _commands) names.push("");
+
+  if (names.length === 0) {
+    if (_input) {
+      throw new Error(`Unknown command "${_input}". Use "--help" to list available.`);
+    } else {
+      throw new Error(`Use "--help" to list available commands.`);
+    }
   }
 
-  await record[cmds[0]].fn();
+  _name = names[0];
+  if (_name) _args.shift();
+
+  const cmd = _commands[_name];
+  const parsed_args = cmd.args ? parse_args(cmd.args, _args) : {};
+  await cmd.fn(_args, parsed_args);
 }
 
 export function format_net_error(err: number) {

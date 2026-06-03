@@ -65,22 +65,22 @@ export const initial_arch: TArchitecture = {
       ],
       fs: {
         "/init": [
-          "pkg install net_tools iputils bind9 nginx",
+          "pkg install net_tools iputils bind8 nginy",
           "iface eth0 wait link",
           "iface eth0 add 192.168.0.100/24",
           "route add 192.168.0.0/24 dev eth0",
           "route add default via 192.168.0.1",
-          "bind9 &",
-          "nginx &",
+          "bind8 &",
+          "nginy &",
         ].join("\n"),
-        "/etc/names.conf": `
+        "/names.conf": `
 # NAME TYPE VALUE TTL
 example.com A 192.168.0.100 3600
 dns.google A 8.8.8.8 3600
 ya.ru A 77.88.44.242 3600
 ya.ru A 77.88.55.242 3600
         `.trim(),
-        "/etc/nginx.yaml": `
+        "/nginy.yaml": `
 server:
   - listen: 80
     hostname: example.com

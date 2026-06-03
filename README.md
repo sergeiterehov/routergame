@@ -17,22 +17,26 @@
 Неуправляемое устройство - L2 Switch.
 
 Управляемые устройства с операционной системой.
-- FS для хранения состояния между перезапусками
+- Key-Value файловая система
 - Ethernet
 - Bridge
 - VLAN
 - ARP
 - IP routing
-- ICMP ping + некоторые ответы
+- ICMP
 - UDP
 - TCP
-- Socket в простом исполнении
-- DHCP client + server
-- DNS + server
-- HTTP клиент-сервер
-- Firewall + NAT + masquerade (icmp, udp, tcp)
+- NAT stateful
+- Firewall
+- Socket: raw, udp, tcp
+- DHCP
+- DNS
+- HTTP
 
 Все в OS работает на уровне ядра. Доступны некоторые упрощенные аналоги утилит:
+- `cat`, `ls`, `rm`, `touch` - для работы с файлами
+- `init` загрузка и оболочка терминала
+- `pkg` - установка пакетов программ
 - `iface` аналог ifconfig
 - `route`
 - `br` - создание мостов и управление vlan фильтром
@@ -42,10 +46,9 @@
 - `socket` - просмотр активных сокетов
 - `nc` - аналог netcat
 - `dig`
-- `dnsd` - DNS сервер
-- `dhcp` - клиент
-- `dhcpd` - сервер
+- `bind8` - DNS сервер
+- `dhclient` - запрос к DHCP серверу
+- `dhcp_server` - DHCP сервер
 - `fw` - управление firewall
-- `curl`
-- `nginx` - минимальный, с yaml конфигом
-- `cat`, `ls`, `rm`, `touch` - для работы с файлами
+- `url` - аналог curl
+- `nginy` - NGINX-подобный веб сервер

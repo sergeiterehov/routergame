@@ -4,7 +4,7 @@ import { format_net_error } from "./app.lib";
 import { answer_dns, DNS_CLASSES, DNS_TYPES, type TDnsRecord } from "./dns.lib";
 
 const _DNS_PORT = 53;
-const _RECORDS_PATH = "/etc/names.conf";
+const _RECORDS_PATH = "/names.conf";
 
 const _DNS_NAME_TO_TYPE: Record<string, number> = {
   A: DNS_TYPES.A,
@@ -73,7 +73,7 @@ function _resolve_name(os: OS, name: string, type: number): TDnsRecord[] {
   }
 }
 
-export const bind9: TApp = async (os, args, ctx) => {
+export const bind8: TApp = async (os, args, ctx) => {
   if (args.length) throw new Error("No arguments expected");
 
   const socket = os.net.socket.create("udp");
@@ -84,7 +84,7 @@ export const bind9: TApp = async (os, args, ctx) => {
     err = os.net.socket.bind(socket, 0, _DNS_PORT);
     if (err) throw new Error(`Failed to bind socket: ${format_net_error(err)}`);
 
-    os.print("DNS server started\n");
+    os.print("[BIND8] DNS server started\n");
 
     for (;;) {
       const req = await new Promise<Parameters<Exclude<typeof socket.on_recv, undefined>>[0]>((resolve, reject) => {
@@ -104,11 +104,11 @@ export const bind9: TApp = async (os, args, ctx) => {
         err = os.net.socket.send_to(socket, req.ip, req.port, res);
         if (err) throw new Error(`Failed to send response: ${format_net_error(err)}`);
       } catch (e) {
-        os.print(`[DNSd] [ERROR] ${e}\n`);
+        os.print(`[BIND8] [ERROR] ${e}\n`);
       }
     }
   } catch (e) {
-    os.print(`[DNSd] [FATAL] ${e}\n`);
+    os.print(`[BIND8] [FATAL] ${e}\n`);
   } finally {
     os.net.socket.close(socket);
   }

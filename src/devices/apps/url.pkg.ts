@@ -1,18 +1,14 @@
 import { SEC, validate_ip, parseIPv4, formatIPv4, validate_port } from "../format";
-import type { TApp } from "../os/os";
-import { test_args, has_arg, format_net_error, socket_connected, to_utf8, from_utf8, socket_read } from "./app.lib";
+import type { OS, TApp, TAppContext } from "../os/os";
+import { run_command_of, format_net_error, socket_connected, to_utf8, from_utf8, socket_read } from "./app.lib";
 import { get_hostname_ip } from "./dns.lib";
 
-export const curl: TApp = async (os, args, ctx) => {
-  if (!test_args(args, Boolean)) throw new Error(`usage: curl <url> [-v]`);
+const _url = async (os: OS, ctx: TAppContext, args: { url: string; verbose: boolean }) => {
+  const { url, verbose } = args;
 
-  const verbose = has_arg(args, "-v");
   const log_verbose = (...args: string[]) => verbose && os.print(...args);
 
-  let url = args[0];
-  if (!url.startsWith("http")) url = `http://${url}`;
-
-  const { protocol, hostname, port: _port, pathname, search } = new URL(url);
+  const { protocol, hostname, port: _port, pathname, search } = new URL(url.startsWith("http") ? url : `http://${url}`);
 
   if (protocol !== "http:") throw new Error(`Unsupported protocol ${protocol}`);
 
@@ -84,4 +80,21 @@ export const curl: TApp = async (os, args, ctx) => {
     os.net.socket.close(socket);
     log_verbose(`* Connection closed\n`);
   }
+};
+
+export const url: TApp = async (os, args, ctx) => {
+  await run_command_of(
+    os,
+    {
+      "": {
+        desc: "Open URL",
+        args: [
+          { type: "string", required: true, alias: "url", desc: "HTTP URL" },
+          { name: "--verbose", alias: "-v", type: "flag", desc: "Verbose output" },
+        ],
+        fn: (_, parsed) => _url(os, ctx, { url: parsed.url![0], verbose: Boolean(parsed.verbose) }),
+      },
+    },
+    args,
+  );
 };
