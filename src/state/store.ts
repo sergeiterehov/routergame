@@ -482,7 +482,6 @@ export class Store {
           "\n",
         ),
         "/etc/hosts": "127.0.0.1 localhost",
-        "/etc/resolv.conf": "#nameserver 192.168.0.1",
       },
       name: config.name || "New PC",
       ui: config.ui || { x: 0, y: 0 },

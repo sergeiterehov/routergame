@@ -38,7 +38,7 @@ let server_started = false;
 export async function dhcp_server(os: OS, args: string[]) {
   if (!args.length) {
     os.print("usage:\n");
-    os.print("\t<interface> <ip_start> <ip_end> [-g gateway_ip]\n");
+    os.print("\t<interface> <ip_start> <ip_end> [-g gateway_ip] [-dns dns_ip]\n");
     os.print("\tls\n");
     return;
   }
@@ -83,6 +83,7 @@ export async function dhcp_server(os: OS, args: string[]) {
   }
 
   let gateway_ip = -1;
+  let dns_ip = -1;
 
   for (let i = 0; i < args.length; i += 1) {
     if (args[i] === "-g") {
@@ -90,6 +91,11 @@ export async function dhcp_server(os: OS, args: string[]) {
       const value = args[i] || "";
       if (!validate_ip(value)) throw new Error("Invalid gateway IP specified");
       gateway_ip = parseIPv4(value);
+    } else if (args[i] === "-dns") {
+      i += 1;
+      const value = args[i] || "";
+      if (!validate_ip(value)) throw new Error("Invalid DNS IP specified");
+      dns_ip = parseIPv4(value);
     }
   }
 
@@ -131,8 +137,12 @@ export async function dhcp_server(os: OS, args: string[]) {
           { type: DHCP_OPTIONS.LEASE_TIME, data: uint32(_LEASE_TIME_S) },
         ];
 
-        if (gateway_ip >= 0) {
+        if (gateway_ip > 0) {
           options.push({ type: DHCP_OPTIONS.ROUTER, data: uint32(gateway_ip) });
+        }
+
+        if (dns_ip > 0) {
+          options.push({ type: DHCP_OPTIONS.DNS_SERVER, data: uint32(dns_ip) });
         }
 
         return options;
@@ -279,6 +289,7 @@ export async function dhclient(os: OS, args: string[]) {
   let requested_ip = -1;
   let mask = -1;
   let router = -1;
+  let dns = -1;
   let lease_time = -1;
 
   function refresh_xid() {
@@ -292,6 +303,7 @@ export async function dhclient(os: OS, args: string[]) {
     requested_ip = -1;
     mask = -1;
     router = -1;
+    dns = -1;
     lease_time = -1;
   }
 
@@ -445,6 +457,11 @@ export async function dhclient(os: OS, args: string[]) {
     if (router_opt) {
       router = new DataView(router_opt.buffer, router_opt.byteOffset).getUint32(0);
     }
+
+    const dns_opt = get_option(DHCP_OPTIONS.DNS_SERVER, packet);
+    if (dns_opt) {
+      dns = new DataView(dns_opt.buffer, dns_opt.byteOffset).getUint32(0);
+    }
   }
 
   let err = 0;
@@ -505,6 +522,10 @@ export async function dhclient(os: OS, args: string[]) {
               prefix: 0,
               gateway: router,
             });
+          }
+
+          if (dns !== -1) {
+            os.fs.write("/etc/resolv.conf", `nameserver ${formatIPv4(dns)}\n`);
           }
 
           state = "leasing";

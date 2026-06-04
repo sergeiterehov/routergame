@@ -36,7 +36,7 @@ export const initial_arch: TArchitecture = {
           "iface br0 up",
           "iface br0 add 10.0.0.1/24",
           "route add 10.0.0.0/24 dev br0",
-          "dhcp_server br0 10.0.0.10 10.0.0.20 -g 10.0.0.1 &",
+          "dhcp_server br0 10.0.0.10 10.0.0.20 -g 10.0.0.1 -dns 192.168.0.100 &",
           "fw masquerade eth0",
           "fw enable",
         ].join("\n"),
@@ -107,7 +107,6 @@ server:
       fs: {
         "/init": ["pkg install net_tools iputils dhcp", "iface eth0 wait link", "sleep 1", "dhclient eth0"].join("\n"),
         "/etc/hosts": "127.0.0.1 localhost",
-        "/etc/resolv.conf": "nameserver 192.168.0.100",
       },
       ui: { x: 100, y: 300 },
     },
@@ -120,7 +119,6 @@ server:
       fs: {
         "/init": ["pkg install net_tools iputils dhcp", "iface eth0 wait link", "sleep 1", "dhclient eth0"].join("\n"),
         "/etc/hosts": "127.0.0.1 localhost",
-        "/etc/resolv.conf": "nameserver 192.168.0.100",
       },
       ui: { x: 200, y: 400 },
     },
