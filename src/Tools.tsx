@@ -83,7 +83,7 @@ export const Tools = observer(function Tools() {
           e.stopPropagation();
           const name = prompt("Name", "New Switch");
           if (!name) return;
-          store.node_create_l2({ name });
+          store.node_create_switch({ name });
         }}
       >
         <IconTopologyBus stroke="1" size="24" />

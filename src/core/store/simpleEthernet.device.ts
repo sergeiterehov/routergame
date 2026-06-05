@@ -1,7 +1,7 @@
-import { Device, Port } from "./device";
-import type { TInterface } from "./os/net";
-import type { OS } from "./os/os";
-import { Driver } from "./system";
+import { Device, Port } from "../device";
+import { Driver } from "../os/driver";
+import type { TInterface } from "../os/net";
+import type { OS } from "../os/os";
 
 export class SimpleEthernet extends Device {
   type: string = "SimpleEthernet";

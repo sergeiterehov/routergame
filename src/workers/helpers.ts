@@ -1,10 +1,10 @@
-import { Port } from "../device";
-import { System } from "../system";
-import { OS } from "../os/os";
-import { software } from "../apps";
-import type { Bus } from "../bus";
-import { SimpleEthernet, SimpleEthernetDriver } from "../simpleEthernet";
-import { parseIPv4, parseMAC } from "../format";
+import { software } from "../core/apps";
+import type { Bus } from "./bus";
+import type { Port } from "../core/device";
+import { parseMAC } from "../core/format";
+import { Hardware } from "../core/hardware";
+import { OS } from "../core/os/os";
+import { SimpleEthernet, SimpleEthernetDriver } from "../core/store/simpleEthernet.device";
 
 export function onMessage(handler: (message: Bus.Message.Master) => void, options: AddEventListenerOptions = {}) {
   self.addEventListener("message", (e: MessageEvent<Bus.Message.Master>) => handler(e.data), options);
@@ -42,7 +42,7 @@ export function expose(port: number, devicePort: Port) {
 export function beginWorkerOS(config: { type: string; ethernet?: { mac: bigint }[] } = { type: "unknown" }) {
   console.log("Hello", config.type, self.name);
 
-  const system = new System();
+  const system = new Hardware();
 
   if (config.ethernet) {
     let pid = 0;

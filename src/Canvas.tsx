@@ -10,13 +10,13 @@ const Type2Color: { [key in TArchNode["type"]]?: string } = {
   pc: "bg-sky-500/40",
   router: "bg-violet-500/40",
   server: "bg-green-500/40",
-  l2: "bg-gray-500/40",
+  switch: "bg-gray-500/40",
 };
 const Type2Icon: { [key in TArchNode["type"]]?: typeof IconDeviceImac } = {
   pc: IconDeviceImac,
   server: IconServer2,
   router: IconSwitch3,
-  l2: IconTopologyBus,
+  switch: IconTopologyBus,
 };
 
 const ConnectionPortSelector = observer(function ConnectionPortSelector() {

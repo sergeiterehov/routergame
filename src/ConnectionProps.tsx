@@ -1,6 +1,6 @@
 import { observer } from "mobx-react-lite";
 import { store } from "./state/store";
-import { formatValue } from "./devices/format";
+import { formatValue } from "./core/format";
 
 const SPEEDS = [0, 100, 1_000, 10_000, 1_000_000];
 

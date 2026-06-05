@@ -1,4 +1,5 @@
-import type { System, Driver } from "../system";
+import type { Hardware } from "../hardware";
+import type { Driver } from "./driver";
 import { FS } from "./fs";
 import { Net } from "./net";
 
@@ -11,7 +12,7 @@ export type TAppContext = {
 export type TApp = (os: OS, args: string[], ctx: TAppContext) => Promise<void>;
 
 export class OS {
-  _system: System;
+  _system: Hardware;
 
   _drivers: Driver[] = [];
   _apps: { [key: string]: TApp } = {};
@@ -54,7 +55,7 @@ export class OS {
   readonly fs = new FS(this);
   readonly net = new Net(this);
 
-  constructor(system: System) {
+  constructor(system: Hardware) {
     this._system = system;
     this._system._interrupt = (deviceIndex) => {
       this._interruptHandlers[deviceIndex]?.();

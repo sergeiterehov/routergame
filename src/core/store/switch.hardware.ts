@@ -1,10 +1,10 @@
 import { Device, Port } from "../device";
 import { setIntervalRecursive } from "../helpers";
-import { System } from "../system";
-import { expose } from "./helpers";
+import { Hardware } from "../hardware";
+import { SEC } from "../format";
 
-const EXPIRE_INTERVAL_MS = 1_000;
-const TTL_MS = 30_000;
+const _EXPIRE_INTERVAL_MS = 1 * SEC;
+const _TTL_MS = 30 * SEC;
 
 class HardwareEthernet extends Device {
   type: string = "HardwareEthernet";
@@ -34,7 +34,9 @@ class HardwareEthernet extends Device {
   }
 }
 
-class L2 extends System {
+export class Switch extends Hardware {
+  override _devices: HardwareEthernet[] = [];
+
   private _learned: Map<bigint, { port: number; expires_at: number }> = new Map();
   private _links: boolean[];
 
@@ -52,7 +54,7 @@ class L2 extends System {
       this.addDevice(dev);
     }
 
-    setIntervalRecursive(this._timer_expire_learned.bind(this), EXPIRE_INTERVAL_MS);
+    setIntervalRecursive(this._timer_expire_learned.bind(this), _EXPIRE_INTERVAL_MS);
   }
 
   private _handle_link(port: number, connected: boolean) {
@@ -85,7 +87,7 @@ class L2 extends System {
   private _learn(mac: bigint, port: number) {
     this._learned.set(mac, {
       port,
-      expires_at: Date.now() + TTL_MS,
+      expires_at: Date.now() + _TTL_MS,
     });
   }
 
@@ -97,16 +99,3 @@ class L2 extends System {
     }
   }
 }
-
-function begin() {
-  console.log("Hello unmanaged L2", self.name);
-
-  const sys = new L2(16);
-
-  for (let i = 0; i < sys._devices.length; i += 1) {
-    const dev = sys._devices[i];
-    if (dev instanceof HardwareEthernet) expose(i, dev.port);
-  }
-}
-
-begin();

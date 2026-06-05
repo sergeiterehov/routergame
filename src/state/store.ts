@@ -1,6 +1,6 @@
 import { makeAutoObservable, toJS } from "mobx";
-import * as Workers from "../devices/workers";
-import type { Bus } from "../devices/bus";
+import * as Workers from "../workers";
+import type { Bus } from "../workers/bus";
 import { initial_arch } from "./initial";
 import { ConnectionTool } from "./connection.tool";
 
@@ -10,7 +10,7 @@ export type TArchNode = {
   ports: { id: string; type: "ethernet" }[];
   ui: { x: number; y: number };
   fs: { [key: string]: string };
-} & ({ type: "pc" | "router" | "server"; ethernetPorts: { id: string; mac: string }[] } | { type: "l2" });
+} & ({ type: "pc" | "router" | "server"; ethernetPorts: { id: string; mac: string }[] } | { type: "switch" });
 
 export type TArchConnection = {
   id: string;
@@ -37,7 +37,7 @@ const Type2Worker: { [key in TArchNode["type"]]: new (options: WorkerOptions) =>
   pc: Workers.PCWorker,
   router: Workers.RouterWorker,
   server: Workers.ServerWorker,
-  l2: Workers.L2Worker,
+  switch: Workers.SwitchWorker,
 };
 
 export class Store {
@@ -557,9 +557,9 @@ export class Store {
     return node;
   }
 
-  node_create_l2(config: Partial<Pick<TArchNode, "ui" | "name">>) {
+  node_create_switch(config: Partial<Pick<TArchNode, "ui" | "name">>) {
     const node: TArchNode = makeAutoObservable({
-      type: "l2",
+      type: "switch",
       id: this.randomize_id(),
       ports: new Array(16).fill(0).map((_, i) => ({ id: `eth${i}`, type: "ethernet" })),
       name: config.name || "New Switch",

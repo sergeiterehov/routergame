@@ -45,7 +45,7 @@ export const initial_arch: TArchitecture = {
     },
     {
       id: "sw",
-      type: "l2",
+      type: "switch",
       name: "Switch",
       ports: new Array(16).fill(0).map((_, i) => ({ id: `eth${i}`, type: "ethernet" })),
       ui: { x: 200, y: 300 },

@@ -36,7 +36,7 @@ export const Root = observer(function Root() {
           </div>
           {console_visible && (
             <div className="shrink-0 flex bg-gray-500/5 border-t border-gray-500/10" style={{ height: console_height }}>
-              {selected_node && selected_node.type !== "l2" ? <Console id={selected_node.id} /> : null}
+              {selected_node && selected_node.type !== "switch" ? <Console id={selected_node.id} /> : null}
             </div>
           )}
         </div>

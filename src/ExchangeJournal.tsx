@@ -9,9 +9,9 @@ import {
   IP_PROTOCOLS,
   MAC_BROADCAST,
   TCP_FLAGS,
-} from "./devices/pack";
-import { formatValue, hexdump } from "./devices/format";
-import { from_utf8 } from "./devices/apps/app.lib";
+} from "./core/pack";
+import { formatValue, hexdump } from "./core/format";
+import { from_utf8 } from "./core/apps/app.lib";
 
 const _head_row = (
   <tr>
