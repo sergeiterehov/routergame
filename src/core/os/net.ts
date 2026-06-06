@@ -30,7 +30,7 @@ export type TIP4 = { address: number; prefix: number };
 
 export type TInterface = {
   index: number;
-  type: "loopback" | "ethernet" | "bridge" | "vlan" | "ipip";
+  type: "loopback" | "ethernet" | "bridge" | "vlan" | "ipip" | "ipip-udp";
   name: string;
   flags: {
     UP?: boolean;

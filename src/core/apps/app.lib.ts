@@ -176,8 +176,8 @@ export async function run_command_of(os: OS, commands: Record<string, TCommand>,
               if (arg.default) os.print(", default = ", arg.default.join(","));
               os.print("\n");
             }
+            os.print(`\n`);
           }
-          os.print(`\n`);
         }
       },
     },

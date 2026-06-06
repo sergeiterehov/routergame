@@ -16,6 +16,7 @@ import { Tracker } from "./tracker";
 import { Firewall, FW_CHAINS, type TPacketContext } from "./fw";
 import type { TSocket } from "./socket";
 import { IPIP } from "./ipip";
+import { IPIPUDP } from "./ipip-udp";
 
 export type TRoute = { network: number; prefix: number; gateway?: number; iInterface: number; src?: number };
 
@@ -30,10 +31,14 @@ export class IP4 {
   readonly fw = new Firewall(this);
 
   readonly ipip = new IPIP(this);
+  readonly ipip_udp = new IPIPUDP(this);
 
   constructor(public readonly net: Net) {}
 
   handle_packet(iInterface: number, packet: TIP4Packet) {
+    const iface = this.net.iface(iInterface);
+    if (!iface.flags.UP) return NET_ERRORS.INTERFACE_DOWN;
+
     const fw_context: TPacketContext = { in: iInterface };
 
     if (this.fw.handle_chain(FW_CHAINS.PRE_ROUTING, packet, fw_context)) return;
@@ -85,6 +90,9 @@ export class IP4 {
     fw_context: TPacketContext,
     socket: TSocket | undefined,
   ): number {
+    const iface = this.net.iface(iInterface);
+    if (!iface.flags.UP) return NET_ERRORS.INTERFACE_DOWN;
+
     fw_context.out = iInterface;
 
     let local_iface: TInterface | undefined;
@@ -100,8 +108,6 @@ export class IP4 {
       return 0;
     }
 
-    const iface = this.net.iface(iInterface);
-
     if (iface.type === "loopback") {
       this.handle_packet(iInterface, packet);
       return 0;
@@ -112,6 +118,10 @@ export class IP4 {
 
     if (iface.type === "ipip") {
       return this.ipip.send_packet(iInterface, packet);
+    }
+
+    if (iface.type === "ipip-udp") {
+      return this.ipip_udp.send_packet(iInterface, packet);
     }
 
     if (iface.mac === undefined) return NET_ERRORS.NO_ROUTE;
@@ -274,6 +284,11 @@ export class IP4 {
     // IPIP
     if (packet.header.protocol === IP_PROTOCOLS.IPIP) {
       this.ipip.handle_packet(iInterface, packet);
+    }
+
+    if (packet.header.protocol === IP_PROTOCOLS.UDP) {
+      const stop = this.ipip_udp.handle_packet(iInterface, packet);
+      if (stop) return;
     }
 
     // Sockets

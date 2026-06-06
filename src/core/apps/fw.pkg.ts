@@ -147,7 +147,7 @@ async function _add(os: OS, args: string[]) {
           "[-src-port number]",
           "[-dst-port number]",
           `[-state ${STATES.join("|")}]`,
-          "[-protocol icmp|udp|tcp]",
+          `[-protocol ${Object.keys(IP_PROTOCOLS).join("|").toLowerCase()}]`,
           "[-to-ip ip]",
           "[-to-port ip]",
         ].join(" "),
@@ -207,16 +207,11 @@ async function _add(os: OS, args: string[]) {
 
   const protocol_args = find_args(args, "-protocol");
   for (const protocol_arg of protocol_args) {
+    const protocol = IP_PROTOCOLS[protocol_arg.toUpperCase() as keyof typeof IP_PROTOCOLS];
+    if (protocol === undefined) throw new Error(`Invalid protocol ${protocol_arg}`);
+
     predicate.protocol ||= [];
-    if (protocol_arg === "icmp") {
-      predicate.protocol.push(IP_PROTOCOLS.ICMP);
-    } else if (protocol_arg === "udp") {
-      predicate.protocol.push(IP_PROTOCOLS.UDP);
-    } else if (protocol_arg === "tcp") {
-      predicate.protocol.push(IP_PROTOCOLS.TCP);
-    } else {
-      throw new Error(`Invalid protocol ${protocol_arg}`);
-    }
+    predicate.protocol.push(protocol);
   }
 
   const state_args = find_args(args, "-state");

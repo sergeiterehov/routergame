@@ -10,6 +10,7 @@ import {
   validate_mac,
 } from "../format";
 import type { TIPIPTun } from "../os/ipip";
+import type { TIPIPUDPTun } from "../os/ipip-udp";
 import type { TInterface } from "../os/net";
 import type { OS, TApp, TAppContext } from "../os/os";
 import { find_arg, find_args, has_arg, run_command_of, test_args } from "./app.lib";
@@ -609,6 +610,83 @@ const _tun_ipip: TApp = async (os, args, ctx) => {
   );
 };
 
+const _tun_ipip_udp_add = async (
+  os: OS,
+  config: {
+    name: string;
+    local_ip: number;
+    remote_ip: number;
+    local_port: number;
+    remote_port: number;
+    active: boolean;
+    passive: boolean;
+  },
+  ctx: TAppContext,
+) => {
+  const { passive, active, local_ip, local_port, name, remote_ip, remote_port } = config;
+
+  if (os.net.iface_by_name(name)) throw new Error(`Interface ${name} already exists`);
+  if (local_port <= 0 || local_port > 65535) throw new Error("Invalid local port");
+  if (remote_port <= 0 || remote_port > 65535) throw new Error("Invalid remote port");
+
+  const iface = os.net.add_interface("ipip-udp", name, -1);
+  iface.flags.POINTTOPOINT = true;
+  iface.flags.RUNNING = !passive && !active;
+
+  const tun: TIPIPUDPTun = {
+    iInterface: iface.index,
+    local_ip,
+    remote_ip,
+    local_port,
+    remote_port,
+    passive,
+    active,
+    last_ping_at: 0,
+  };
+  os.net.ip4.ipip_udp._tuns.push(tun);
+
+  return;
+};
+
+const _tun_ipip_udp: TApp = async (os, args, ctx) => {
+  await run_command_of(
+    os,
+    {
+      add: {
+        desc: "Add IPIP UDP tunnel",
+        args: [
+          { alias: "name", type: "string", required: true },
+          { name: "local", type: "ip", required: true, desc: "Local IP address" },
+          { name: "local-port", type: "number", required: true, desc: "Local port" },
+          { name: "remote", type: "ip", required: true, desc: "Remote IP address" },
+          { name: "remote-port", type: "number", required: true, desc: "Remote port" },
+          { name: "--active", type: "flag", desc: "Periodic sending ping-packet to keep connection alive" },
+          {
+            name: "--passive",
+            type: "flag",
+            desc: "Wait for incoming packets on local-port, saving and updating remote address information",
+          },
+        ],
+        fn: (_args, parsed) =>
+          _tun_ipip_udp_add(
+            os,
+            {
+              name: parsed.name![0],
+              local_ip: parseIPv4(parsed.local![0]),
+              remote_ip: parseIPv4(parsed.remote![0]),
+              local_port: Number(parsed["local-port"]![0]),
+              remote_port: Number(parsed["remote-port"]![0]),
+              active: Boolean(parsed.active),
+              passive: Boolean(parsed.passive),
+            },
+            ctx,
+          ),
+      },
+    },
+    args,
+  );
+};
+
 export const tun: TApp = async (os, args, ctx) => {
   await run_command_of(
     os,
@@ -616,6 +694,10 @@ export const tun: TApp = async (os, args, ctx) => {
       ipip: {
         desc: "IPIP tunnel",
         fn: (_args) => _tun_ipip(os, _args, ctx),
+      },
+      "ipip-udp": {
+        desc: "IPIP UDP tunnel. Supports passive mode, for automatic remote address update.",
+        fn: (_args) => _tun_ipip_udp(os, _args, ctx),
       },
     },
     args,
