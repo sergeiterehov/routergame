@@ -17,6 +17,8 @@ function begin() {
   {
     const lo = os.net.add_interface("loopback", "lo", -1);
     lo.flags.UP = true;
+    lo.flags.LOOPBACK = true;
+    lo.flags.RUNNING = true;
     lo.ips.push({ address: (127 << 24) + 1, prefix: 8 });
     os.net.ip4._routes.push({ iInterface: lo.index, network: 127 << 24, prefix: 8 });
   }

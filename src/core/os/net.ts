@@ -30,11 +30,16 @@ export type TIP4 = { address: number; prefix: number };
 
 export type TInterface = {
   index: number;
-  type: "loopback" | "ethernet" | "bridge" | "vlan";
+  type: "loopback" | "ethernet" | "bridge" | "vlan" | "ipip";
   name: string;
   flags: {
     UP?: boolean;
-    LOWER_UP?: boolean;
+    RUNNING?: boolean;
+    POINTTOPOINT?: boolean;
+    PROMISC?: boolean;
+    LOOPBACK?: boolean;
+    SLAVE?: boolean;
+    MASTER?: boolean;
   };
   mac?: bigint;
   iDriver: number;
@@ -71,8 +76,17 @@ export class Net {
 
   change_mac(iInterface: number, mac: bigint) {
     const iface = this._interfaces[iInterface];
-    const driver = this.os._drivers[iface.iDriver];
-    driver.call({ $: "change_mac", mac });
+
+    if (iface.type === "bridge") {
+      this.br.change_mac(iface.index, mac);
+      return;
+    }
+
+    if (iface.type === "ethernet") {
+      const driver = this.os._drivers[iface.iDriver];
+      driver.call({ $: "change_mac", mac });
+      return;
+    }
   }
 
   send_frame(iInterface: number, frame: TEthernetFrame): number {
@@ -80,8 +94,7 @@ export class Net {
 
     if (!iface.flags.UP) return NET_ERRORS.INTERFACE_DOWN;
 
-    // ignore loopback frames
-    if (iface.type === "loopback") return 0;
+    if (!iface.mac) return NET_ERRORS.UNREACHABLE;
 
     if (iface.type === "bridge") {
       this.br.br_send_frame(iface.index, frame);
@@ -93,10 +106,14 @@ export class Net {
       return 0;
     }
 
-    const driver = this.os._drivers[iface.iDriver];
-    const raw = pack_ethernet_frame(frame);
-    driver.net_send_frame?.(iInterface, raw);
-    return 0;
+    if (iface.type === "ethernet") {
+      const driver = this.os._drivers[iface.iDriver];
+      const raw = pack_ethernet_frame(frame);
+      driver.net_send_frame?.(iInterface, raw);
+      return 0;
+    }
+
+    return NET_ERRORS.UNREACHABLE;
   }
 
   handle_raw_ingress(iInterface: number, raw: Uint8Array) {
@@ -109,8 +126,7 @@ export class Net {
 
     if (!iface.flags.UP) return;
 
-    // ignore loopback frames
-    if (iface.type === "loopback") return;
+    if (!iface.mac) return;
 
     const { dst, src, etherType } = frame;
 

@@ -69,7 +69,7 @@ export class SimpleEthernetDriver extends Driver {
 
     this._iface = this._os.net.add_interface("ethernet", `eth${iDevice}`, this._iDriver);
     this._iface.mac = this._device.mac;
-    this._iface.flags.LOWER_UP = this._device.get_link();
+    this._iface.flags.RUNNING = this._device.get_link();
     this._iface.flags.UP = true;
   }
 
@@ -81,7 +81,7 @@ export class SimpleEthernetDriver extends Driver {
       dev.received = undefined;
     }
 
-    this._iface.flags.LOWER_UP = dev.get_link();
+    this._iface.flags.RUNNING = dev.get_link();
   }
 
   net_send_frame = (iInterface: number, data: Uint8Array) => {

@@ -9,33 +9,33 @@ import {
   validate_ip,
   validate_mac,
 } from "../format";
+import type { TIPIPTun } from "../os/ipip";
 import type { TInterface } from "../os/net";
-import type { OS, TApp } from "../os/os";
-import { find_arg, find_args, has_arg, test_args } from "./app.lib";
+import type { OS, TApp, TAppContext } from "../os/os";
+import { find_arg, find_args, has_arg, run_command_of, test_args } from "./app.lib";
 
-function _get_iface(os: OS, name: string) {
-  return os.net._interfaces.find((p) => p.name === name);
-}
+const _ALL_FLAGS: Required<TInterface["flags"]> = {
+  UP: true,
+  RUNNING: true,
+  LOOPBACK: true,
+  PROMISC: true,
+  SLAVE: true,
+  MASTER: true,
+  POINTTOPOINT: true,
+};
+const _FLAG_NAMES = Object.keys(_ALL_FLAGS) as (keyof typeof _ALL_FLAGS)[];
 
 function _print_interface(os: OS, name: string) {
-  const iface = _get_iface(os, name);
+  const iface = os.net.iface_by_name(name);
 
   if (!iface) {
     os.print("Interface not found\n");
     return;
   }
 
-  const flags = [
-    iface.flags.UP ? "UP" : "DOWN",
-    iface.flags.LOWER_UP && "LOWER_UP",
-    iface.iMasterInterface !== undefined && "SLAVE",
-  ]
-    .filter(Boolean)
-    .join(",");
-
   os.print(
     [
-      `${iface.name}: <${flags}>`,
+      `${iface.name}: <${_FLAG_NAMES.filter((k) => iface.flags[k]).join()}>`,
       iface.mac && `ether ${formatMAC(iface.mac)}`,
       iface.ips?.map((ip) => `inet ${formatIPv4(ip.address)}/${ip.prefix}`).join("\n\t"),
       ...os.net._interfaces
@@ -105,7 +105,7 @@ export const iface: TApp = async (os, args, ctx) => {
   const name = args.shift();
   if (!name) return _print_interfaces(os);
 
-  const iface = _get_iface(os, name);
+  const iface = os.net.iface_by_name(name);
   if (!iface) throw new Error(`Interface ${name} not found`);
 
   const op = args.shift();
@@ -184,7 +184,7 @@ export const iface: TApp = async (os, args, ctx) => {
       const signal = AbortSignal.any([AbortSignal.timeout(timeout * SEC), ctx.signal]);
 
       while (!signal.aborted) {
-        if (iface.flags.LOWER_UP) {
+        if (iface.flags.RUNNING) {
           os.print(`Ok, ${iface.name} is LOWER_UP\n`);
           return;
         }
@@ -279,7 +279,7 @@ export async function route(os: OS, args: string[]) {
         if (!_dev) throw new Error(`Interface with ${_src} not found`);
       }
 
-      const iface = _get_iface(os, _dev);
+      const iface = os.net.iface_by_name(_dev);
       if (!iface) throw new Error("Interface not found");
 
       if (_src) {
@@ -363,8 +363,27 @@ export async function route(os: OS, args: string[]) {
     } else {
       throw new Error("Usage: move <number> before <number>");
     }
+  } else if (op === "find") {
+    if (test_args(args, validate_ip)) {
+      const ip = parseIPv4(args[0]);
+
+      const route = os.net.ip4.route(ip);
+      if (!route) throw new Error("No route found");
+
+      os.print(
+        [
+          formatIPv4(ip),
+          `[${formatIPv4(route.network)}/${route.prefix}]`,
+          `src ${formatIPv4(route.src)} via ${formatIPv4(route.gateway)}`,
+          os.net.iface(route.iInterface).name,
+        ].join(" -> "),
+        "\n",
+      );
+    } else {
+      throw new Error("Usage: find <ip>");
+    }
   } else {
-    throw new Error("Usage:\nadd ...\ndel ...\nmove ...");
+    throw new Error("Usage:\nadd ...\ndel ...\nmove ...\nfind ...");
   }
 }
 
@@ -387,7 +406,7 @@ export async function br(os: OS, args: string[]) {
     }
 
     const slaves = args.map((_name) => {
-      const _slave = _get_iface(os, _name);
+      const _slave = os.net.iface_by_name(_name);
       if (!_slave) throw new Error(`Interface ${_name} not found`);
       if (_slave.iMasterInterface !== undefined) throw new Error(`Interface ${_name} is already a slave`);
       if (_slave.type === "bridge") throw new Error(`Interface ${_name} is a bridge`);
@@ -397,6 +416,8 @@ export async function br(os: OS, args: string[]) {
     const br_iface = os.net.add_interface("bridge", name, -1);
 
     br_iface.mac = 0n;
+    br_iface.flags.MASTER = true;
+    br_iface.flags.RUNNING = true;
 
     os.net.br._bridges.push({
       iBridge: br_iface.index,
@@ -411,6 +432,8 @@ export async function br(os: OS, args: string[]) {
     for (const port_iface of slaves) {
       _flush_interface(os, port_iface);
       port_iface.iMasterInterface = br_iface.index;
+      port_iface.flags.PROMISC = true;
+      port_iface.flags.SLAVE = true;
 
       bridge.ports.push({
         iPort: port_iface.index,
@@ -460,7 +483,7 @@ export async function br(os: OS, args: string[]) {
 
   if (test_args(args, "add", Boolean)) {
     const _port_name = args[1];
-    const port_iface = _get_iface(os, _port_name);
+    const port_iface = os.net.iface_by_name(_port_name);
     if (!port_iface) throw new Error(`Interface ${_port_name} not found`);
 
     try {
@@ -502,7 +525,7 @@ export async function br(os: OS, args: string[]) {
     args.splice(0, 2);
 
     const vlan_name = args.shift()!;
-    if (_get_iface(os, vlan_name)) throw new Error(`Interface ${vlan_name} already exists`);
+    if (os.net.iface_by_name(vlan_name)) throw new Error(`Interface ${vlan_name} already exists`);
 
     const _vid = find_arg(args, "-v", bridge.pvid.toString());
     const vid = Number(_vid);
@@ -519,7 +542,7 @@ export async function br(os: OS, args: string[]) {
   }
 
   const port_name = args.shift()!;
-  const port_iface = _get_iface(os, port_name);
+  const port_iface = os.net.iface_by_name(port_name);
   if (!port_iface) throw new Error(`Interface ${port_name} not found`);
   const port = os.net.br.get_port(port_iface.index);
   if (!bridge.ports.includes(port)) throw new Error(`Interface ${port_name} is not a port`);
@@ -539,3 +562,62 @@ export async function br(os: OS, args: string[]) {
     if (untagged) port.untagged = untagged;
   }
 }
+
+async function _tun_ipip_add(os: OS, config: { name: string; local_ip: string; remote_ip: string }, ctx: TAppContext) {
+  const { local_ip, name, remote_ip } = config;
+
+  if (os.net.iface_by_name(name)) throw new Error(`Interface ${name} already exists`);
+
+  const iface = os.net.add_interface("ipip", name, -1);
+  iface.flags.POINTTOPOINT = true;
+  iface.flags.RUNNING = true;
+
+  const tun: TIPIPTun = {
+    iInterface: iface.index,
+    local_ip: parseIPv4(local_ip),
+    remote_ip: parseIPv4(remote_ip),
+  };
+  os.net.ip4.ipip._tuns.push(tun);
+
+  return;
+}
+
+const _tun_ipip: TApp = async (os, args, ctx) => {
+  await run_command_of(
+    os,
+    {
+      add: {
+        desc: "Add IPIP tunnel",
+        args: [
+          { alias: "name", type: "string", required: true },
+          { name: "local", type: "ip", required: true, desc: "Local IP address" },
+          { name: "remote", type: "ip", required: true, desc: "Remote IP address" },
+        ],
+        fn: (_args, parsed) =>
+          _tun_ipip_add(
+            os,
+            {
+              name: parsed.name![0],
+              local_ip: parsed.local![0],
+              remote_ip: parsed.remote![0],
+            },
+            ctx,
+          ),
+      },
+    },
+    args,
+  );
+};
+
+export const tun: TApp = async (os, args, ctx) => {
+  await run_command_of(
+    os,
+    {
+      ipip: {
+        desc: "IPIP tunnel",
+        fn: (_args) => _tun_ipip(os, _args, ctx),
+      },
+    },
+    args,
+  );
+};

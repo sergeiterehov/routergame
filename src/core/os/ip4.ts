@@ -15,6 +15,7 @@ import { testSameNetwork } from "../format";
 import { Tracker } from "./tracker";
 import { Firewall, FW_CHAINS, type TPacketContext } from "./fw";
 import type { TSocket } from "./socket";
+import { IPIP } from "./ipip";
 
 export type TRoute = { network: number; prefix: number; gateway?: number; iInterface: number; src?: number };
 
@@ -27,6 +28,8 @@ export class IP4 {
 
   readonly tracker = new Tracker(this);
   readonly fw = new Firewall(this);
+
+  readonly ipip = new IPIP(this);
 
   constructor(public readonly net: Net) {}
 
@@ -97,16 +100,23 @@ export class IP4 {
       return 0;
     }
 
-    const route_iface = this.net.iface(iInterface);
+    const iface = this.net.iface(iInterface);
 
-    if (route_iface.type === "loopback") {
+    if (iface.type === "loopback") {
       this.handle_packet(iInterface, packet);
       return 0;
     }
 
-    if (route_iface.mac === undefined) return NET_ERRORS.NO_ROUTE;
+    if (this.fw.handle_chain(FW_CHAINS.POST_ROUTING, packet, fw_context)) return NET_ERRORS.ACCESS;
+    if (this.fw.handle_chain(FW_CHAINS.SRC_NAT, packet, fw_context)) return NET_ERRORS.ACCESS;
 
-    const src_mac = route_iface.mac;
+    if (iface.type === "ipip") {
+      return this.ipip.send_packet(iInterface, packet);
+    }
+
+    if (iface.mac === undefined) return NET_ERRORS.NO_ROUTE;
+
+    const src_mac = iface.mac;
     let dst_mac = -1n; // -1 unknown, -2 pending, -3 fail
 
     for (const _arp of this.net.arp._table) {
@@ -130,9 +140,6 @@ export class IP4 {
     }
 
     if (dst_mac === -3n) return NET_ERRORS.UNREACHABLE;
-
-    if (this.fw.handle_chain(FW_CHAINS.POST_ROUTING, packet, fw_context)) return NET_ERRORS.ACCESS;
-    if (this.fw.handle_chain(FW_CHAINS.SRC_NAT, packet, fw_context)) return NET_ERRORS.ACCESS;
 
     const frame: TEthernetFrame = {
       dst: dst_mac,
@@ -193,10 +200,8 @@ export class IP4 {
     let route: TRoute | undefined;
     for (const _route of this._routes) {
       if (!testSameNetwork(dst, _route.network, _route.prefix)) continue;
-      if (!route || _route.prefix > route.prefix) {
-        route = _route;
-        break;
-      }
+      if (route && _route.prefix <= route.prefix) continue;
+      route = _route;
     }
     if (!route) return;
 
@@ -264,6 +269,11 @@ export class IP4 {
 
         return;
       }
+    }
+
+    // IPIP
+    if (packet.header.protocol === IP_PROTOCOLS.IPIP) {
+      this.ipip.handle_packet(iInterface, packet);
     }
 
     // Sockets

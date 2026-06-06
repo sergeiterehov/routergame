@@ -12,6 +12,7 @@ export type TEthernetFrame = {
 
 export const IP_PROTOCOLS = {
   ICMP: 1,
+  IPIP: 4,
   TCP: 6,
   UDP: 17,
 } as const;

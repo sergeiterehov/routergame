@@ -177,6 +177,13 @@ export class Bridge {
     throw new Error("Vlan not found");
   }
 
+  change_mac(iBridge: number, mac: bigint) {
+    const iface = this.net.iface(iBridge);
+    if (iface.type !== "bridge") return;
+
+    iface.mac = mac;
+  }
+
   private _send_frame_to_port(iBridge: number, iPort: number, frame: TEthernetFrame) {
     const bridge = this.get_bridge(iBridge);
 

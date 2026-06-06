@@ -89,7 +89,12 @@ export const NodeProps = observer(function NodeProps(props: { id: string }) {
         })}
       </div>
       <div className="text-md font-semibold">Initial script</div>
-      <pre className="textarea textarea-sm w-full font-mono">{node.fs["/init"]}</pre>
+      <pre className="textarea textarea-sm w-full font-mono whitespace-pre-wrap wrap-break-word overflow-hidden">
+        {node.fs["/init"]
+          ?.split("\n")
+          .map((s) => `# ${s}`)
+          .join("\n")}
+      </pre>
       <div className="text-md font-semibold flex items-center">
         <div className="grow">Files</div>
         <IconPlus
