@@ -4,13 +4,27 @@ import type { Bus } from "../workers/bus";
 import { initial_arch } from "./initial";
 import { ConnectionTool } from "./connection.tool";
 
+export const CATEGORY = {
+  SWITCH: "switch",
+  ROUTER: "router",
+  PC: "pc",
+  SERVER: "server",
+} as const;
+
 export type TArchNode = {
   id: string;
   name: string;
   ports: { id: string; type: "ethernet" }[];
   ui: { x: number; y: number };
   fs: { [key: string]: string };
-} & ({ type: "pc" | "router" | "server"; ethernetPorts: { id: string; mac: string }[] } | { type: "switch" });
+  category: string;
+} & (
+  | {
+      type: "os";
+      ethernetPorts: { id: string; mac: string }[];
+    }
+  | { type: "switch" }
+);
 
 export type TArchConnection = {
   id: string;
@@ -34,9 +48,7 @@ export const enum TOOL {
 }
 
 const Type2Worker: { [key in TArchNode["type"]]: new (options: WorkerOptions) => Worker } = {
-  pc: Workers.PCWorker,
-  router: Workers.RouterWorker,
-  server: Workers.ServerWorker,
+  os: Workers.OSWorker,
   switch: Workers.SwitchWorker,
 };
 
@@ -473,7 +485,8 @@ export class Store {
 
   node_create_pc(config: Partial<Pick<TArchNode, "ui" | "name">>) {
     const node: TArchNode = makeAutoObservable({
-      type: "pc",
+      type: "os",
+      category: CATEGORY.PC,
       id: this.randomize_id(),
       ethernetPorts: [{ id: "eth0", mac: this.randomize_mac() }],
       ports: [{ id: "eth0", type: "ethernet" }],
@@ -495,7 +508,8 @@ export class Store {
 
   node_create_router(config: Partial<Pick<TArchNode, "ui" | "name">>) {
     const node: TArchNode = makeAutoObservable({
-      type: "router",
+      type: "os",
+      category: CATEGORY.ROUTER,
       id: this.randomize_id(),
       ports: [],
       ethernetPorts: [],
@@ -533,7 +547,8 @@ export class Store {
 
   node_create_server(config: Partial<Pick<TArchNode, "ui" | "name">>) {
     const node: TArchNode = makeAutoObservable({
-      type: "server",
+      type: "os",
+      category: CATEGORY.SERVER,
       id: this.randomize_id(),
       ethernetPorts: [
         { id: "eth0", mac: this.randomize_mac() },
@@ -560,6 +575,7 @@ export class Store {
   node_create_switch(config: Partial<Pick<TArchNode, "ui" | "name">>) {
     const node: TArchNode = makeAutoObservable({
       type: "switch",
+      category: CATEGORY.SWITCH,
       id: this.randomize_id(),
       ports: new Array(16).fill(0).map((_, i) => ({ id: `eth${i}`, type: "ethernet" })),
       name: config.name || "New Switch",

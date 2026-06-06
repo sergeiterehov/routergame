@@ -103,8 +103,6 @@ export function parse_args(types: TArg[], args: string[]) {
     }
   }
 
-  console.log(result);
-
   return result;
 }
 

@@ -1,18 +1,18 @@
 import { observer } from "mobx-react-lite";
-import { store, type TArchNode, TOOL } from "./state/store.ts";
+import { store, TOOL } from "./state/store.ts";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { autorun } from "mobx";
 import { IconDeviceImac, IconServer2, IconTopologyBus, IconSwitch3 } from "@tabler/icons-react";
 
 const itemSize = 64;
 
-const Type2Color: { [key in TArchNode["type"]]?: string } = {
+const Type2Color: { [key in string]?: string } = {
   pc: "bg-sky-500/40",
   router: "bg-violet-500/40",
   server: "bg-green-500/40",
   switch: "bg-gray-500/40",
 };
-const Type2Icon: { [key in TArchNode["type"]]?: typeof IconDeviceImac } = {
+const Type2Icon: { [key in string]?: typeof IconDeviceImac } = {
   pc: IconDeviceImac,
   server: IconServer2,
   router: IconSwitch3,
@@ -183,8 +183,8 @@ export const Canvas = observer(function Canvas() {
           })}
         </svg>
         {store.arch.node.map((n) => {
-          const color = Type2Color[n.type];
-          const Icon = Type2Icon[n.type];
+          const color = Type2Color[n.category!];
+          const Icon = Type2Icon[n.category!];
           return (
             <div
               key={n.id}

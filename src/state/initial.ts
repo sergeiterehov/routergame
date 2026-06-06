@@ -5,7 +5,8 @@ export const initial_arch: TArchitecture = {
   node: [
     {
       id: "router",
-      type: "router",
+      type: "os",
+      category: "router",
       name: "Router",
       ports: [
         { id: "eth0", type: "ethernet" },
@@ -46,6 +47,7 @@ export const initial_arch: TArchitecture = {
     {
       id: "sw",
       type: "switch",
+      category: "switch",
       name: "Switch",
       ports: new Array(16).fill(0).map((_, i) => ({ id: `eth${i}`, type: "ethernet" })),
       ui: { x: 200, y: 300 },
@@ -53,7 +55,8 @@ export const initial_arch: TArchitecture = {
     },
     {
       id: "server",
-      type: "server",
+      type: "os",
+      category: "server",
       name: "Server",
       ports: [
         { id: "eth0", type: "ethernet" },
@@ -100,7 +103,8 @@ server:
     },
     {
       id: "pc_a",
-      type: "pc",
+      type: "os",
+      category: "pc",
       name: "PC A",
       ports: [{ id: "eth0", type: "ethernet" }],
       ethernetPorts: [{ id: "eth0", mac: "00:00:00:aa:00:00" }],
@@ -112,7 +116,8 @@ server:
     },
     {
       id: "pc_b",
-      type: "pc",
+      type: "os",
+      category: "pc",
       name: "PC B",
       ports: [{ id: "eth0", type: "ethernet" }],
       ethernetPorts: [{ id: "eth0", mac: "00:00:00:aa:01:00" }],
