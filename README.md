@@ -24,7 +24,7 @@
 - ARP
 - IP routing
 - IPIP tunnel
-- IPIP over UDP + NAT mode
+- IPIP over UDP, NAT traversal
 - ICMP
 - UDP
 - TCP

@@ -73,7 +73,6 @@ export class OS {
 
   install(apps: typeof this._apps) {
     Object.assign(this._apps, apps);
-    this.print(`Installed: ${Object.keys(apps).join(", ")}\n`);
   }
 
   async exec(name: string, args: string[], ctx: TAppContext) {
