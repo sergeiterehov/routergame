@@ -38,7 +38,7 @@ function _print_interface(os: OS, name: string) {
     [
       `${iface.name}: <${_FLAG_NAMES.filter((k) => iface.flags[k]).join()}>`,
       iface.mac && `ether ${formatMAC(iface.mac)}`,
-      iface.ips?.map((ip) => `inet ${formatIPv4(ip.address)}/${ip.prefix}`).join("\n\t"),
+      iface.ips?.map((ip) => `inet ${formatIPv4(ip.ip)}/${ip.prefix}`).join("\n\t"),
       ...os.net._interfaces
         .filter((other) => other.iMasterInterface === iface.index)
         .map((other) => `member: ${other.name}`),
@@ -50,10 +50,7 @@ function _print_interface(os: OS, name: string) {
 }
 
 function _print_interfaces(os: OS) {
-  for (let i = 0; i < os.net._interfaces.length; i++) {
-    const iface = os.net._interfaces[i];
-    _print_interface(os, iface.name);
-  }
+  os.net._interfaces.forEach((iface) => _print_interface(os, iface.name));
 }
 
 function _print_bridge(os: OS, br_iface: TInterface) {
@@ -63,7 +60,9 @@ function _print_bridge(os: OS, br_iface: TInterface) {
 
   os.print(`${br_iface.name} (VLAN=${bridge.vlan_filtering ? "ON" : "OFF"}, PVID=${bridge.pvid}):\n`);
 
-  for (const port of bridge.ports) {
+  for (const port of os.net.br._ports) {
+    if (port.iBridge !== br_iface.index) continue;
+
     const _iface = os.net.iface(port.iPort);
 
     os.print(
@@ -71,10 +70,12 @@ function _print_bridge(os: OS, br_iface: TInterface) {
     );
   }
 
-  if (bridge.vlans.length) {
+  const vlans = os.net.br._vlans.filter((vlan) => vlan.iBridge === br_iface.index);
+
+  if (vlans.length) {
     os.print("\tVLANS:\n");
 
-    for (const vlan of bridge.vlans) {
+    for (const vlan of vlans) {
       const _iface = os.net.iface(vlan.iVlan);
 
       os.print(`\t\t${_iface.name}: PVID=${vlan.vid}\n`);
@@ -123,11 +124,11 @@ export const iface: TApp = async (os, args, ctx) => {
     const _ip = parseIPv4(_ipaddr[0]);
     const _prefix = parseInt(_ipaddr[1]);
 
-    const ip_index = iface.ips.findIndex((p) => p.address === _ip);
+    const ip_index = iface.ips.findIndex((p) => p.ip === _ip);
 
     if (op === "add") {
       if (ip_index !== -1) throw new Error("IP already exists");
-      iface.ips.push({ address: _ip, prefix: _prefix });
+      iface.ips.push({ ip: _ip, prefix: _prefix });
     } else if (op === "del") {
       if (ip_index === -1) throw new Error("IP not found");
       iface.ips.splice(ip_index, 1);
@@ -270,8 +271,9 @@ export async function route(os: OS, args: string[]) {
       if (!_dev) {
         const src = parseIPv4(_src);
         for_iface: for (const iface of os.net._interfaces) {
+          if (!iface) continue;
           for (const ip of iface.ips) {
-            if (ip.address === src) {
+            if (ip.ip === src) {
               _dev = iface.name;
               break for_iface;
             }
@@ -287,8 +289,8 @@ export async function route(os: OS, args: string[]) {
         const src = parseIPv4(_src);
         let _ip = -1;
         for (const ip of os.net._interfaces[iface.index].ips) {
-          if (ip.address === src) {
-            _ip = ip.address;
+          if (ip.ip === src) {
+            _ip = ip.ip;
             break;
           }
         }
@@ -391,6 +393,7 @@ export async function route(os: OS, args: string[]) {
 export async function br(os: OS, args: string[]) {
   if (!args.length) {
     for (const _br of os.net._interfaces) {
+      if (!_br) continue;
       if (_br.type !== "bridge") continue;
       _print_bridge(os, _br);
     }
@@ -403,6 +406,7 @@ export async function br(os: OS, args: string[]) {
 
     const name = args.shift()!;
     for (const _br of os.net._interfaces) {
+      if (!_br) continue;
       if (_br.name === name) throw new Error("Bridge already exists");
     }
 
@@ -422,8 +426,6 @@ export async function br(os: OS, args: string[]) {
 
     os.net.br._bridges.push({
       iBridge: br_iface.index,
-      ports: [],
-      vlans: [],
       pvid: os.net.br._default_vlan_id,
       vlan_filtering: false,
     });
@@ -436,7 +438,8 @@ export async function br(os: OS, args: string[]) {
       port_iface.flags.PROMISC = true;
       port_iface.flags.SLAVE = true;
 
-      bridge.ports.push({
+      os.net.br._ports.push({
+        iBridge: br_iface.index,
         iPort: port_iface.index,
         pvid: bridge.pvid,
         untagged: [],
@@ -508,7 +511,8 @@ export async function br(os: OS, args: string[]) {
     _flush_interface(os, port_iface);
     port_iface.iMasterInterface = br_iface.index;
 
-    bridge.ports.push({
+    os.net.br._ports.push({
+      iBridge: br_iface.index,
       iPort: port_iface.index,
       pvid,
       untagged,
@@ -532,12 +536,13 @@ export async function br(os: OS, args: string[]) {
     const vid = Number(_vid);
     if (!_validate_vlan_id(vid)) throw new Error("Invalid VLAN ID");
 
-    if (bridge.vlans.some((v) => v.vid === vid)) throw new Error(`VLAN ${vid} already exists`);
+    if (os.net.br._vlans.some((v) => v.iBridge === bridge.iBridge && v.vid === vid))
+      throw new Error(`VLAN ${vid} already exists`);
 
     const vlan_iface = os.net.add_interface("vlan", vlan_name, -1);
     vlan_iface.iMasterInterface = br_iface.index;
     vlan_iface.mac = br_iface.mac;
-    bridge.vlans.push({ iVlan: vlan_iface.index, vid });
+    os.net.br._vlans.push({ iBridge: bridge.iBridge, iVlan: vlan_iface.index, vid });
 
     return;
   }
@@ -546,7 +551,7 @@ export async function br(os: OS, args: string[]) {
   const port_iface = os.net.iface_by_name(port_name);
   if (!port_iface) throw new Error(`Interface ${port_name} not found`);
   const port = os.net.br.get_port(port_iface.index);
-  if (!bridge.ports.includes(port)) throw new Error(`Interface ${port_name} is not a port`);
+  if (port.iBridge !== bridge.iBridge) throw new Error(`Interface ${port_name} is not a port`);
 
   if (test_args(args, "set")) {
     const tagged = has_arg(args, "-t") ? find_args(args, "-t").map(Number) : undefined;

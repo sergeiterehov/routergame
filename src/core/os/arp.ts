@@ -65,7 +65,7 @@ export class ARP {
         protoSize: 4,
         opcode: ARP_OPCODES.REQUEST,
         src_mac,
-        src_ip: sender_ip.address,
+        src_ip: sender_ip.ip,
         dst_ip: ip,
         dst_mac: 0n,
       }),
@@ -123,8 +123,9 @@ export class ARP {
     if (opcode === ARP_OPCODES.REQUEST) {
       // Request
       for (const _iface of this.net._interfaces) {
+        if (!_iface) continue;
         for (const _ip of _iface.ips) {
-          if (_ip.address === dst_ip) {
+          if (_ip.ip === dst_ip) {
             const frame: TEthernetFrame = {
               dst: src_mac,
               src: iface.mac,
@@ -136,7 +137,7 @@ export class ARP {
                 protoSize: 4,
                 opcode: ARP_OPCODES.REPLY,
                 src_mac: iface.mac,
-                src_ip: _ip.address,
+                src_ip: _ip.ip,
                 dst_mac: src_mac,
                 dst_ip: src_ip,
               }),

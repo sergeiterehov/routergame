@@ -37,10 +37,17 @@ export const FW_ACTIONS = {
   DNAT: "dnat",
 } as const;
 
+export const FW_CONN_STATES = {
+  NEW: "new",
+  ESTABLISHED: "established",
+  INVALID: "invalid",
+  RELATED: "related",
+} as const;
+
 export type TPacketContext = {
   untracked?: boolean;
   conn?: TConnection;
-  state?: "new" | "established" | "invalid" | "related";
+  state?: string;
   in?: number;
   out?: number;
 };
@@ -329,7 +336,7 @@ export class Firewall {
       }
 
       conn.flags.src_nat = true;
-      conn.reply_dst = ip.address;
+      conn.reply_dst = ip.ip;
     }
 
     packet.header.src = conn.reply_dst;

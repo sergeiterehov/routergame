@@ -19,7 +19,7 @@ function begin() {
     lo.flags.UP = true;
     lo.flags.LOOPBACK = true;
     lo.flags.RUNNING = true;
-    lo.ips.push({ address: (127 << 24) + 1, prefix: 8 });
+    lo.ips.push({ ip: (127 << 24) + 1, prefix: 8 });
     os.net.ip4._routes.push({ iInterface: lo.index, network: 127 << 24, prefix: 8 });
   }
   os.install(software);
@@ -32,9 +32,9 @@ function begin() {
     } else if (msg.$ === "fs") {
       for (const [key, value] of Object.entries(msg.fs)) {
         if (typeof value === "string") {
-          os.fs._fs[key] = value;
+          os.fs.write(key, value);
         } else {
-          delete os.fs._fs[key];
+          os.fs.rm(key);
         }
       }
     } else if (msg.$ === "configure") {

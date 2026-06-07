@@ -133,7 +133,7 @@ export async function dhcp_server(os: OS, args: string[]) {
       function get_options() {
         const options: TDhcpPacket["header"]["options"] = [
           { type: DHCP_OPTIONS.SUBNET_MASK, data: uint32(prefixToMask(server_ip.prefix)) },
-          { type: DHCP_OPTIONS.SERVER_ID, data: uint32(server_ip.address) },
+          { type: DHCP_OPTIONS.SERVER_ID, data: uint32(server_ip.ip) },
           { type: DHCP_OPTIONS.LEASE_TIME, data: uint32(_LEASE_TIME_S) },
         ];
 
@@ -160,7 +160,7 @@ export async function dhcp_server(os: OS, args: string[]) {
             header: {
               version: 4,
               dst: IP_BROADCAST,
-              src: server_ip.address,
+              src: server_ip.ip,
               protocol: IP_PROTOCOLS.UDP,
               ttl: 64,
               checksum: 0,
@@ -207,7 +207,7 @@ export async function dhcp_server(os: OS, args: string[]) {
             header: {
               version: 4,
               dst: IP_BROADCAST,
-              src: server_ip.address,
+              src: server_ip.ip,
               protocol: IP_PROTOCOLS.UDP,
               ttl: 64,
               checksum: 0,
@@ -254,7 +254,7 @@ export async function dhcp_server(os: OS, args: string[]) {
           if (requested_ip_opt && server_id_opt) {
             const requested_ip = new DataView(requested_ip_opt.buffer, requested_ip_opt.byteOffset).getUint32(0);
             const server_id = new DataView(server_id_opt.buffer, server_id_opt.byteOffset).getUint32(0);
-            if (requested_ip === leasing.ip && server_id === server_ip.address) {
+            if (requested_ip === leasing.ip && server_id === server_ip.ip) {
               leasing.expiresAt = Date.now() + _LEASE_TIME_S * 1_000;
               send_ack();
             }
@@ -508,7 +508,7 @@ export async function dhclient(os: OS, args: string[]) {
         if (type === DHCP_TYPES.ACK) {
           save_options(packet);
 
-          iface.ips.push({ address: packet.header.yiaddr, prefix: maskToPrefix(mask) });
+          iface.ips.push({ ip: packet.header.yiaddr, prefix: maskToPrefix(mask) });
           os.net.ip4._routes.push({
             iInterface: iface.index,
             network: packet.header.yiaddr,

@@ -26,11 +26,20 @@ export const NET_ERRORS = {
   INTERFACE_DOWN: 10,
 } as const;
 
-export type TIP4 = { address: number; prefix: number };
+export const INTERFACE_TYPES = {
+  LOOPBACK: "loopback",
+  ETHERNET: "ethernet",
+  BRIDGE: "bridge",
+  VLAN: "vlan",
+  IPIP: "ipip",
+  IPIP_UDP: "ipip-udp",
+} as const;
+
+export type TIP4 = { ip: number; prefix: number };
 
 export type TInterface = {
   index: number;
-  type: "loopback" | "ethernet" | "bridge" | "vlan" | "ipip" | "ipip-udp";
+  type: (typeof INTERFACE_TYPES)[keyof typeof INTERFACE_TYPES];
   name: string;
   flags: {
     UP?: boolean;
@@ -63,6 +72,7 @@ export class Net {
 
   iface_by_name(name: string) {
     for (const iface of this._interfaces) {
+      if (!iface) continue;
       if (iface.name === name) return iface;
     }
   }
@@ -154,8 +164,9 @@ export class Net {
 
       // ARP update
       for_arp: for (const _iface of this._interfaces) {
+        if (!_iface) continue;
         for (const _ip of _iface.ips) {
-          if (!testSameNetwork(packet.header.src, _ip.address, _ip.prefix)) continue;
+          if (!testSameNetwork(packet.header.src, _ip.ip, _ip.prefix)) continue;
           this.arp.update(iface.index, packet.header.src, src);
           break for_arp;
         }

@@ -51,6 +51,8 @@ export const init: TApp = async (os, args, ctx) => {
     const background = args.at(-1) === "&" && args.pop();
 
     if (background) {
+      const _output = ctx.output;
+      ctx.output = (text) => _output(`[& ${app}] ${text}`);
       _exec(app, args, ctx).catch((e) => os.print(`[& ${app} ERROR]: ${e}\n`));
     } else {
       await _exec(app, args, ctx);
@@ -59,7 +61,8 @@ export const init: TApp = async (os, args, ctx) => {
 
   try {
     for (const line of init.split("\n")) {
-      await _eval(line, ctx);
+      const child_ctx = { ...ctx };
+      await _eval(line, child_ctx);
     }
   } catch (e) {
     os.print(`Initial script error: ${e}\n`);

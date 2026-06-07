@@ -6,19 +6,19 @@ const _FDB_TTL = 60_000;
 
 export type TBridge = {
   iBridge: number;
-  ports: TBridgePort[];
-  vlans: TBridgeVlan[];
   vlan_filtering: boolean;
   pvid: number;
 };
-export type TBridgePort = { iPort: number; pvid: number; untagged: number[]; tagged: number[] };
-export type TBridgeVlan = { iVlan: number; vid: number };
+export type TBridgePort = { iBridge: number; iPort: number; pvid: number; untagged: number[]; tagged: number[] };
+export type TBridgeVlan = { iBridge: number; iVlan: number; vid: number };
 export type TBridgeFDB = { iBridge: number; mac: bigint; vid?: number; iPort: number; expiresAt: number };
 
 export class Bridge {
   _default_vlan_id = 1;
 
   _bridges: TBridge[] = [];
+  _ports: TBridgePort[] = [];
+  _vlans: TBridgeVlan[] = [];
 
   _fdb: TBridgeFDB[] = [];
 
@@ -51,7 +51,7 @@ export class Bridge {
       return this._send_frame_to_port(iBridge, iLearnedPort, frame);
     }
 
-    const ports = bridge.ports;
+    const ports = this._ports.filter((p) => p.iBridge === iBridge);
     if (!ports) return;
 
     for (const port of ports) {
@@ -89,7 +89,9 @@ export class Bridge {
 
     // to vlan
     if (bridge.vlan_filtering) {
-      for (const _vlan of bridge.vlans) {
+      for (const _vlan of this._vlans) {
+        if (_vlan.iBridge !== br_iface.index) continue;
+
         if (frame.tag!.vid !== _vlan.vid) continue;
         const vlan_iface = this.net.iface(_vlan.iVlan);
 
@@ -156,22 +158,19 @@ export class Bridge {
   }
 
   get_port(iPort: number) {
-    for (const _bridge of this._bridges) {
-      for (const _port of _bridge.ports) {
-        if (_port.iPort === iPort) {
-          return _port;
-        }
+    for (const _port of this._ports) {
+      if (_port.iPort === iPort) {
+        return _port;
       }
     }
+
     throw new Error("Port not found");
   }
 
   get_vlan(iVlan: number) {
-    for (const _bridge of this._bridges) {
-      for (const _vlan of _bridge.vlans) {
-        if (_vlan.iVlan === iVlan) {
-          return _vlan;
-        }
+    for (const _vlan of this._vlans) {
+      if (_vlan.iVlan === iVlan) {
+        return _vlan;
       }
     }
     throw new Error("Vlan not found");

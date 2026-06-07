@@ -69,6 +69,15 @@ export function parseIPv4(ip: string) {
   return ip_int >>> 0;
 }
 
+export function parseCIDRv4(cidr: string) {
+  const [_ip, _prefix] = cidr.split("/");
+  return { ip: parseIPv4(_ip), prefix: Number.parseInt(_prefix, 10) };
+}
+
+export function formatCIDRv4(ip: { address: number; prefix: number }) {
+  return `${formatIPv4(ip.address)}/${ip.prefix.toString(10)}`;
+}
+
 export function parseMAC(mac: string) {
   return BigInt(`0x${mac.replace(/:/g, "")}`);
 }

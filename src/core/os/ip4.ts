@@ -51,8 +51,9 @@ export class IP4 {
       _input = true;
     } else {
       for_interfaces: for (const _iface of this.net._interfaces) {
+        if (!_iface) continue;
         for (const _ip of _iface.ips) {
-          if (_ip.address === dst) {
+          if (_ip.ip === dst) {
             _input = true;
             break for_interfaces;
           }
@@ -97,8 +98,9 @@ export class IP4 {
 
     let local_iface: TInterface | undefined;
     for (const _iface of this.net._interfaces) {
+      if (!_iface) continue;
       for (const _ip of _iface.ips) {
-        if (_ip.address !== ip) continue;
+        if (_ip.ip !== ip) continue;
         local_iface = _iface;
         break;
       }
@@ -221,7 +223,7 @@ export class IP4 {
     if (route.src) {
       src = route.src;
     } else if (iface.ips.length) {
-      src = iface.ips[0].address;
+      src = iface.ips[0].ip;
     } else {
       return;
     }
