@@ -93,6 +93,7 @@ export class Store {
   node_editing_file?: {
     id: string;
     path: string;
+    content: string;
   };
 
   tool_set(value: TOOL) {
@@ -596,7 +597,28 @@ export class Store {
     }
     if (!id) id = this.selected_node?.id;
     if (!id) return;
-    this.node_editing_file = { id, path };
+    const node = this.node_by_id(id);
+    if (!node) return;
+    this.node_editing_file = { id, path, content: node.fs[path] || "" };
+  }
+
+  node_edit_file_set_content(content: string) {
+    if (!this.node_editing_file) return;
+    this.node_editing_file.content = content;
+  }
+
+  node_edit_file_save() {
+    if (!this.node_editing_file) return;
+    const { content, id, path } = this.node_editing_file;
+    this.node_fs_set(id, { [path]: content });
+    this.node_edit_file();
+  }
+
+  node_edit_file_delete() {
+    if (!this.node_editing_file) return;
+    const { id, path } = this.node_editing_file;
+    this.node_fs_set(id, { [path]: undefined });
+    this.node_edit_file();
   }
 
   exchange_open() {

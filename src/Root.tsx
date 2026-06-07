@@ -54,9 +54,7 @@ export const Root = observer(function Root() {
             ) : null}
           </div>
         )}
-        {node_editing_file ? (
-          <FileEditor node={store.node_by_id(node_editing_file.id)!} path={node_editing_file.path} />
-        ) : null}
+        {node_editing_file ? <FileEditor /> : null}
         {exchange_state ? <ExchangeJournal /> : null}
       </div>
     </div>

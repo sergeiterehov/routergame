@@ -1,8 +1,9 @@
 import { observer } from "mobx-react-lite";
 import { store, type TArchNode } from "./state/store";
 
-export const FileEditor = observer(function FileEditor(props: { node: TArchNode; path: string }) {
-  const { node, path } = props;
+export const FileEditor = observer(function FileEditor() {
+  const { id, path, content } = store.node_editing_file!;
+  const node = store.node_by_id(id)!;
 
   return (
     <dialog
@@ -20,9 +21,9 @@ export const FileEditor = observer(function FileEditor(props: { node: TArchNode;
         </h3>
         <textarea
           className="textarea textarea-sm w-full font-mono my-4"
-          value={node.fs[path] || ""}
+          value={content}
           onChange={(e) => {
-            store.node_fs_set(node.id, { [path]: e.currentTarget.value });
+            store.node_edit_file_set_content(e.currentTarget.value);
           }}
         />
         <div className="modal-action">
@@ -32,8 +33,7 @@ export const FileEditor = observer(function FileEditor(props: { node: TArchNode;
               e.preventDefault();
               e.stopPropagation();
               if (confirm("Are you sure?")) {
-                store.node_edit_file();
-                store.node_fs_set(node.id, { [path]: undefined });
+                store.node_edit_file_delete();
               }
             }}
           >
@@ -41,8 +41,19 @@ export const FileEditor = observer(function FileEditor(props: { node: TArchNode;
           </button>
           <div className="grow" />
           <form method="dialog">
-            <button className="btn btn-primary">OK</button>
+            <button className="btn">Cancel</button>
           </form>
+          <button
+            className="btn btn-primary"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+
+              store.node_edit_file_save();
+            }}
+          >
+            Save
+          </button>
         </div>
       </div>
     </dialog>
