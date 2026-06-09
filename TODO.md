@@ -1,4 +1,4 @@
-- Сетевая конфигурация в FS в виде JSON
+- netd для управления сетевой конфигурацией
 - Туннель: EoIP, ?WireGuard
 - Multicast DNS
 - MTU
