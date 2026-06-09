@@ -1,6 +1,6 @@
 import { validate_address, validate_ip } from "../format";
 import { NET_ERRORS } from "../os/net";
-import type { OS } from "../os/os";
+import type { OS, TApp } from "../os/os";
 import type { TSocket } from "../os/socket";
 import type { TIP4Packet } from "../pack";
 
@@ -14,10 +14,12 @@ export type TArg = {
   default?: string[];
 };
 
+export type TCommandFn = (parsed: Record<string, string[] | undefined>) => TApp;
+
 export type TCommand = {
   desc: string;
   args?: TArg[];
-  fn: (args: string[], parsed: Record<string, string[] | undefined>) => unknown;
+  fn: TCommandFn | Record<string, TCommand>;
 };
 
 export function parse_args(types: TArg[], args: string[]) {
@@ -43,7 +45,14 @@ export function parse_args(types: TArg[], args: string[]) {
   while (_args.length) {
     const arg = _args.shift()!;
 
-    let matched = types.filter((t) => !ejected.has(t) && (!t.name || t.name === arg || t.alias == arg));
+    let matched: TArg[] = [];
+    for (const t of types) {
+      if (ejected.has(t)) continue;
+      if (t.name && t.name !== arg && t.alias !== arg) continue;
+
+      matched.push(t);
+    }
+
     // Skip all noname if some named found
     if (matched.some((t) => t.name)) {
       matched = matched.filter((t) => t.name);
@@ -145,85 +154,103 @@ export function find_args(args: string[], key: string) {
   return result;
 }
 
-export async function run_command_of(os: OS, commands: Record<string, TCommand>, args: string[]) {
-  const _commands: typeof commands = {
-    ...commands,
-    "--help": {
-      desc: "show this help",
-      fn: ([name, ..._args]) => {
-        if ("" in _commands) name = "";
+// net int br po --help
+const _format_help = (path: string[], commands: Record<string, TCommand>): string => {
+  const output: string[] = [`HELP: ${path.join("/")}\n`];
 
-        if (commands.help) {
-          os.print(commands.help.desc, "\n\n");
-          commands.help.fn(_args, commands.help.args ? parse_args(commands.help.args, _args) : {});
-        }
+  let _commands = commands;
+  const _top_args: TArg[] = [];
 
-        if (name !== undefined && !_commands[name]) throw new Error(`Unknown command "${name}"`);
-
-        for (const [_cmd_name, _cmd] of Object.entries(_commands)) {
-          if (name !== undefined && _cmd_name !== name) continue;
-
-          if (_cmd_name) os.print(`${_cmd_name} - `);
-          os.print(`${_cmd.desc}\n`);
-          if (_cmd.args) {
-            for (const arg of _cmd.args) {
-              os.print("\t");
-              os.print(arg.name || `<${arg.alias || arg.type}>`);
-              if (arg.multiple) os.print("...");
-              if (arg.desc) os.print(" - ", arg.desc);
-              os.print(", ", arg.required ? "required" : "optional");
-              os.print(", ", arg.type);
-              if (arg.default) os.print(", default = ", arg.default.join(","));
-              os.print("\n");
-            }
-            os.print(`\n`);
-          }
-        }
-      },
-    },
-  };
-
-  const _args = [...args];
-  let _name = "";
-
-  const _input = _args.at(0) || "";
-
-  const names: string[] = [];
-  if (_input) {
-    for (const _c in _commands) {
-      // exact match
-      if (_c === _input) {
-        names.splice(0);
-        names.push(_c);
-        break;
-      }
-      // starts with
-      if (_c.startsWith(_input)) {
-        names.push(_c);
-      }
-    }
-  } else if ("" in _commands) {
-    names.push("");
-  }
-  if (names.length > 1) throw new Error(`Multiple commands found: ${names.join(", ")}`);
-
-  if (names.length === 0 && "" in _commands) names.push("");
-
-  if (names.length === 0) {
-    if (_input) {
-      throw new Error(`Unknown command "${_input}". Use "--help" to list available.`);
+  for (const _name of path) {
+    const cmd = _commands[_name];
+    if (typeof cmd.fn === "function") {
+      _commands = { [_name]: cmd };
     } else {
-      throw new Error(`Use "--help" to list available commands.`);
+      if (cmd.args) _top_args.push(...cmd.args);
+      _commands = cmd.fn;
     }
   }
 
-  _name = names[0];
-  if (_name) _args.shift();
+  for (const [_cmd_name, _cmd] of Object.entries(_commands)) {
+    if (_cmd_name) output.push(`${_cmd_name} - `);
+    output.push(`${_cmd.desc}\n`);
+    if (_cmd.args) {
+      for (const arg of _cmd.args) {
+        output.push("\t");
+        output.push(arg.name || `<${arg.alias || arg.type}>`);
+        if (arg.multiple) output.push("...");
+        if (arg.desc) output.push(" - ", arg.desc);
+        output.push(", ", arg.required ? "required" : "optional");
+        output.push(", ", arg.type);
+        if (arg.default) output.push(", default = ", arg.default.join(","));
+        output.push("\n");
+      }
+      output.push(`\n`);
+    }
+  }
 
-  const cmd = _commands[_name];
-  const parsed_args = cmd.args ? parse_args(cmd.args, _args) : {};
-  await cmd.fn(_args, parsed_args);
-}
+  return output.join("");
+};
+
+export const with_commander =
+  (commands: Record<string, TCommand>): TApp =>
+  async (os, args, ctx) => {
+    const _has_help_flag = args.includes("--help");
+
+    const _args = [...args];
+
+    const path: string[] = [];
+    let _commands = commands;
+
+    let parsed_args: Record<string, string[]> = {};
+
+    while (_args.length) {
+      const _input = _args[0];
+
+      const names: string[] = [];
+      for (const _c in _commands) {
+        // exact match
+        if (_c === _input) {
+          names.splice(0);
+          names.push(_c);
+          break;
+        }
+        // starts with
+        if (_c.startsWith(_input)) {
+          names.push(_c);
+        }
+      }
+
+      if (names.length === 0) break;
+      if (names.length > 1) throw new Error(`Multiple commands found: ${names.join(", ")}`);
+
+      _args.shift();
+
+      const [name] = names;
+      const cmd = _commands[name];
+
+      path.push(name);
+
+      if (cmd.args && !_has_help_flag) {
+        parsed_args = { ...parsed_args, ...parse_args(cmd.args, _args) };
+      }
+
+      if (typeof cmd.fn === "function") {
+        if (_has_help_flag) break;
+
+        return await cmd.fn(parsed_args)(os, _args, ctx);
+      } else {
+        _commands = cmd.fn;
+      }
+    }
+
+    if (_has_help_flag) {
+      ctx.output(_format_help(path, commands));
+      return;
+    }
+
+    throw new Error(`Use "--help" to list available commands.`);
+  };
 
 export function format_net_error(err: number) {
   for (const [name, code] of Object.entries(NET_ERRORS)) {

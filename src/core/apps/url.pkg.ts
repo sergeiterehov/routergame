@@ -1,6 +1,6 @@
 import { SEC, validate_ip, parseIPv4, formatIPv4, validate_port } from "../format";
-import type { OS, TApp, TAppContext } from "../os/os";
-import { run_command_of, format_net_error, socket_connected, to_utf8, from_utf8, socket_read } from "./app.lib";
+import type { OS, TAppContext } from "../os/os";
+import { with_commander, format_net_error, socket_connected, to_utf8, from_utf8, socket_read } from "./app.lib";
 import { get_hostname_ip, normalize_dns_name } from "./dns.lib";
 
 const _url = async (os: OS, ctx: TAppContext, args: { url: string; verbose: boolean }) => {
@@ -82,19 +82,13 @@ const _url = async (os: OS, ctx: TAppContext, args: { url: string; verbose: bool
   }
 };
 
-export const url: TApp = async (os, args, ctx) => {
-  await run_command_of(
-    os,
-    {
-      "": {
-        desc: "Open URL",
-        args: [
-          { type: "string", required: true, alias: "url", desc: "HTTP URL" },
-          { name: "--verbose", alias: "-v", type: "flag", desc: "Verbose output" },
-        ],
-        fn: (_, parsed) => _url(os, ctx, { url: parsed.url![0], verbose: Boolean(parsed.verbose) }),
-      },
-    },
-    args,
-  );
-};
+export const url = with_commander({
+  "": {
+    desc: "Open URL",
+    args: [
+      { type: "string", required: true, alias: "url", desc: "HTTP URL" },
+      { name: "--verbose", alias: "-v", type: "flag", desc: "Verbose output" },
+    ],
+    fn: (parsed) => (os, _, ctx) => _url(os, ctx, { url: parsed.url![0], verbose: Boolean(parsed.verbose) }),
+  },
+});

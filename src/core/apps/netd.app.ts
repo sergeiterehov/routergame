@@ -6,8 +6,11 @@ import { FW_ACTIONS, FW_CHAINS, FW_CONN_STATES, FW_TABLES, type TPredicate, type
 import { IP_PROTOCOLS } from "../pack";
 import { INTERFACE_TYPES, type TInterface } from "../os/net";
 import type { TRoute } from "../os/ip4";
+import { with_commander } from "./app.lib";
 
 const _CONF_PATH = "/netd.json";
+
+const _name_regexp = /^[a-z_]+(-?[a-z_0-9]+)*$/i;
 
 let _started = false;
 
@@ -17,7 +20,7 @@ const z_conf = z.object({
       id: z.string(),
       ref: z.custom<TInterface>(),
       static: z.boolean(),
-      name: z.string(),
+      name: z.string().regex(_name_regexp),
       type: z.union([
         z.object({ type: z.literal(INTERFACE_TYPES.LOOPBACK) }),
         z.object({ type: z.literal(INTERFACE_TYPES.ETHERNET), up: z.boolean() }),
@@ -118,6 +121,30 @@ const _INTERFACE_TYPE_CREATING_ORDERING: Partial<Record<TInterface["type"], numb
 const _interface_creating_sort = (a: TConf["interfaces"][0], b: TConf["interfaces"][0]) => {
   const _map = _INTERFACE_TYPE_CREATING_ORDERING;
   return (_map[a.type.type] ?? 999999999) - (_map[b.type.type] ?? 999999999);
+};
+
+const _find = <T extends { id: string }>(list: T[], id: string) => list.find((i) => i.id === id);
+
+const _validate_config = (os: OS, new_conf: TConf) => {
+  const if_names = new Set<string>();
+  for (const _new of new_conf.interfaces) {
+    if (if_names.has(_new.name)) throw new Error(`Duplicate interface name ${_new.name}`);
+    if_names.add(_new.name);
+  }
+
+  const port_ids = new Set<string>();
+
+  for (const _new of new_conf.bridge_ports) {
+    const bridge = _find(new_conf.interfaces, _new.bridge_id);
+    if (!bridge) throw new Error(`Bridge ${_new.bridge_id} not found`);
+    const port = _find(new_conf.interfaces, _new.port_id);
+    if (!port) throw new Error(`Port ${_new.port_id} not found`);
+
+    if (bridge.type.type !== INTERFACE_TYPES.BRIDGE) throw new Error(`Interface ${bridge.id} is not a bridge`);
+
+    if (port_ids.has(port.id)) throw new Error(`Duplicate port ${port.id}`);
+    port_ids.add(port.id);
+  }
 };
 
 const _apply_new_fw_rule = (os: OS, _new: TConf["fw"][0]) => {
@@ -545,9 +572,31 @@ const _reconcile = (os: OS, new_conf: TConf) => {
   }
 };
 
-const _reload_conf = (os: OS) => {
+const _read_config = (os: OS): unknown => {
   if (!os.fs.exists(_CONF_PATH)) throw new Error(`No ${_CONF_PATH} found`);
-  const new_conf = z_conf.parse(JSON.parse(os.fs.read(_CONF_PATH)));
+
+  return JSON.parse(os.fs.read(_CONF_PATH));
+};
+
+const _write_config = (os: OS, new_conf: TConf) => {
+  os.fs.write(_CONF_PATH, JSON.stringify(new_conf, null, 2));
+};
+
+const _modify_config = (os: OS, fn: (_new: TConf) => void) => {
+  const _new: TConf = z_conf.parse(_read_config(os));
+
+  fn(_new);
+
+  z_conf.parse(_new);
+  _validate_config(os, _new);
+
+  _write_config(os, _new);
+};
+
+const _reload = (os: OS) => {
+  const new_conf: TConf = z_conf.parse(_read_config(os));
+
+  _validate_config(os, new_conf);
 
   _reconcile(os, new_conf);
 };
@@ -561,7 +610,7 @@ export const netd: TApp = async (os, args, ctx) => {
   _reload_cb = () => {
     ctx.output("RELOADING\n");
     try {
-      _reload_conf(os);
+      _reload(os);
     } catch (e) {
       ctx.output(`LOADING ERROR: ${e}\n`);
     }
@@ -583,3 +632,82 @@ export const netd: TApp = async (os, args, ctx) => {
     ctx.output("EXITED");
   }
 };
+
+export const net = with_commander({
+  interface: {
+    desc: "Interface management",
+    fn: {
+      bridge: {
+        desc: "Bridge management",
+        fn: {
+          port: {
+            desc: "Port management",
+            fn: {
+              add: {
+                desc: "Add port",
+                args: [
+                  { name: "--bridge", alias: "-b", type: "string", required: true },
+                  { name: "--interface", alias: "-i", type: "string", required: true },
+                ],
+                fn: (parsed) => async (os) => {
+                  const bridge_name = parsed.bridge![0];
+                  const interface_name = parsed.bridge![0];
+
+                  _modify_config(os, (_new) => {
+                    const bridge = _new.interfaces.find((i) => i.name === bridge_name);
+                    if (!bridge) throw new Error(`No bridge ${bridge_name} found`);
+                    const port = _new.interfaces.find((i) => i.name === interface_name);
+                    if (!port) throw new Error(`No interface ${interface_name} found`);
+
+                    _new.bridge_ports.push({
+                      id: `${bridge.id}:${port.id}`,
+                      static: true,
+                      bridge_id: bridge.id,
+                      port_id: port.id,
+                      pvid: 1,
+                      ref: null!,
+                      tagged: [],
+                      untagged: [],
+                    });
+                  });
+                },
+              },
+            },
+          },
+          add: {
+            desc: "Add bridge",
+            args: [{ alias: "name", type: "string", required: true }],
+            fn: (parsed) => async (os) => {
+              const name = parsed.name![0];
+
+              _modify_config(os, (_new) => {
+                _new.interfaces.push({
+                  id: name,
+                  name,
+                  ref: null!,
+                  static: true,
+                  type: {
+                    type: INTERFACE_TYPES.BRIDGE,
+                    pvid: 1,
+                    up: false,
+                    vlan_filtering: false,
+                  },
+                });
+              });
+            },
+          },
+        },
+      },
+      print: {
+        desc: "Print interface info",
+        fn: () => async (os, args, ctx) => {
+          ctx.output("NAME\tTYPE\n");
+          for (const iface of conf.interfaces) {
+            ctx.output(`${iface.name}\t${iface.type.type}\n`);
+          }
+        },
+      },
+    },
+  },
+  ip: { desc: "IP management", fn: {} },
+});

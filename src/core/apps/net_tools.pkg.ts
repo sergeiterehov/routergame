@@ -13,7 +13,7 @@ import type { TIPIPTun } from "../os/ipip";
 import type { TIPIPUDPTun } from "../os/ipip-udp";
 import type { TInterface } from "../os/net";
 import type { OS, TApp, TAppContext } from "../os/os";
-import { find_arg, find_args, has_arg, run_command_of, test_args } from "./app.lib";
+import { find_arg, find_args, has_arg, with_commander, test_args } from "./app.lib";
 
 const _ALL_FLAGS: Required<TInterface["flags"]> = {
   UP: true,
@@ -588,33 +588,6 @@ async function _tun_ipip_add(os: OS, config: { name: string; local_ip: string; r
   return;
 }
 
-const _tun_ipip: TApp = async (os, args, ctx) => {
-  await run_command_of(
-    os,
-    {
-      add: {
-        desc: "Add IPIP tunnel",
-        args: [
-          { alias: "name", type: "string", required: true },
-          { name: "local", type: "ip", required: true, desc: "Local IP address" },
-          { name: "remote", type: "ip", required: true, desc: "Remote IP address" },
-        ],
-        fn: (_args, parsed) =>
-          _tun_ipip_add(
-            os,
-            {
-              name: parsed.name![0],
-              local_ip: parsed.local![0],
-              remote_ip: parsed.remote![0],
-            },
-            ctx,
-          ),
-      },
-    },
-    args,
-  );
-};
-
 const _tun_ipip_udp_add = async (
   os: OS,
   config: {
@@ -653,10 +626,33 @@ const _tun_ipip_udp_add = async (
   return;
 };
 
-const _tun_ipip_udp: TApp = async (os, args, ctx) => {
-  await run_command_of(
-    os,
-    {
+export const tun = with_commander({
+  ipip: {
+    desc: "IPIP tunnel",
+    fn: {
+      add: {
+        desc: "Add IPIP tunnel",
+        args: [
+          { alias: "name", type: "string", required: true },
+          { name: "local", type: "ip", required: true, desc: "Local IP address" },
+          { name: "remote", type: "ip", required: true, desc: "Remote IP address" },
+        ],
+        fn: (parsed) => (os, _, ctx) =>
+          _tun_ipip_add(
+            os,
+            {
+              name: parsed.name![0],
+              local_ip: parsed.local![0],
+              remote_ip: parsed.remote![0],
+            },
+            ctx,
+          ),
+      },
+    },
+  },
+  "ipip-udp": {
+    desc: "IPIP UDP tunnel. Supports passive mode, for automatic remote address update.",
+    fn: {
       add: {
         desc: "Add IPIP UDP tunnel",
         args: [
@@ -672,7 +668,7 @@ const _tun_ipip_udp: TApp = async (os, args, ctx) => {
             desc: "Wait for incoming packets on local-port, saving and updating remote address information",
           },
         ],
-        fn: (_args, parsed) =>
+        fn: (parsed) => (os, _, ctx) =>
           _tun_ipip_udp_add(
             os,
             {
@@ -688,23 +684,5 @@ const _tun_ipip_udp: TApp = async (os, args, ctx) => {
           ),
       },
     },
-    args,
-  );
-};
-
-export const tun: TApp = async (os, args, ctx) => {
-  await run_command_of(
-    os,
-    {
-      ipip: {
-        desc: "IPIP tunnel",
-        fn: (_args) => _tun_ipip(os, _args, ctx),
-      },
-      "ipip-udp": {
-        desc: "IPIP UDP tunnel. Supports passive mode, for automatic remote address update.",
-        fn: (_args) => _tun_ipip_udp(os, _args, ctx),
-      },
-    },
-    args,
-  );
-};
+  },
+});

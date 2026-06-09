@@ -2,7 +2,7 @@ import { formatIPv4, formatTime, parseIPv4, validate_ip, validate_port } from ".
 import { FW_ACTIONS, FW_CHAINS, FW_TABLES, type TAction, type TPredicate } from "../os/fw";
 import type { OS } from "../os/os";
 import { IP_PROTOCOLS } from "../pack";
-import { find_arg, find_args, run_command_of, test_args } from "./app.lib";
+import { find_arg, find_args, with_commander, test_args } from "./app.lib";
 
 const PROTOCOL_NAMES = Object.fromEntries(Object.entries(IP_PROTOCOLS).map(([k, v]) => [v, k]));
 
@@ -281,21 +281,15 @@ async function _enable(os: OS, _args: string[]) {
   os.print("Firewall enabled\n");
 }
 
-export async function fw(os: OS, args: string[]) {
-  await run_command_of(
-    os,
-    {
-      enable: { desc: "enable firewall", fn: (_args) => _enable(os, _args) },
-      ls: { desc: "show rules", fn: (_args) => _ls(os, _args) },
-      connections: { desc: "show active connections", fn: (_args) => _connection(os, _args) },
-      masquerade: {
-        desc: "quick add masquerade rule for output interface",
-        fn: (_args) => _masquerade(os, _args),
-      },
-      add: { desc: "add new rule", fn: (_args) => _add(os, _args) },
-      rm: { desc: "remove rule", fn: (_args) => _rm(os, _args) },
-      move: { desc: "change rule priority", fn: (_args) => _move(os, _args) },
-    },
-    args,
-  );
-}
+export const fw = with_commander({
+  enable: { desc: "enable firewall", fn: () => _enable },
+  ls: { desc: "show rules", fn: () => _ls },
+  connections: { desc: "show active connections", fn: () => _connection },
+  masquerade: {
+    desc: "quick add masquerade rule for output interface",
+    fn: () => _masquerade,
+  },
+  add: { desc: "add new rule", fn: () => _add },
+  rm: { desc: "remove rule", fn: () => _rm },
+  move: { desc: "change rule priority", fn: () => _move },
+});
