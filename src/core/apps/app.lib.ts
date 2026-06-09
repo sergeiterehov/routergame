@@ -221,7 +221,7 @@ export const with_commander =
         }
       }
 
-      if (names.length === 0) break;
+      if (names.length === 0) throw new Error(`Use "--help" to list available commands.`);
       if (names.length > 1) throw new Error(`Multiple commands found: ${names.join(", ")}`);
 
       _args.shift();
@@ -244,12 +244,7 @@ export const with_commander =
       }
     }
 
-    if (_has_help_flag) {
-      ctx.output(_format_help(path, commands));
-      return;
-    }
-
-    throw new Error(`Use "--help" to list available commands.`);
+    ctx.output(_format_help(path, commands));
   };
 
 export function format_net_error(err: number) {
