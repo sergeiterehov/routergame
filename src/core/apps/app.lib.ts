@@ -188,7 +188,23 @@ export async function run_command_of(os: OS, commands: Record<string, TCommand>,
 
   const _input = _args.at(0) || "";
 
-  const names = Object.keys(_commands).filter((c) => (_input ? c.startsWith(_input) : c === ""));
+  const names: string[] = [];
+  if (_input) {
+    for (const _c in _commands) {
+      // exact match
+      if (_c === _input) {
+        names.splice(0);
+        names.push(_c);
+        break;
+      }
+      // starts with
+      if (_c.startsWith(_input)) {
+        names.push(_c);
+      }
+    }
+  } else if ("" in _commands) {
+    names.push("");
+  }
   if (names.length > 1) throw new Error(`Multiple commands found: ${names.join(", ")}`);
 
   if (names.length === 0 && "" in _commands) names.push("");
