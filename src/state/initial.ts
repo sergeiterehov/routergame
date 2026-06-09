@@ -37,19 +37,18 @@ export const initial_arch: TArchitecture = {
         "/netd.json": JSON.stringify(
           {
             interfaces: [
-              { id: "eth0", ref: null!, name: "eth0", static: true, type: { type: "ethernet", up: true } },
-              { id: "eth1", ref: null!, name: "eth1", static: true, type: { type: "ethernet", up: true } },
-              { id: "eth2", ref: null!, name: "eth2", static: true, type: { type: "ethernet", up: true } },
-              { id: "eth3", ref: null!, name: "eth3", static: true, type: { type: "ethernet", up: true } },
-              { id: "eth4", ref: null!, name: "eth4", static: true, type: { type: "ethernet", up: true } },
-              { id: "eth5", ref: null!, name: "eth5", static: true, type: { type: "ethernet", up: true } },
-              { id: "eth6", ref: null!, name: "eth6", static: true, type: { type: "ethernet", up: true } },
-              { id: "eth7", ref: null!, name: "eth7", static: true, type: { type: "ethernet", up: true } },
+              { id: "eth0", ref: null!, name: "eth0", type: { type: "ethernet", up: true } },
+              { id: "eth1", ref: null!, name: "eth1", type: { type: "ethernet", up: true } },
+              { id: "eth2", ref: null!, name: "eth2", type: { type: "ethernet", up: true } },
+              { id: "eth3", ref: null!, name: "eth3", type: { type: "ethernet", up: true } },
+              { id: "eth4", ref: null!, name: "eth4", type: { type: "ethernet", up: true } },
+              { id: "eth5", ref: null!, name: "eth5", type: { type: "ethernet", up: true } },
+              { id: "eth6", ref: null!, name: "eth6", type: { type: "ethernet", up: true } },
+              { id: "eth7", ref: null!, name: "eth7", type: { type: "ethernet", up: true } },
               {
                 id: "br0",
                 ref: null!,
                 name: "br0",
-                static: true,
                 type: { type: "bridge", up: true, pvid: 1, vlan_filtering: false },
               },
             ],
@@ -57,7 +56,6 @@ export const initial_arch: TArchitecture = {
               {
                 id: "bp1",
                 ref: null!,
-                static: true,
                 bridge_id: "br0",
                 port_id: "eth1",
                 pvid: 1,
@@ -67,7 +65,6 @@ export const initial_arch: TArchitecture = {
               {
                 id: "bp2",
                 ref: null!,
-                static: true,
                 bridge_id: "br0",
                 port_id: "eth2",
                 pvid: 1,
@@ -76,19 +73,18 @@ export const initial_arch: TArchitecture = {
               },
             ],
             ips: [
-              { id: "ip1", interface_id: "eth0", static: true, address: "192.168.0.1/24" },
-              { id: "ip2", interface_id: "br0", static: true, address: "10.0.0.1/24" },
+              { id: "ip1", interface_id: "eth0", address: "192.168.0.1/24" },
+              { id: "ip2", interface_id: "br0", address: "10.0.0.1/24" },
             ],
-            routes: [
-              { id: "r1", ref: null!, interface_id: "eth0", static: true, network: "192.168.0.0/24" },
-              { id: "r2", ref: null!, interface_id: "br0", static: true, network: "10.0.0.0/24" },
+            ip_routes: [
+              { id: "r1", ref: null!, interface_id: "eth0", network: "192.168.0.0/24" },
+              { id: "r2", ref: null!, interface_id: "br0", network: "10.0.0.0/24" },
             ],
             fw_enable: true,
             fw: [
               {
                 id: "fw1",
                 ref: null!,
-                static: true,
                 table: "nat",
                 chain: "src-nat",
                 action: { type: "masquerade" },

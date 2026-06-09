@@ -90,6 +90,7 @@ export function parse_args(types: TArg[], args: string[]) {
         result[name].push(value);
       } else if (type.type === "ip/") {
         if (!validate_address(value)) throw new Error(`Argument ${name} must be a valid IP/mask`);
+        result[name].push(value);
       } else {
         throw new Error(`Unknown argument type "${type.type}"`);
       }

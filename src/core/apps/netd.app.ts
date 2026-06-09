@@ -1,6 +1,6 @@
 import z from "zod";
 import type { OS, TApp } from "../os/os";
-import { parseCIDRv4, parseIPv4 } from "../format";
+import { formatIPv4, parseCIDRv4, parseIPv4, prefixToMask } from "../format";
 import type { TBridge, TBridgePort } from "../os/br";
 import { FW_ACTIONS, FW_CHAINS, FW_CONN_STATES, FW_TABLES, type TPredicate, type TRule } from "../os/fw";
 import { IP_PROTOCOLS } from "../pack";
@@ -19,7 +19,7 @@ const z_conf = z.object({
     z.object({
       id: z.string(),
       ref: z.custom<TInterface>(),
-      static: z.boolean(),
+      dynamic: z.boolean().optional(),
       name: z.string().regex(_name_regexp),
       type: z.union([
         z.object({ type: z.literal(INTERFACE_TYPES.LOOPBACK) }),
@@ -43,7 +43,7 @@ const z_conf = z.object({
     z.object({
       id: z.string(),
       ref: z.custom<TBridgePort>(),
-      static: z.boolean(),
+      dynamic: z.boolean().optional(),
       bridge_id: z.string(),
       port_id: z.string(),
       pvid: z.number(),
@@ -54,16 +54,16 @@ const z_conf = z.object({
   ips: z.array(
     z.object({
       id: z.string(),
-      static: z.boolean(),
+      dynamic: z.boolean().optional(),
       interface_id: z.string(),
       address: z.cidrv4(),
     }),
   ),
-  routes: z.array(
+  ip_routes: z.array(
     z.object({
       id: z.string(),
       ref: z.custom<TRoute>(),
-      static: z.boolean(),
+      dynamic: z.boolean().optional(),
       network: z.cidrv4(),
       interface_id: z.string(),
       gateway: z.ipv4().optional(),
@@ -75,7 +75,7 @@ const z_conf = z.object({
     z.object({
       id: z.string(),
       ref: z.custom<TRule>(),
-      static: z.boolean(),
+      dynamic: z.boolean().optional(),
       table: z.enum(Object.values(FW_TABLES)),
       chain: z.enum(Object.values(FW_CHAINS)),
       action: z.union([
@@ -104,7 +104,7 @@ const conf: TConf = {
   interfaces: [],
   bridge_ports: [],
   ips: [],
-  routes: [],
+  ip_routes: [],
   fw_enable: false,
   fw: [],
 };
@@ -123,7 +123,10 @@ const _interface_creating_sort = (a: TConf["interfaces"][0], b: TConf["interface
   return (_map[a.type.type] ?? 999999999) - (_map[b.type.type] ?? 999999999);
 };
 
-const _find = <T extends { id: string }>(list: T[], id: string) => list.find((i) => i.id === id);
+const _find_name = <T extends { name: string }>(list: T[], name: string) => list.find((i) => i.name === name);
+const _find_id = <T extends { id: string }>(list: T[], id: string) => list.find((i) => i.id === id);
+const _find_by = <T extends object, K extends keyof T>(list: T[], key: K, value: T[K]) =>
+  list.find((i) => i[key] === value);
 
 const _validate_config = (os: OS, new_conf: TConf) => {
   const if_names = new Set<string>();
@@ -135,9 +138,9 @@ const _validate_config = (os: OS, new_conf: TConf) => {
   const port_ids = new Set<string>();
 
   for (const _new of new_conf.bridge_ports) {
-    const bridge = _find(new_conf.interfaces, _new.bridge_id);
+    const bridge = _find_id(new_conf.interfaces, _new.bridge_id);
     if (!bridge) throw new Error(`Bridge ${_new.bridge_id} not found`);
-    const port = _find(new_conf.interfaces, _new.port_id);
+    const port = _find_id(new_conf.interfaces, _new.port_id);
     if (!port) throw new Error(`Port ${_new.port_id} not found`);
 
     if (bridge.type.type !== INTERFACE_TYPES.BRIDGE) throw new Error(`Interface ${bridge.id} is not a bridge`);
@@ -145,6 +148,75 @@ const _validate_config = (os: OS, new_conf: TConf) => {
     if (port_ids.has(port.id)) throw new Error(`Duplicate port ${port.id}`);
     port_ids.add(port.id);
   }
+};
+
+const _cascade_delete = (
+  _new: TConf,
+  objects: { type: "interface" | "bridge_port" | "ip" | "routes" | "fw"; id: string }[],
+): typeof objects => {
+  const stack = [...objects];
+  const deleted: typeof objects = [];
+
+  deleting: while (stack.length) {
+    const obj = stack.pop()!;
+
+    if (obj.type === "interface") {
+      const iface = _find_id(_new.interfaces, obj.id);
+      if (!iface) continue deleting;
+
+      _new.interfaces.splice(_new.interfaces.indexOf(iface), 1);
+
+      for (const ip of _new.ips) {
+        if (ip.interface_id === iface.id) {
+          stack.push({ type: "ip", id: ip.id });
+        }
+      }
+
+      for (const port of _new.bridge_ports) {
+        if (port.bridge_id === iface.id || port.port_id === iface.id) {
+          stack.push({ type: "bridge_port", id: port.id });
+        }
+      }
+
+      for (const route of _new.ip_routes) {
+        if (route.interface_id === iface.id) {
+          stack.push({ type: "routes", id: route.id });
+        }
+      }
+
+      for (const rule of _new.fw) {
+        if (rule.in_interface_ids?.includes(iface.id) || rule.out_interface_ids?.includes(iface.id)) {
+          stack.push({ type: "fw", id: rule.id });
+        }
+      }
+    } else if (obj.type === "bridge_port") {
+      const port = _find_id(_new.bridge_ports, obj.id);
+      if (!port) continue deleting;
+
+      _new.bridge_ports.splice(_new.bridge_ports.indexOf(port), 1);
+    } else if (obj.type === "ip") {
+      const ip = _find_id(_new.ips, obj.id);
+      if (!ip) continue deleting;
+
+      _new.ips.splice(_new.ips.indexOf(ip), 1);
+    } else if (obj.type === "routes") {
+      const route = _find_id(_new.ip_routes, obj.id);
+      if (!route) continue deleting;
+
+      _new.ip_routes.splice(_new.ip_routes.indexOf(route), 1);
+    } else if (obj.type === "fw") {
+      const rule = _find_id(_new.fw, obj.id);
+      if (!rule) continue deleting;
+
+      _new.fw.splice(_new.fw.indexOf(rule), 1);
+    } else {
+      continue deleting;
+    }
+
+    deleted.push(obj);
+  }
+
+  return deleted;
 };
 
 const _apply_new_fw_rule = (os: OS, _new: TConf["fw"][0]) => {
@@ -292,8 +364,8 @@ const _reconcile = (os: OS, new_conf: TConf) => {
   }
 
   // Add new routes
-  for (const _new of new_conf.routes) {
-    if (!conf.routes.some((i) => i.id === _new.id)) {
+  for (const _new of new_conf.ip_routes) {
+    if (!conf.ip_routes.some((i) => i.id === _new.id)) {
       const iface = _get_interface(_new.interface_id)!.ref;
       const network = parseCIDRv4(_new.network);
 
@@ -306,7 +378,7 @@ const _reconcile = (os: OS, new_conf: TConf) => {
 
       _new.ref = route;
 
-      conf.routes.push(_new);
+      conf.ip_routes.push(_new);
     }
   }
 
@@ -440,8 +512,8 @@ const _reconcile = (os: OS, new_conf: TConf) => {
   }
 
   // Update routes
-  for (const _new of new_conf.routes) {
-    const old = conf.routes.find((i) => i.id === _new.id);
+  for (const _new of new_conf.ip_routes) {
+    const old = conf.ip_routes.find((i) => i.id === _new.id);
     if (!old) continue;
 
     if (old.interface_id !== _new.interface_id) {
@@ -480,11 +552,11 @@ const _reconcile = (os: OS, new_conf: TConf) => {
   }
 
   // Delete routes
-  for (const old of [...conf.routes]) {
-    if (new_conf.routes.some((i) => i.id === old.id)) continue;
+  for (const old of [...conf.ip_routes]) {
+    if (new_conf.ip_routes.some((i) => i.id === old.id)) continue;
     os.net.ip4._routes.splice(os.net.ip4._routes.indexOf(old.ref), 1);
 
-    conf.routes.splice(conf.routes.indexOf(old), 1);
+    conf.ip_routes.splice(conf.ip_routes.indexOf(old), 1);
   }
 
   // Delete ips
@@ -643,25 +715,39 @@ export const net = with_commander({
           port: {
             desc: "Port management",
             fn: {
+              print: {
+                desc: "Print ports",
+                args: [{ name: "--bridge", alias: "-b", type: "string" }],
+                fn: (parsed) => async (os, _, ctx) => {
+                  const bridge_name = parsed.bridge?.[0];
+
+                  const _new: TConf = z_conf.parse(_read_config(os));
+
+                  ctx.output(`BRIDGE\tPORT\n`);
+                  for (const port of _new.bridge_ports) {
+                    if (bridge_name && port.bridge_id !== bridge_name) continue;
+                    ctx.output(`${port.bridge_id}\t${port.port_id}\n`);
+                  }
+                },
+              },
               add: {
                 desc: "Add port",
                 args: [
+                  { alias: "interface", type: "string", required: true },
                   { name: "--bridge", alias: "-b", type: "string", required: true },
-                  { name: "--interface", alias: "-i", type: "string", required: true },
                 ],
                 fn: (parsed) => async (os) => {
+                  const interface_name = parsed.interface![0];
                   const bridge_name = parsed.bridge![0];
-                  const interface_name = parsed.bridge![0];
 
                   _modify_config(os, (_new) => {
-                    const bridge = _new.interfaces.find((i) => i.name === bridge_name);
+                    const bridge = _find_name(_new.interfaces, bridge_name);
                     if (!bridge) throw new Error(`No bridge ${bridge_name} found`);
-                    const port = _new.interfaces.find((i) => i.name === interface_name);
+                    const port = _find_name(_new.interfaces, interface_name);
                     if (!port) throw new Error(`No interface ${interface_name} found`);
 
                     _new.bridge_ports.push({
                       id: `${bridge.id}:${port.id}`,
-                      static: true,
                       bridge_id: bridge.id,
                       port_id: port.id,
                       pvid: 1,
@@ -669,6 +755,23 @@ export const net = with_commander({
                       tagged: [],
                       untagged: [],
                     });
+                  });
+                },
+              },
+              remove: {
+                desc: "Remove port",
+                args: [{ alias: "port", type: "string", required: true }],
+                fn: (parsed) => async (os) => {
+                  const port_name = parsed.port![0];
+
+                  _modify_config(os, (_new) => {
+                    const port = _find_name(_new.interfaces, port_name);
+                    if (!port) throw new Error(`No interface ${port_name} found`);
+
+                    const bridge_port = _find_by(_new.bridge_ports, "port_id", port.id);
+                    if (!bridge_port) throw new Error(`No bridge port ${port_name} found`);
+
+                    _cascade_delete(_new, [{ type: "bridge_port", id: bridge_port.id }]);
                   });
                 },
               },
@@ -685,7 +788,6 @@ export const net = with_commander({
                   id: name,
                   name,
                   ref: null!,
-                  static: true,
                   type: {
                     type: INTERFACE_TYPES.BRIDGE,
                     pvid: 1,
@@ -693,6 +795,22 @@ export const net = with_commander({
                     vlan_filtering: false,
                   },
                 });
+              });
+            },
+          },
+          remove: {
+            desc: "Remove bridge",
+            args: [{ alias: "name", type: "string", required: true }],
+            fn: (parsed) => async (os) => {
+              _modify_config(os, (_new) => {
+                const bridge_name = parsed.name![0];
+                const bridge = _find_name(_new.interfaces, bridge_name);
+                if (!bridge) throw new Error(`No bridge "${bridge_name}" found`);
+                if (bridge.type.type !== INTERFACE_TYPES.BRIDGE) {
+                  throw new Error(`Interface "${bridge_name}" is not a bridge`);
+                }
+
+                _cascade_delete(_new, [{ type: "interface", id: bridge.id }]);
               });
             },
           },
@@ -709,5 +827,88 @@ export const net = with_commander({
       },
     },
   },
-  ip: { desc: "IP management", fn: {} },
+  ip: {
+    desc: "IP management",
+    fn: {
+      address: {
+        desc: "IP Address management",
+        fn: {
+          print: {
+            desc: "Print IP addresses",
+            args: [{ name: "--interface", alias: "-i", type: "string" }],
+            fn: (parsed) => async (os, _, ctx) => {
+              const _new = z_conf.parse(_read_config(os));
+
+              const interface_name = parsed.interface?.[0];
+              const filter_interface = interface_name ? _find_name(_new.interfaces, interface_name) : undefined;
+
+              ctx.output(`ADDRESS\tMASK\tINTERFACE\n`);
+              for (const ip of _new.ips) {
+                if (filter_interface && ip.interface_id !== filter_interface.id) continue;
+
+                const _interface = _find_id(_new.interfaces, ip.interface_id);
+                const address = parseCIDRv4(ip.address);
+
+                ctx.output(
+                  [
+                    ip.address,
+                    formatIPv4(prefixToMask(address.prefix)),
+                    _interface ? _interface.name : `*${ip.interface_id}`,
+                  ].join("\t"),
+                );
+                ctx.output("\n");
+              }
+            },
+          },
+          add: {
+            desc: "Add IP address",
+            args: [
+              { alias: "address", type: "ip/", required: true },
+              { name: "--interface", alias: "-i", type: "string", required: true },
+            ],
+            fn: (parsed) => async (os) => {
+              const address = parsed.address![0];
+              const interface_name = parsed.interface![0];
+
+              _modify_config(os, (_new) => {
+                const iface = _find_name(_new.interfaces, interface_name);
+                if (!iface) throw new Error(`No interface ${interface_name} found`);
+
+                _new.ips.push({
+                  id: `${iface.id}:${address.replaceAll(/[^\d]/g, "_")}`,
+                  interface_id: iface.id,
+                  address,
+                });
+              });
+            },
+          },
+        },
+      },
+      route: {
+        desc: "IP Route management",
+        fn: {
+          print: {
+            desc: "Print IP routes",
+            fn: () => async (os, _, ctx) => {
+              const _new = z_conf.parse(_read_config(os));
+
+              ctx.output(`NETWORK\tGATEWAY\tINTERFACE\tSOURCE\n`);
+              for (const route of _new.ip_routes) {
+                ctx.output(
+                  [
+                    route.network,
+                    route.gateway || "-",
+                    _find_id(_new.interfaces, route.interface_id)?.name ?? `*${route.interface_id}`,
+                    route.src || "-",
+                  ].join("\t"),
+                );
+                ctx.output("\n");
+              }
+            },
+          },
+        },
+      },
+    },
+  },
+  fw: { desc: "Firewall management", fn: {} },
 });
