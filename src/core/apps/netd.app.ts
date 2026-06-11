@@ -638,6 +638,20 @@ const _reconcile = (os: OS, new_conf: TConf) => {
 
   // After all
 
+  // Apply route ordering
+  {
+    const _managed_routes = conf.ip_routes.map((i) => i.ref);
+    const _unmanaged_routes = os.net.ip4._routes.filter((i) => !_managed_routes.includes(i));
+    os.net.ip4._routes = [..._unmanaged_routes, ..._managed_routes];
+  }
+
+  // Apply fw ordering
+  {
+    const _managed_rules = conf.fw.map((i) => i.ref);
+    const _unmanaged_rules = os.net.ip4.fw._table.filter((i) => !_managed_rules.includes(i));
+    os.net.ip4.fw._table = [..._unmanaged_rules, ..._managed_rules];
+  }
+
   if (new_conf.fw_enable !== conf.fw_enable) {
     os.net.ip4.fw._enabled = new_conf.fw_enable;
     conf.fw_enable = new_conf.fw_enable;
@@ -892,10 +906,12 @@ export const net = with_commander({
             fn: () => async (os, _, ctx) => {
               const _new = z_conf.parse(_read_config(os));
 
-              ctx.output(`NETWORK\tGATEWAY\tINTERFACE\tSOURCE\n`);
-              for (const route of _new.ip_routes) {
+              ctx.output(`#\tNETWORK\tGATEWAY\tINTERFACE\tSOURCE\n`);
+              for (let i = 0; i < _new.ip_routes.length; i += 1) {
+                const route = _new.ip_routes[i];
                 ctx.output(
                   [
+                    i.toString(),
                     route.network,
                     route.gateway || "-",
                     _find_id(_new.interfaces, route.interface_id)?.name ?? `*${route.interface_id}`,
@@ -906,9 +922,85 @@ export const net = with_commander({
               }
             },
           },
+          move: {
+            desc: "Set route priority",
+            args: [
+              { name: "--from", alias: "-f", type: "number", required: true },
+              { name: "--to", alias: "-t", type: "number", required: true },
+            ],
+            fn: (parsed) => async (os) => {
+              const _from = Number(parsed.from![0]);
+              const _to = Number(parsed.to![0]);
+
+              _modify_config(os, (_new) => {
+                if (!_new.ip_routes[_from]) throw new Error(`No route ${_from} found`);
+                if (!_new.ip_routes[_to]) throw new Error(`No route ${_to} found`);
+
+                const _tmp = _new.ip_routes[_from];
+                _new.ip_routes[_from] = _new.ip_routes[_to];
+                _new.ip_routes[_to] = _tmp;
+              });
+            },
+          },
         },
       },
     },
   },
-  fw: { desc: "Firewall management", fn: {} },
+  fw: {
+    desc: "Firewall management",
+    fn: {
+      print: {
+        desc: "Print firewall rules",
+        fn: () => async (os, _, ctx) => {
+          const _new = z_conf.parse(_read_config(os));
+
+          for (let i = 0; i < _new.fw.length; i += 1) {
+            const rule = _new.fw[i];
+
+            ctx.output(
+              [
+                `${i + 1})`,
+                `TABLE=${rule.table}`,
+                `CHAIN=${rule.chain}`,
+                `ACTION=${rule.action.type}`,
+                rule.in_interface_ids?.length &&
+                  `in=${rule.in_interface_ids.map((i) => _find_id(_new.interfaces, i)?.name || `*${i}`).join(",")}`,
+                rule.out_interface_ids?.length &&
+                  `out=${rule.out_interface_ids.map((i) => _find_id(_new.interfaces, i)?.name || `*${i}`).join(",")}`,
+                rule.protocol?.length && `protocol=${rule.protocol.join(",")}`,
+                rule.src?.length && `src=${rule.src?.join(",")}`,
+                rule.src_port?.length && `src_port=${rule.src_port.join(",")}`,
+                rule.dst?.length && `src=${rule.dst?.join(",")}`,
+                rule.dst_port?.length && `dst_port=${rule.dst_port.join(",")}`,
+                rule.state?.length && `state=${rule.state.join(",")}`,
+              ]
+                .filter(Boolean)
+                .join(" "),
+            );
+            ctx.output("\n");
+          }
+        },
+      },
+      move: {
+        desc: "Set rule priority",
+        args: [
+          { name: "--from", alias: "-f", type: "number", required: true },
+          { name: "--to", alias: "-t", type: "number", required: true },
+        ],
+        fn: (parsed) => async (os) => {
+          const _from = Number(parsed.from![0]);
+          const _to = Number(parsed.to![0]);
+
+          _modify_config(os, (_new) => {
+            if (!_new.fw[_from]) throw new Error(`No rule ${_from} found`);
+            if (!_new.fw[_to]) throw new Error(`No rule ${_to} found`);
+
+            const _tmp = _new.fw[_from];
+            _new.fw[_from] = _new.fw[_to];
+            _new.fw[_to] = _tmp;
+          });
+        },
+      },
+    },
+  },
 });
