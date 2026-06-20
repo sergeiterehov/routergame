@@ -1,6 +1,7 @@
 import { software } from "../core/apps";
 import { parseMAC } from "../core/format";
 import { Hardware } from "../core/hardware";
+import { INTERFACE_TYPES } from "../core/os/net";
 import { OS } from "../core/os/os";
 import { SimpleEthernet, SimpleEthernetDriver } from "../core/store/simpleEthernet.device";
 import { sendMessage, onMessage, expose } from "./helpers";
@@ -15,7 +16,7 @@ function begin() {
   os.on_output = (text) => sendMessage({ $: "print", text });
   os.fs.on_change = (fs) => sendMessage({ $: "fs", fs });
   {
-    const lo = os.net.add_interface("loopback", "lo", -1);
+    const lo = os.net.add_interface(INTERFACE_TYPES.LOOPBACK, "lo", -1);
     lo.flags.UP = true;
     lo.flags.LOOPBACK = true;
     lo.flags.RUNNING = true;

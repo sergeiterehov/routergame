@@ -11,7 +11,7 @@ import {
 } from "../format";
 import type { TIPIPTun } from "../os/ipip";
 import type { TIPIPUDPTun } from "../os/ipip-udp";
-import type { TInterface } from "../os/net";
+import { INTERFACE_TYPES, type TInterface } from "../os/net";
 import type { OS, TApp, TAppContext } from "../os/os";
 import { find_arg, find_args, has_arg, with_commander, test_args } from "./app.lib";
 
@@ -113,7 +113,7 @@ export const iface: TApp = async (os, args, ctx) => {
   const op = args.shift();
   if (!op) return _print_interface(os, name);
 
-  if (iface.type === "loopback") throw new Error("Loopback interface is readonly");
+  if (iface.type === INTERFACE_TYPES.LOOPBACK) throw new Error("Loopback interface is readonly");
 
   if (op === "add" || op === "del") {
     const ip = args.shift();
@@ -134,7 +134,7 @@ export const iface: TApp = async (os, args, ctx) => {
       iface.ips.splice(ip_index, 1);
     }
   } else if (op === "mac") {
-    if (iface.mac === undefined) throw new Error("Mac is unsupported");
+    if (!iface.mac) throw new Error("Mac is unsupported");
 
     const mac = args.shift();
     if (!mac) return os.print(`${formatMAC(iface.mac) || ""}\n`);
@@ -446,7 +446,7 @@ export async function br(os: OS, args: string[]) {
         tagged: [],
       });
 
-      if (port_iface.mac !== undefined && br_iface.mac === 0n) {
+      if (!br_iface.mac) {
         br_iface.mac = port_iface.mac;
       }
     }
@@ -519,7 +519,7 @@ export async function br(os: OS, args: string[]) {
       tagged,
     });
 
-    if (port_iface.mac !== undefined && br_iface.mac === 0n) {
+    if (!br_iface.mac) {
       br_iface.mac = port_iface.mac;
     }
 

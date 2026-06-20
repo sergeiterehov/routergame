@@ -111,6 +111,16 @@ export class ARP {
     this._notify_listeners(arp);
   }
 
+  clear_interface(iInterface: number) {
+    for (let i = this._table.length - 1; i >= 0; i--) {
+      const arp = this._table[i];
+      if (arp.iInterface !== iInterface) continue;
+
+      this._table.splice(i, 1);
+      this._notify_listeners(arp);
+    }
+  }
+
   handle(iInterface: number, frame: TEthernetFrame) {
     const iface = this.net._interfaces[iInterface];
     if (!iface.mac) return;

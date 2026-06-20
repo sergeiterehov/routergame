@@ -56,7 +56,7 @@ export async function dhcp_server(os: OS, args: string[]) {
   const _iface_name = args.shift();
   if (!_iface_name) throw new Error("No interface specified");
 
-  const iface = os.net._interfaces.find((i) => i.name === _iface_name)!;
+  const iface = os.net.iface_by_name(_iface_name)!;
   if (!iface) throw new Error(`Interface ${_iface_name} not found`);
 
   const server_ip = iface.ips.at(0)!;
@@ -149,7 +149,7 @@ export async function dhcp_server(os: OS, args: string[]) {
       }
 
       function send_offer() {
-        if (iface.mac === undefined) return;
+        if (!iface.mac) return;
         if (!leasing) return;
 
         os.net.send_frame(iface.index, {
@@ -196,7 +196,7 @@ export async function dhcp_server(os: OS, args: string[]) {
       }
 
       function send_ack() {
-        if (iface.mac === undefined) return;
+        if (!iface.mac) return;
         if (!leasing) return;
 
         os.net.send_frame(iface.index, {
@@ -280,7 +280,7 @@ export async function dhclient(os: OS, args: string[]) {
   const _iface_name = args.shift();
   if (!_iface_name) throw new Error("No interface specified");
 
-  const iface = os.net._interfaces.find((i) => i.name === _iface_name)!;
+  const iface = os.net.iface_by_name(_iface_name)!;
   if (!iface) throw new Error(`Interface ${_iface_name} not found`);
 
   let state: "idle" | "discovering" | "requesting" | "leasing" = "idle";
@@ -308,7 +308,7 @@ export async function dhclient(os: OS, args: string[]) {
   }
 
   function send_discover() {
-    if (iface.mac === undefined) return;
+    if (!iface.mac) return;
 
     const chaddr = new Uint8Array(16);
     {
@@ -371,7 +371,7 @@ export async function dhclient(os: OS, args: string[]) {
   }
 
   function send_request() {
-    if (iface.mac === undefined) return;
+    if (!iface.mac) return;
 
     const chaddr = new Uint8Array(16);
     {

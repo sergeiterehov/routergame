@@ -1,5 +1,5 @@
 import { type OS } from "./os";
-import { testSameNetwork } from "../format";
+import { testSameNetwork, type CIDRv4 } from "../format";
 import {
   ETHER_TYPES,
   MAC_BROADCAST,
@@ -35,7 +35,7 @@ export const INTERFACE_TYPES = {
   IPIP_UDP: "ipip-udp",
 } as const;
 
-export type TIP4 = { ip: number; prefix: number };
+export type TIP4 = CIDRv4;
 
 export type TInterface = {
   index: number;
@@ -50,7 +50,7 @@ export type TInterface = {
     SLAVE?: boolean;
     MASTER?: boolean;
   };
-  mac?: bigint;
+  mac: bigint;
   iDriver: number;
   iMasterInterface?: number;
   ips: TIP4[];
@@ -79,7 +79,7 @@ export class Net {
 
   add_interface(type: TInterface["type"], name: string, iDriver: number) {
     const index = this._interfaces.length;
-    const iface: TInterface = { index, type, name, iDriver, ips: [], flags: {} };
+    const iface: TInterface = { index, type, name, mac: 0n, iDriver, ips: [], flags: {} };
     this._interfaces.push(iface);
     return iface;
   }

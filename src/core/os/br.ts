@@ -183,6 +183,15 @@ export class Bridge {
     iface.mac = mac;
   }
 
+  fbd_clear(iBridge: number | undefined, iPort: number | undefined) {
+    for (let i = this._fdb.length - 1; i >= 0; i--) {
+      const fbd = this._fdb[i];
+      if (fbd.iBridge === iBridge || fbd.iPort === iPort) continue;
+
+      this._fdb.splice(i, 1);
+    }
+  }
+
   private _send_frame_to_port(iBridge: number, iPort: number, frame: TEthernetFrame) {
     const bridge = this.get_bridge(iBridge);
 

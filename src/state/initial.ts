@@ -31,70 +31,10 @@ export const initial_arch: TArchitecture = {
       fs: {
         "/init": [
           "netd &",
-          "pkg install dhcp",
-          "dhcp_server br0 10.0.0.10 10.0.0.20 -g 10.0.0.1 -dns 192.168.0.100 &",
+          "pkg install dhcp net_tools",
+          "dhcp_server br_s8era2 10.0.0.10 10.0.0.20 -g 10.0.0.1 -dns 192.168.0.100 &",
         ].join("\n"),
-        "/netd.json": JSON.stringify(
-          {
-            interfaces: [
-              { id: "eth0", ref: null!, name: "eth0", type: { type: "ethernet", up: true } },
-              { id: "eth1", ref: null!, name: "eth1", type: { type: "ethernet", up: true } },
-              { id: "eth2", ref: null!, name: "eth2", type: { type: "ethernet", up: true } },
-              { id: "eth3", ref: null!, name: "eth3", type: { type: "ethernet", up: true } },
-              { id: "eth4", ref: null!, name: "eth4", type: { type: "ethernet", up: true } },
-              { id: "eth5", ref: null!, name: "eth5", type: { type: "ethernet", up: true } },
-              { id: "eth6", ref: null!, name: "eth6", type: { type: "ethernet", up: true } },
-              { id: "eth7", ref: null!, name: "eth7", type: { type: "ethernet", up: true } },
-              {
-                id: "br0",
-                ref: null!,
-                name: "br0",
-                type: { type: "bridge", up: true, pvid: 1, vlan_filtering: false },
-              },
-            ],
-            bridge_ports: [
-              {
-                id: "bp1",
-                ref: null!,
-                bridge_id: "br0",
-                port_id: "eth1",
-                pvid: 1,
-                tagged: [],
-                untagged: [],
-              },
-              {
-                id: "bp2",
-                ref: null!,
-                bridge_id: "br0",
-                port_id: "eth2",
-                pvid: 1,
-                tagged: [],
-                untagged: [],
-              },
-            ],
-            ips: [
-              { id: "ip1", interface_id: "eth0", address: "192.168.0.1/24" },
-              { id: "ip2", interface_id: "br0", address: "10.0.0.1/24" },
-            ],
-            ip_routes: [
-              { id: "r1", ref: null!, interface_id: "eth0", network: "192.168.0.0/24" },
-              { id: "r2", ref: null!, interface_id: "br0", network: "10.0.0.0/24" },
-            ],
-            fw_enable: true,
-            fw: [
-              {
-                id: "fw1",
-                ref: null!,
-                table: "nat",
-                chain: "src-nat",
-                action: { type: "masquerade" },
-                out_interface_ids: ["eth0"],
-              },
-            ],
-          },
-          undefined,
-          2,
-        ),
+        "/netd": `{"version":1,"interface":{"list":[{"id":"j4ze0z","name":"eth0","mac":"00:00:00:ff:00:00","type":"ethernet","props":{"default_name":"eth0"}},{"id":"j33get","name":"eth1","mac":"00:00:00:ff:00:01","type":"ethernet","props":{"default_name":"eth1"}},{"id":"k1ekku","name":"eth2","mac":"00:00:00:ff:00:02","type":"ethernet","props":{"default_name":"eth2"}},{"id":"d7nfl9","name":"eth3","mac":"00:00:00:ff:00:03","type":"ethernet","props":{"default_name":"eth3"}},{"id":"elberd","name":"eth4","mac":"00:00:00:ff:00:04","type":"ethernet","props":{"default_name":"eth4"}},{"id":"pz1dum","name":"eth5","mac":"00:00:00:ff:00:05","type":"ethernet","props":{"default_name":"eth5"}},{"id":"aumo8t","name":"eth6","mac":"00:00:00:ff:00:06","type":"ethernet","props":{"default_name":"eth6"}},{"id":"lzq84h","name":"eth7","mac":"00:00:00:ff:00:07","type":"ethernet","props":{"default_name":"eth7"}},{"id":"s8era2","name":"br0","mac":"00:00:00:00:00:00","type":"bridge","props":{"pvid":1,"vlan_filtering":false}}]},"interface__bridge__port":{"list":[{"id":"comr0u","bridge_interface_id":"s8era2","port_interface_id":"j33get","pvid":1,"tagged":[],"untagged":[]},{"id":"980999","bridge_interface_id":"s8era2","port_interface_id":"k1ekku","pvid":1,"tagged":[],"untagged":[]}]},"ip__address":{"list":[{"id":"760wv4","address":"192.168.0.1/24","interface_id":"j4ze0z"},{"id":"8lcza7","address":"10.0.0.1/24","interface_id":"s8era2"}]},"ip__route":{"list":[]},"ip__firewall":{"list":[{"id":"5qhv2l","table":"nat","chain":"src-nat","action":{"type":"masquerade"},"out_interface_ids":["j4ze0z"]}]}}`,
       },
       ui: { x: 150, y: 200 },
     },
