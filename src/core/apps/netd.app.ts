@@ -28,52 +28,6 @@ export const netd: TApp = async (os, _args, ctx) => {
 
       nd.interface.ethernet.init();
       ctx.output("Initialized\n");
-
-      nd.interface.bridge.add({
-        id: NDUtils.rand_id(),
-        mac: "00:00:00:00:00:00",
-        name: "br0",
-        type: "bridge",
-        props: {
-          pvid: 1,
-          vlan_filtering: false,
-        },
-      });
-      nd.ip.address.add({
-        id: NDUtils.rand_id(),
-        address: "192.168.0.1/24",
-        interface: nd.interface.by_name("eth0")!,
-      });
-      nd.ip.address.add({
-        id: NDUtils.rand_id(),
-        address: "10.0.0.1/24",
-        interface: nd.interface.by_name("br0")!,
-      });
-      nd.interface.bridge.port.add({
-        id: NDUtils.rand_id(),
-        bridge_interface: nd.interface.by_name("br0", "bridge")!,
-        port_interface: nd.interface.by_name("eth1")!,
-        pvid: 1,
-        tagged: [],
-        untagged: [],
-      });
-      nd.interface.bridge.port.add({
-        id: NDUtils.rand_id(),
-        bridge_interface: nd.interface.by_name("br0", "bridge")!,
-        port_interface: nd.interface.by_name("eth2")!,
-        pvid: 1,
-        tagged: [],
-        untagged: [],
-      });
-      nd.ip.firewall.add({
-        id: NDUtils.rand_id(),
-        table: "nat",
-        chain: "src-nat",
-        action: {
-          action: "masquerade",
-        },
-        out_interface: [nd.interface.by_name("eth0")!],
-      });
     }
 
     await new Promise((_, reject) => {
