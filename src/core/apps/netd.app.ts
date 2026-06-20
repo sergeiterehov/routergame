@@ -153,6 +153,36 @@ export const net = with_commander({
           }
         },
       },
+      find: {
+        desc: "Find interface",
+        args: [
+          { name: "--name", alias: "-n", type: "string" },
+          { name: "--print", alias: "-", type: "string", default: ["name"], desc: "(name, .id, .name)" },
+        ],
+        fn: (parsed) => async (_os, _args, ctx) => {
+          const name = parsed.name?.[0];
+          const print = parsed.print?.[0];
+
+          const result: string[] = [];
+
+          for (const item of nd.interface.list) {
+            if (name && item.name !== name) continue;
+
+            if (print === "name") {
+              result.push(item.name);
+            } else if (print === ".id") {
+              result.push(item.id);
+            } else if (print === ".name") {
+              result.push(nd.interface.iface_map.get(item.id)!.name);
+            } else {
+              throw new Error("Unknown print format");
+            }
+          }
+
+          ctx.output(result.join(";"));
+          ctx.output("\n");
+        },
+      },
     },
   },
   ip: {
