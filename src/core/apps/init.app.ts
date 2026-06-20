@@ -2,6 +2,7 @@ import { SEC } from "../format";
 import { async_timeout, create_input_buffer } from "../helpers";
 import type { TApp, TAppContext } from "../os/os";
 import { test_args } from "./app.lib";
+import { Parser, type AST } from "./sh.lib";
 
 const _PATH = "/init";
 
@@ -41,21 +42,43 @@ export const init: TApp = async (os, args, ctx) => {
     return os.exec(cmd, args, ctx);
   };
 
-  const _eval = async (cmd: string, ctx: TAppContext) => {
-    cmd = cmd.trim();
-    if (cmd.startsWith("#")) return;
+  const _do_cmd = async (cmd: AST.Command, ctx: TAppContext) => {
+    const args: string[] = [];
+    for (const arg of cmd.args) {
+      if (arg.$ === "string") {
+        args.push(arg.value);
+      } else if (arg.$ === "command") {
+        if (arg.background) throw new Error("Background commands are not supported");
 
-    const [app, ...args] = cmd.split(/\s+/);
-    if (!app) return;
+        let output = "";
+        await _do_cmd(arg, {
+          ...ctx,
+          output: (text) => {
+            output += text;
+          },
+        });
 
-    const background = args.at(-1) === "&" && args.pop();
+        args.push(output.trim());
+      } else {
+        throw new Error("Only strings are supported");
+      }
+    }
 
-    if (background) {
+    if (cmd.background) {
       const _output = ctx.output;
-      ctx.output = (text) => _output(`[& ${app}] ${text}`);
-      _exec(app, args, ctx).catch((e) => os.print(`[& ${app} ERROR]: ${e}\n`));
+      ctx.output = (text) => _output(`[& ${cmd.name}] ${text}`);
+      _exec(cmd.name, args, ctx).catch((e) => os.print(`[& ${cmd.name} ERROR]: ${e}\n`));
     } else {
-      await _exec(app, args, ctx);
+      await _exec(cmd.name, args, ctx);
+    }
+  };
+
+  const _eval = async (input: string, ctx: TAppContext) => {
+    const ast = new Parser().parse(input);
+
+    for (const stmt of ast.statements) {
+      if (stmt.$ !== "command") throw new Error("Only commands are supported");
+      await _do_cmd(stmt, ctx);
     }
   };
 

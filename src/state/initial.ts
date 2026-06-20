@@ -31,8 +31,8 @@ export const initial_arch: TArchitecture = {
       fs: {
         "/init": [
           "netd &",
-          "pkg install dhcp net_tools",
-          "dhcp_server br_s8era2 10.0.0.10 10.0.0.20 -g 10.0.0.1 -dns 192.168.0.100 &",
+          "pkg install dhcp",
+          "dhcp_server [net interface find --name br0 - .name] 10.0.0.10 10.0.0.20 -g 10.0.0.1 -dns 192.168.0.100 &",
         ].join("\n"),
         "/netd": `{"version":1,"interface":{"list":[{"id":"j4ze0z","name":"eth0","mac":"00:00:00:ff:00:00","type":"ethernet","props":{"default_name":"eth0"}},{"id":"j33get","name":"eth1","mac":"00:00:00:ff:00:01","type":"ethernet","props":{"default_name":"eth1"}},{"id":"k1ekku","name":"eth2","mac":"00:00:00:ff:00:02","type":"ethernet","props":{"default_name":"eth2"}},{"id":"d7nfl9","name":"eth3","mac":"00:00:00:ff:00:03","type":"ethernet","props":{"default_name":"eth3"}},{"id":"elberd","name":"eth4","mac":"00:00:00:ff:00:04","type":"ethernet","props":{"default_name":"eth4"}},{"id":"pz1dum","name":"eth5","mac":"00:00:00:ff:00:05","type":"ethernet","props":{"default_name":"eth5"}},{"id":"aumo8t","name":"eth6","mac":"00:00:00:ff:00:06","type":"ethernet","props":{"default_name":"eth6"}},{"id":"lzq84h","name":"eth7","mac":"00:00:00:ff:00:07","type":"ethernet","props":{"default_name":"eth7"}},{"id":"s8era2","name":"br0","mac":"00:00:00:00:00:00","type":"bridge","props":{"pvid":1,"vlan_filtering":false}}]},"interface__bridge__port":{"list":[{"id":"comr0u","bridge_interface_id":"s8era2","port_interface_id":"j33get","pvid":1,"tagged":[],"untagged":[]},{"id":"980999","bridge_interface_id":"s8era2","port_interface_id":"k1ekku","pvid":1,"tagged":[],"untagged":[]}]},"ip__address":{"list":[{"id":"760wv4","address":"192.168.0.1/24","interface_id":"j4ze0z"},{"id":"8lcza7","address":"10.0.0.1/24","interface_id":"s8era2"}]},"ip__route":{"list":[]},"ip__firewall":{"list":[{"id":"5qhv2l","table":"nat","chain":"src-nat","action":{"type":"masquerade"},"out_interface_ids":["j4ze0z"]}]}}`,
       },
