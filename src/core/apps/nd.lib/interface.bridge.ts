@@ -2,7 +2,6 @@ import z from "zod";
 import { nd_extend, type ND } from ".";
 import type { TBridge } from "../../os/br";
 import { INTERFACE_TYPES } from "../../os/net";
-import "./interface";
 import { parseMAC } from "../../format";
 
 const TYPE = "bridge";

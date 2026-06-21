@@ -2,7 +2,6 @@ import z from "zod";
 import { nd_extend, type ND } from ".";
 import { applyPrefix, formatCIDRv4, parseCIDRv4 } from "../../format";
 import type { TIP4 } from "../../os/net";
-import "./ip";
 import { NDUtils } from "./utils";
 
 const z_data = z.object({

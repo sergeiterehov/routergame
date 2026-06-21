@@ -2,7 +2,6 @@ import z from "zod";
 import { nd_extend, type ND } from ".";
 import { formatMAC } from "../../format";
 import { INTERFACE_TYPES } from "../../os/net";
-import "./interface";
 import { NDUtils } from "./utils";
 
 const TYPE = "ethernet";

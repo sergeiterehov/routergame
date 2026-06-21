@@ -2,7 +2,6 @@ import z from "zod";
 import { type ND, nd_extend } from ".";
 import { parseCIDRv4 } from "../../format";
 import type { TRoute } from "../../os/ip4";
-import "./ip";
 
 const z_data = z.object({
   ip__route: z.object({
