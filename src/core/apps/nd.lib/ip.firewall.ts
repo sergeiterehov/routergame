@@ -123,6 +123,17 @@ const THIS: ND.IP.Firewall._T = {
 
 nd.ip.firewall = THIS as ND.IP.Firewall.T;
 
+nd.interface.hook.add((item, action) => {
+  if (action === "before-remove") {
+    for (const {
+      data: { in_interface, out_interface },
+    } of nd.ip.firewall.list) {
+      if (!in_interface?.includes(item) && !out_interface?.includes(item)) continue;
+      throw new Error("Interface is used in firewall rules, cannot remove");
+    }
+  }
+});
+
 nd.serializers.push({
   serialize(): ND.IP.Firewall.Serialized {
     return {

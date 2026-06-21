@@ -45,9 +45,12 @@ declare module "./" {
         type _Serialized = z.infer<typeof z_data>;
         export interface Serialized extends _Serialized {}
 
-         type _T = {
+        type _T = {
           map: Map<string, Item>;
           list: Item[];
+
+          hook: NDUtils.Hook<Data, "add" | "before-remove">;
+
           add(data: Data): void;
           remove(id: string): void;
         };
@@ -60,6 +63,8 @@ declare module "./" {
 const THIS: ND.IP.Address._T = {
   list: [],
   map: new Map(),
+
+  hook: new NDUtils.Hook(),
 
   add(data: ND.IP.Address.Data) {
     const iface = nd.interface.iface_map.get(data.interface.id);
@@ -80,6 +85,8 @@ const THIS: ND.IP.Address._T = {
     THIS.map.set(data.id, item);
 
     nd.ip.route.add(route);
+
+    THIS.hook.notify(item.data, "add");
   },
 
   remove(id) {
@@ -88,6 +95,8 @@ const THIS: ND.IP.Address._T = {
 
     const iface = nd.interface.iface_map.get(item.data.interface.id);
     if (!iface) throw new Error("Interface not found");
+
+    THIS.hook.notify(item.data, "before-remove");
 
     nd.ip.route.remove(item.route.id);
 
@@ -99,6 +108,15 @@ const THIS: ND.IP.Address._T = {
 };
 
 nd.ip.address = THIS as ND.IP.Address.T;
+
+nd.interface.hook.add((item, action) => {
+  if (action === "before-remove") {
+    for (const address of nd.ip.address.list) {
+      if (address.data.interface !== item) continue;
+      THIS.remove(address.data.id);
+    }
+  }
+});
 
 nd.serializers.push({
   serialize() {

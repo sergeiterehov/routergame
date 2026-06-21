@@ -96,6 +96,15 @@ const THIS: ND.IP.Route._T = {
 
 nd.ip.route = THIS as ND.IP.Route.T;
 
+nd.interface.hook.add((item, action) => {
+  if (action === "before-remove") {
+    for (const route of nd.ip.route.list) {
+      if (route.data.interface !== item) continue;
+      THIS.remove(route.data.id);
+    }
+  }
+});
+
 nd.serializers.push({
   serialize() {
     return {

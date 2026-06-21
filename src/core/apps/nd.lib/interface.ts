@@ -3,6 +3,7 @@ import type { ND } from ".";
 import { parseMAC } from "../../format";
 import type { TInterface } from "../../os/net";
 import { nd } from "./nd";
+import { NDUtils } from "./utils";
 
 const z_data = z.object({
   interface: z.object({
@@ -53,6 +54,8 @@ declare module "./" {
 
         type_serializers: { [K in keyof TypesProps]?: TSerializer<K> };
 
+        hook: NDUtils.Hook<Item, "add" | "before-remove" | "edit">;
+
         by_name<T extends keyof TypesProps = keyof TypesProps>(name: string, type?: T): Item<T> | undefined;
 
         append(item: Item, iface: TInterface): void;
@@ -75,17 +78,21 @@ const THIS: ND.Interface._T = {
 
   type_serializers: {},
 
-  by_name(name, type) {
+  hook: new NDUtils.Hook(),
+
+  by_name: ((name, type) => {
     for (const item of THIS.list) {
       if (type && item.type !== type) continue;
       if (item.name === name) return item;
     }
-  },
+  }) as ND.Interface._T["by_name"],
 
   append(item, iface) {
     THIS.list.push(item);
     THIS.map.set(item.id, item);
     THIS.iface_map.set(item.id, iface);
+
+    THIS.hook.notify(item, "add");
   },
   remove(id) {
     const item = THIS.map.get(id);
@@ -94,13 +101,7 @@ const THIS: ND.Interface._T = {
     const iface = THIS.iface_map.get(id);
     if (!iface) throw new Error(`Interface not found: ${id}`);
 
-    for (const address of nd.ip.address.list) {
-      nd.ip.address.remove(address.data.id);
-    }
-
-    for (const route of nd.ip.route.list) {
-      nd.ip.route.remove(route.data.id);
-    }
+    THIS.hook.notify(item, "before-remove");
 
     // clear arp
     nd.os.net.arp.clear_interface(iface.index);
@@ -127,6 +128,8 @@ const THIS: ND.Interface._T = {
       nd.os.net.change_mac(iface.index, parseMAC(update.mac));
       item.mac = update.mac;
     }
+
+    THIS.hook.notify(item, "edit");
   },
 };
 

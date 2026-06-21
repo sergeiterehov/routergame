@@ -9,4 +9,19 @@ export namespace NDUtils {
     }
     return id;
   }
+
+  type HookCallback<O, A> = (obj: O, action: A) => void;
+  export class Hook<Obj, Actions> {
+    private _hooks: HookCallback<Obj, Actions>[] = [];
+
+    add(hook: HookCallback<Obj, Actions>) {
+      this._hooks.push(hook);
+    }
+
+    notify(obj: Obj, action: Actions) {
+      for (const hook of this._hooks) {
+        hook(obj, action);
+      }
+    }
+  }
 }
