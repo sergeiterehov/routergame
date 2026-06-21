@@ -3,6 +3,8 @@ import { formatIPv4, formatMAC, parseCIDRv4, prefixToMask } from "../format";
 import { with_commander } from "./app.lib";
 import { nd } from "./nd.lib";
 import { NDUtils } from "./nd.lib/utils";
+import { FW_ACTIONS, FW_CHAINS, FW_CONN_STATES, FW_TABLES } from "../os/fw";
+import { IP_PROTOCOLS } from "../pack";
 
 const _CONFIG_PATH = "/netd";
 
@@ -320,6 +322,95 @@ export const net = with_commander({
               const _tmp = mut_list[_from];
               mut_list[_from] = mut_list[_to];
               mut_list[_to] = _tmp;
+            },
+          },
+          add: {
+            desc: "Add new rule",
+            args: [
+              { name: "--table", alias: "-t", type: Object.values(FW_TABLES), required: true },
+              { name: "--chain", alias: "-c", type: Object.values(FW_CHAINS), required: true },
+              { name: "--action", alias: "-a", type: Object.values(FW_ACTIONS), required: true },
+              { name: "--in", alias: "-i", type: "string", multiple: true },
+              { name: "--out", alias: "-o", type: "string", multiple: true },
+              {
+                name: "--protocol",
+                alias: "-p",
+                type: [...Object.keys(IP_PROTOCOLS), ...Object.values(IP_PROTOCOLS).map(String)],
+                multiple: true,
+              },
+              { name: "--src", alias: "-s", type: "string", multiple: true },
+              { name: "--dst", alias: "-d", type: "string", multiple: true },
+              { name: "--state", alias: "-st", type: Object.values(FW_CONN_STATES), multiple: true },
+              { name: "--src-port", alias: "-sp", type: "string", multiple: true },
+              { name: "--dst-port", alias: "-dp", type: "string", multiple: true },
+              { name: "--to-ip", alias: "-ti", type: "string", multiple: true },
+              { name: "--to-port", alias: "-tp", type: "string", multiple: true },
+              { name: "--comment", alias: "--", type: "string" },
+            ],
+            fn: (parsed) => async () => {
+              const {
+                table: [table],
+                chain: [chain],
+                action: [action],
+                comment: [comment],
+                in: in_interface_names,
+                out: out_interface_names,
+                protocol,
+                src,
+                dst,
+                state,
+                ["src-port"]: src_port,
+                ["dst-port"]: dst_port,
+                ["to-ip"]: [to_ip],
+                ["to-port"]: [to_port],
+              } = parsed;
+
+              const map_interface_name = (name: string) => {
+                const res = nd.interface.by_name(name);
+                if (!res) throw new Error(`Interface ${name} not found`);
+                return res;
+              };
+
+              const map_port = (port: string) => {
+                const res = Number.parseInt(port, 10);
+                if (Number.isNaN(res)) throw new Error(`Port ${port} is not a number`);
+                if (res < 0 || res > 65535) throw new Error(`Port ${port} is out of range`);
+                return res;
+              };
+
+              const map_protocol = (proto: string) => {
+                const by_name = IP_PROTOCOLS[proto as keyof typeof IP_PROTOCOLS];
+                if (by_name !== undefined) return by_name;
+                const by_num = Number.parseInt(proto, 10);
+                if (Number.isNaN(by_num)) throw new Error(`Protocol ${proto} is not a number`);
+                if (by_num < 0 || by_num > 255) throw new Error(`Protocol ${proto} is out of range`);
+                return by_num;
+              };
+
+              const map_optional_array = <T>(value: T[]): T[] | undefined => {
+                if (value.length === 0) return;
+                return value;
+              };
+
+              nd.ip.firewall.add({
+                id: NDUtils.rand_id(),
+                comment,
+                table: table as (typeof FW_TABLES)[keyof typeof FW_TABLES],
+                chain: chain as (typeof FW_CHAINS)[keyof typeof FW_CHAINS],
+                action: {
+                  action: action as (typeof FW_ACTIONS)[keyof typeof FW_ACTIONS],
+                  to_ip: to_ip,
+                  to_port: to_port ? map_port(to_port) : undefined,
+                },
+                in_interface: map_optional_array(in_interface_names.map(map_interface_name)),
+                out_interface: map_optional_array(out_interface_names.map(map_interface_name)),
+                protocol: map_optional_array(protocol.map(map_protocol)),
+                src,
+                dst,
+                state: state as (typeof FW_CONN_STATES)[keyof typeof FW_CONN_STATES][],
+                src_port: map_optional_array(src_port.map(map_port)),
+                dst_port: map_optional_array(dst_port.map(map_port)),
+              });
             },
           },
         },

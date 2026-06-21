@@ -7,14 +7,14 @@ import type { TIP4Packet } from "../pack";
 export type TArg = {
   name?: string;
   alias?: string;
-  type: "flag" | "string" | "number" | "ip" | "ip/";
+  type: "flag" | "string" | "number" | "ip" | "ip/" | string[];
   multiple?: boolean;
   required?: boolean;
   desc?: string;
   default?: string[];
 };
 
-export type TCommandFn = (parsed: Record<string, string[] | undefined>) => TApp;
+export type TCommandFn = (parsed: Record<string, string[]>) => TApp;
 
 export type TCommand = {
   desc: string;
@@ -75,7 +75,12 @@ export function parse_args(types: TArg[], args: string[]) {
       const value = type.name ? _args.shift()! : arg;
       if (!value) throw new Error(`Argument ${name} requires value`);
 
-      if (type.type === "string") {
+      if (typeof type.type === "object") {
+        if (!type.type.includes(value)) {
+          throw new Error(`Argument ${name} must be one of: ${type.type.join(", ")}`);
+        }
+        result[name].push(value);
+      } else if (type.type === "string") {
         result[name].push(value);
       } else if (type.type === "number") {
         if (/^[0-9_]+$/.test(value)) {
@@ -102,8 +107,8 @@ export function parse_args(types: TArg[], args: string[]) {
   }
 
   for (const type of types) {
-    if (!found.has(type) && type.default) {
-      result[type_names.get(type)!] = type.default;
+    if (!found.has(type)) {
+      result[type_names.get(type)!] = type.default || [];
     }
   }
 
@@ -182,7 +187,7 @@ const _format_help = (path: string[], commands: Record<string, TCommand>): strin
         if (arg.multiple) output.push("...");
         if (arg.desc) output.push(" - ", arg.desc);
         output.push(", ", arg.required ? "required" : "optional");
-        output.push(", ", arg.type);
+        output.push(", ", typeof arg.type === "object" ? arg.type.join("|") : arg.type);
         if (arg.default) output.push(", default = ", arg.default.join(","));
         output.push("\n");
       }
