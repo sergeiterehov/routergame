@@ -27,32 +27,55 @@ export namespace ND {
   export interface T extends _T {}
 }
 
-const THIS: ND._T = {
-  os: null!,
-  version: 1,
+const _extensions: { extend: (nd: ND.T) => void }[] = [];
 
-  serializers: [],
+export function nd_extend(extender: (nd: ND.T) => void) {
+  _extensions.push({ extend: extender });
+}
 
-  serialize() {
-    const data: ND._Serialized = {
-      version: THIS.version,
-    };
+export function nd_create(config: { os: OS }): ND.T {
+  const THIS: ND._T = {
+    os: config.os,
+    version: 1,
 
-    for (const serializer of THIS.serializers) {
-      Object.assign(data, serializer.serialize());
-    }
+    serializers: [],
 
-    return data as ND.Serialized;
-  },
-  deserialize(data) {
-    z_data.parse(data);
+    serialize() {
+      const data: ND._Serialized = {
+        version: THIS.version,
+      };
 
-    THIS.version = data.version;
+      for (const serializer of THIS.serializers) {
+        Object.assign(data, serializer.serialize());
+      }
 
-    for (const serializer of THIS.serializers) {
-      serializer.deserialize(data);
-    }
-  },
-};
+      return data as ND.Serialized;
+    },
+    deserialize(data) {
+      z_data.parse(data);
 
-export const nd = THIS as ND.T;
+      THIS.version = data.version;
+
+      for (const serializer of THIS.serializers) {
+        serializer.deserialize(data);
+      }
+    },
+  };
+
+  const nd = THIS as ND.T;
+
+  for (const ext of _extensions) {
+    ext.extend(nd);
+  }
+
+  return nd;
+}
+
+const _OS_ND_INSTANCES = new Map<OS, ND.T>();
+
+export function get_nd(os: OS) {
+  if (!_OS_ND_INSTANCES.has(os)) {
+    _OS_ND_INSTANCES.set(os, nd_create({ os }));
+  }
+  return _OS_ND_INSTANCES.get(os)!;
+}

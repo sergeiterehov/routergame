@@ -1,5 +1,5 @@
 import z from "zod";
-import { nd, type ND } from ".";
+import { nd_extend, type ND } from ".";
 import type { TBridgeVlan } from "../../os/br";
 import { INTERFACE_TYPES } from "../../os/net";
 import { parseMAC } from "../../format";
@@ -50,53 +50,55 @@ declare module "." {
   }
 }
 
-const THIS: ND.Interface.Bridge.VLAN._T = {
-  refs: new Map(),
+nd_extend((nd) => {
+  const THIS: ND.Interface.Bridge.VLAN._T = {
+    refs: new Map(),
 
-  add(item) {
-    const bridge = nd.interface.bridge.get(item.props.bridge_interface.id);
-    if (!bridge) throw new Error("Bridge not found");
+    add(item) {
+      const bridge = nd.interface.bridge.get(item.props.bridge_interface.id);
+      if (!bridge) throw new Error("Bridge not found");
 
-    const _br = nd.interface.bridge.bridge_map.get(bridge.id);
-    if (!_br) throw new Error("OS Bridge not found");
+      const _br = nd.interface.bridge.bridge_map.get(bridge.id);
+      if (!_br) throw new Error("OS Bridge not found");
 
-    const _iface = nd.os.net.add_interface(INTERFACE_TYPES.VLAN, `vlan_${item.id}`, -1);
-    _iface.mac = parseMAC(item.mac);
+      const _iface = nd.os.net.add_interface(INTERFACE_TYPES.VLAN, `vlan_${item.id}`, -1);
+      _iface.mac = parseMAC(item.mac);
 
-    const _vlan: TBridgeVlan = {
-      iBridge: _br.iBridge,
-      iVlan: _iface.index,
-      vid: item.props.pvid,
-    };
+      const _vlan: TBridgeVlan = {
+        iBridge: _br.iBridge,
+        iVlan: _iface.index,
+        vid: item.props.pvid,
+      };
 
-    const ref: ND.Interface.Bridge.VLAN.Ref = { item, vlan: _vlan };
-    THIS.refs.set(item.id, ref);
+      const ref: ND.Interface.Bridge.VLAN.Ref = { item, vlan: _vlan };
+      THIS.refs.set(item.id, ref);
 
-    nd.interface.append(item, _iface);
-  },
-};
+      nd.interface.append(item, _iface);
+    },
+  };
 
-nd.interface.bridge.vlan = THIS as ND.Interface.Bridge.VLAN.T;
+  nd.interface.bridge.vlan = THIS as ND.Interface.Bridge.VLAN.T;
 
-nd.interface.type_serializers[TYPE] = {
-  weight: 310,
-  serialize(item): ND.Interface.Bridge.VLAN.TSerialized {
-    return {
-      bridge_interface_id: item.props.bridge_interface.id,
-      pvid: item.props.pvid,
-    };
-  },
-  deserialize(item, data: ND.Interface.Bridge.VLAN.TSerialized) {
-    z_data.parse(data);
+  nd.interface.type_serializers[TYPE] = {
+    weight: 310,
+    serialize(item): ND.Interface.Bridge.VLAN.TSerialized {
+      return {
+        bridge_interface_id: item.props.bridge_interface.id,
+        pvid: item.props.pvid,
+      };
+    },
+    deserialize(item, data: ND.Interface.Bridge.VLAN.TSerialized) {
+      z_data.parse(data);
 
-    const bridge_interface = nd.interface.bridge.get(data.bridge_interface_id);
-    if (!bridge_interface) throw new Error("Bridge not found");
+      const bridge_interface = nd.interface.bridge.get(data.bridge_interface_id);
+      if (!bridge_interface) throw new Error("Bridge not found");
 
-    item.props = {
-      bridge_interface,
-      pvid: data.pvid,
-    };
+      item.props = {
+        bridge_interface,
+        pvid: data.pvid,
+      };
 
-    THIS.add(item);
-  },
-};
+      THIS.add(item);
+    },
+  };
+});

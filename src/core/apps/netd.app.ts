@@ -1,19 +1,21 @@
 import type { OS, TApp } from "../os/os";
 import { formatIPv4, formatMAC, parseCIDRv4, prefixToMask } from "../format";
 import { with_commander } from "./app.lib";
-import { nd } from "./nd.lib";
 import { NDUtils } from "./nd.lib/utils";
 import { FW_ACTIONS, FW_CHAINS, FW_CONN_STATES, FW_TABLES } from "../os/fw";
 import { IP_PROTOCOLS } from "../pack";
+import { get_nd, type ND } from "./nd.lib";
 
 const _CONFIG_PATH = "/netd";
 
 function _save(os: OS) {
+  const nd = get_nd(os);
+
   const data = JSON.stringify(nd.serialize());
   os.fs.write(_CONFIG_PATH, data);
 }
 
-const map_interface_name = (name: string) => {
+const get_map_interface_name = (nd: ND.T) => (name: string) => {
   const res = nd.interface.by_name(name);
   if (!res) throw new Error(`Interface ${name} not found`);
   return res;
@@ -40,11 +42,24 @@ const map_optional_array = <T>(value: T[]): T[] | undefined => {
   return value;
 };
 
-let _started = false;
+const _global_states = new Map<
+  OS,
+  {
+    started?: boolean;
+  }
+>();
+const _get_global_state = (os: OS) => {
+  if (!_global_states.has(os)) _global_states.set(os, {});
+  return _global_states.get(os)!;
+};
 
 export const netd: TApp = async (os, _args, ctx) => {
-  if (_started) throw new Error("Already started");
-  _started = true;
+  const state = _get_global_state(os);
+
+  if (state.started) throw new Error("Already started");
+  state.started = true;
+
+  const nd = get_nd(os);
 
   try {
     nd.os = os;
@@ -63,7 +78,7 @@ export const netd: TApp = async (os, _args, ctx) => {
       ctx.signal.addEventListener("abort", () => reject(new Error("Aborted")), { once: true });
     });
   } finally {
-    _started = false;
+    state.started = false;
     ctx.output("EXITED");
   }
 };
@@ -88,8 +103,12 @@ export const net = with_commander({
               print: {
                 desc: "Print ports",
                 args: [{ name: "--bridge", alias: "-b", type: "string" }],
-                fn: (parsed) => async (_os, _args, ctx) => {
-                  const bridge_name = parsed.bridge?.[0];
+                fn: (parsed) => async (os, _args, ctx) => {
+                  const {
+                    bridge: [bridge_name],
+                  } = parsed;
+
+                  const nd = get_nd(os);
 
                   ctx.output(`#\tBRIDGE\tPORT\n`);
                   let num = 1;
@@ -108,12 +127,14 @@ export const net = with_commander({
                   { name: "--bridge", alias: "-b", type: "string", required: true },
                   { name: "--comment", alias: "--", type: "string" },
                 ],
-                fn: (parsed) => async () => {
+                fn: (parsed) => async (os) => {
                   const {
                     interface: [interface_name],
                     bridge: [bridge_name],
                     comment: [comment],
                   } = parsed;
+
+                  const nd = get_nd(os);
 
                   const bridge = nd.interface.by_name(bridge_name, "bridge");
                   if (!bridge) throw new Error(`No bridge ${bridge_name} found`);
@@ -135,8 +156,12 @@ export const net = with_commander({
               remove: {
                 desc: "Remove port",
                 args: [{ alias: "port", type: "string", required: true }],
-                fn: (parsed) => async () => {
-                  const port_name = parsed.port![0];
+                fn: (parsed) => async (os) => {
+                  const {
+                    port: [port_name],
+                  } = parsed;
+
+                  const nd = get_nd(os);
 
                   const port = nd.interface.by_name(port_name);
                   if (!port) throw new Error(`No interface ${port_name} found`);
@@ -157,11 +182,13 @@ export const net = with_commander({
               { alias: "name", type: "string", required: true },
               { name: "--comment", alias: "--", type: "string" },
             ],
-            fn: (parsed) => async () => {
+            fn: (parsed) => async (os) => {
               const {
                 name: [name],
                 comment: [comment],
               } = parsed;
+
+              const nd = get_nd(os);
 
               nd.interface.bridge.add({
                 id: NDUtils.rand_id(),
@@ -179,8 +206,12 @@ export const net = with_commander({
           remove: {
             desc: "Remove bridge",
             args: [{ alias: "name", type: "string", required: true }],
-            fn: (parsed) => async () => {
-              const bridge_name = parsed.name![0];
+            fn: (parsed) => async (os) => {
+              const {
+                name: [bridge_name],
+              } = parsed;
+
+              const nd = get_nd(os);
 
               const bridge = nd.interface.by_name(bridge_name, "bridge");
               if (!bridge) throw new Error(`No bridge "${bridge_name}" found`);
@@ -194,7 +225,9 @@ export const net = with_commander({
       },
       print: {
         desc: "Print interface info",
-        fn: () => async (_os, _args, ctx) => {
+        fn: () => async (os, _args, ctx) => {
+          const nd = get_nd(os);
+
           let num = 1;
           ctx.output("#\tNAME\tTYPE\n");
           for (const item of nd.interface.list) {
@@ -209,9 +242,13 @@ export const net = with_commander({
           { name: "--name", alias: "-n", type: "string" },
           { name: "--print", alias: "-", type: "string", default: ["name"], desc: "(name, .id, .name)" },
         ],
-        fn: (parsed) => async (_os, _args, ctx) => {
-          const name = parsed.name?.[0];
-          const print = parsed.print?.[0];
+        fn: (parsed) => async (os, _args, ctx) => {
+          const {
+            name: [name],
+            print: [print],
+          } = parsed;
+
+          const nd = get_nd(os);
 
           const result: string[] = [];
 
@@ -244,10 +281,13 @@ export const net = with_commander({
           print: {
             desc: "Print IP addresses",
             args: [{ name: "--interface", alias: "-i", type: "string" }],
-            fn: (parsed) => async (_os, _args, ctx) => {
+            fn: (parsed) => async (os, _args, ctx) => {
               const {
                 interface: [interface_name],
               } = parsed;
+
+              const nd = get_nd(os);
+
               const filter_interface = interface_name ? nd.interface.by_name(interface_name) : undefined;
 
               let num = 1;
@@ -272,12 +312,14 @@ export const net = with_commander({
               { name: "--interface", alias: "-i", type: "string", required: true },
               { name: "--comment", alias: "--", type: "string" },
             ],
-            fn: (parsed) => async () => {
+            fn: (parsed) => async (os) => {
               const {
                 address: [address],
                 interface: [interface_name],
                 comment: [comment],
               } = parsed;
+
+              const nd = get_nd(os);
 
               const iface = nd.interface.by_name(interface_name);
               if (!iface) throw new Error(`No interface ${interface_name} found`);
@@ -297,7 +339,9 @@ export const net = with_commander({
         fn: {
           print: {
             desc: "Print IP routes",
-            fn: () => async (_os, _args, ctx) => {
+            fn: () => async (os, _args, ctx) => {
+              const nd = get_nd(os);
+
               ctx.output(`#\tNETWORK\tGATEWAY\tINTERFACE\tSOURCE\n`);
               for (let i = 0; i < nd.ip.route.list.length; i += 1) {
                 const { data } = nd.ip.route.list[i];
@@ -318,7 +362,7 @@ export const net = with_commander({
               { name: "--src", type: "ip" },
               { name: "--comment", alias: "--", type: "string" },
             ],
-            fn: (parsed) => async () => {
+            fn: (parsed) => async (os) => {
               const {
                 network: [network],
                 interface: [interface_name],
@@ -327,10 +371,12 @@ export const net = with_commander({
                 comment: [comment],
               } = parsed;
 
+              const nd = get_nd(os);
+
               nd.ip.route.add({
                 id: NDUtils.rand_id(),
                 network,
-                interface: map_interface_name(interface_name),
+                interface: get_map_interface_name(nd)(interface_name),
                 gateway,
                 src,
                 comment,
@@ -340,10 +386,12 @@ export const net = with_commander({
           remove: {
             desc: "Remove IP route",
             args: [{ alias: "--network", type: "ip/", required: true }],
-            fn: (parsed) => async () => {
+            fn: (parsed) => async (os) => {
               const {
                 network: [network],
               } = parsed;
+
+              const nd = get_nd(os);
 
               const route = nd.ip.route.list.find((i) => i.data.network === network);
               if (!route) throw new Error(`No route ${network} found`);
@@ -359,9 +407,11 @@ export const net = with_commander({
               { name: "--from", alias: "-f", type: "number", required: true },
               { name: "--to", alias: "-t", type: "number", required: true },
             ],
-            fn: (parsed) => async () => {
+            fn: (parsed) => async (os) => {
               const _from = Number(parsed.from![0]);
               const _to = Number(parsed.to![0]);
+
+              const nd = get_nd(os);
 
               const mut_list = nd.ip.route.list;
 
@@ -380,7 +430,9 @@ export const net = with_commander({
         fn: {
           print: {
             desc: "Print firewall rules",
-            fn: () => async (_os, _args, ctx) => {
+            fn: () => async (os, _args, ctx) => {
+              const nd = get_nd(os);
+
               let num = 1;
               for (const { data: rule } of nd.ip.firewall.list) {
                 if (rule.comment) ctx.output(`-- ${rule.comment}\n`);
@@ -412,9 +464,11 @@ export const net = with_commander({
               { name: "--from", alias: "-f", type: "number", required: true },
               { name: "--to", alias: "-t", type: "number", required: true },
             ],
-            fn: (parsed) => async () => {
+            fn: (parsed) => async (os) => {
               const _from = Number(parsed.from![0]);
               const _to = Number(parsed.to![0]);
+
+              const nd = get_nd(os);
 
               const mut_list = nd.ip.firewall.list;
 
@@ -449,7 +503,7 @@ export const net = with_commander({
               { name: "--to-port", alias: "-tp", type: "string", multiple: true },
               { name: "--comment", alias: "--", type: "string" },
             ],
-            fn: (parsed) => async () => {
+            fn: (parsed) => async (os) => {
               const {
                 table: [table],
                 chain: [chain],
@@ -466,6 +520,10 @@ export const net = with_commander({
                 ["to-ip"]: [to_ip],
                 ["to-port"]: [to_port],
               } = parsed;
+
+              const nd = get_nd(os);
+
+              const map_interface_name = get_map_interface_name(nd);
 
               nd.ip.firewall.add({
                 id: NDUtils.rand_id(),

@@ -1,5 +1,5 @@
 import z from "zod";
-import { nd, type ND } from ".";
+import { nd_extend, type ND } from ".";
 import { applyPrefix, formatCIDRv4, parseCIDRv4 } from "../../format";
 import type { TIP4 } from "../../os/net";
 import "./ip";
@@ -60,94 +60,96 @@ declare module "./" {
   }
 }
 
-const THIS: ND.IP.Address._T = {
-  list: [],
-  map: new Map(),
+nd_extend((nd) => {
+  const THIS: ND.IP.Address._T = {
+    list: [],
+    map: new Map(),
 
-  hook: new NDUtils.Hook(),
+    hook: new NDUtils.Hook(),
 
-  add(data: ND.IP.Address.Data) {
-    const iface = nd.interface.iface_map.get(data.interface.id);
-    if (!iface) throw new Error("Interface not found");
+    add(data: ND.IP.Address.Data) {
+      const iface = nd.interface.iface_map.get(data.interface.id);
+      if (!iface) throw new Error("Interface not found");
 
-    const address = parseCIDRv4(data.address);
-    iface.ips.push(address);
+      const address = parseCIDRv4(data.address);
+      iface.ips.push(address);
 
-    const route: ND.IP.Route.Data = {
-      id: NDUtils.rand_id(),
-      dynamic: true,
-      interface: data.interface,
-      network: formatCIDRv4({ ip: applyPrefix(address.ip, address.prefix), prefix: address.prefix }),
-    };
-
-    const item: ND.IP.Address.Item = { data, address, route };
-    THIS.list.push(item);
-    THIS.map.set(data.id, item);
-
-    nd.ip.route.add(route);
-
-    THIS.hook.notify(item.data, "add");
-  },
-
-  remove(id) {
-    const item = THIS.map.get(id);
-    if (!item) throw new Error("Address not found");
-
-    const iface = nd.interface.iface_map.get(item.data.interface.id);
-    if (!iface) throw new Error("Interface not found");
-
-    THIS.hook.notify(item.data, "before-remove");
-
-    nd.ip.route.remove(item.route.id);
-
-    iface.ips.splice(iface.ips.indexOf(item.address), 1);
-
-    THIS.list.splice(THIS.list.indexOf(item), 1);
-    THIS.map.delete(id);
-  },
-};
-
-nd.ip.address = THIS as ND.IP.Address.T;
-
-nd.interface.hook.add((item, action) => {
-  if (action === "before-remove") {
-    for (const address of nd.ip.address.list) {
-      if (address.data.interface !== item) continue;
-      THIS.remove(address.data.id);
-    }
-  }
-});
-
-nd.serializers.push({
-  serialize() {
-    return {
-      ip__address: {
-        list: THIS.list
-          .filter((i) => !i.data.dynamic)
-          .map((i) => ({
-            id: i.data.id,
-            address: i.data.address,
-            interface_id: i.data.interface.id,
-            comment: i.data.comment,
-          })),
-      },
-    };
-  },
-  deserialize(data) {
-    z_data.parse(data);
-
-    for (const ip of data.ip__address.list) {
-      const _interface = nd.interface.map.get(ip.interface_id);
-      if (!_interface) continue;
-
-      const data: ND.IP.Address.Data = {
-        id: ip.id,
-        address: ip.address,
-        comment: ip.comment,
-        interface: _interface,
+      const route: ND.IP.Route.Data = {
+        id: NDUtils.rand_id(),
+        dynamic: true,
+        interface: data.interface,
+        network: formatCIDRv4({ ip: applyPrefix(address.ip, address.prefix), prefix: address.prefix }),
       };
 
-      THIS.add(data);
+      const item: ND.IP.Address.Item = { data, address, route };
+      THIS.list.push(item);
+      THIS.map.set(data.id, item);
+
+      nd.ip.route.add(route);
+
+      THIS.hook.notify(item.data, "add");
+    },
+
+    remove(id) {
+      const item = THIS.map.get(id);
+      if (!item) throw new Error("Address not found");
+
+      const iface = nd.interface.iface_map.get(item.data.interface.id);
+      if (!iface) throw new Error("Interface not found");
+
+      THIS.hook.notify(item.data, "before-remove");
+
+      nd.ip.route.remove(item.route.id);
+
+      iface.ips.splice(iface.ips.indexOf(item.address), 1);
+
+      THIS.list.splice(THIS.list.indexOf(item), 1);
+      THIS.map.delete(id);
+    },
+  };
+
+  nd.ip.address = THIS as ND.IP.Address.T;
+
+  nd.interface.hook.add((item, action) => {
+    if (action === "before-remove") {
+      for (const address of nd.ip.address.list) {
+        if (address.data.interface !== item) continue;
+        THIS.remove(address.data.id);
+      }
     }
-  },
+  });
+
+  nd.serializers.push({
+    serialize() {
+      return {
+        ip__address: {
+          list: THIS.list
+            .filter((i) => !i.data.dynamic)
+            .map((i) => ({
+              id: i.data.id,
+              address: i.data.address,
+              interface_id: i.data.interface.id,
+              comment: i.data.comment,
+            })),
+        },
+      };
+    },
+    deserialize(data) {
+      z_data.parse(data);
+
+      for (const ip of data.ip__address.list) {
+        const _interface = nd.interface.map.get(ip.interface_id);
+        if (!_interface) continue;
+
+        const data: ND.IP.Address.Data = {
+          id: ip.id,
+          address: ip.address,
+          comment: ip.comment,
+          interface: _interface,
+        };
+
+        THIS.add(data);
+      }
+    },
+  });
 });

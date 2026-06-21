@@ -1,5 +1,4 @@
-import type { ND } from ".";
-import { nd } from "./nd";
+import { nd_extend, type ND } from ".";
 
 declare module "./" {
   export namespace ND {
@@ -14,6 +13,8 @@ declare module "./" {
   }
 }
 
-const THIS: ND.IP._T = {};
+nd_extend((nd) => {
+  const THIS: ND.IP._T = {};
 
-nd.ip = THIS as ND.IP.T;
+  nd.ip = THIS as ND.IP.T;
+});
