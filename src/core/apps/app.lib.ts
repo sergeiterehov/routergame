@@ -221,8 +221,8 @@ export const with_commander =
           names.push(_c);
           break;
         }
-        // starts with
-        if (_c.startsWith(_input)) {
+        // starts with or ANY (empty) command
+        if (!_c || _c.startsWith(_input)) {
           names.push(_c);
         }
       }
@@ -230,10 +230,11 @@ export const with_commander =
       if (names.length === 0) throw new Error(`Use "--help" to list available commands.`);
       if (names.length > 1) throw new Error(`Multiple commands found: ${names.join(", ")}`);
 
-      _args.shift();
-
       const [name] = names;
       const cmd = _commands[name];
+
+      // if not ANY (empty) command
+      if (name) _args.shift();
 
       path.push(name);
 
