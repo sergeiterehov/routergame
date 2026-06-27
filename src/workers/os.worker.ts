@@ -1,6 +1,7 @@
 import { software } from "../core/apps";
 import { parseMAC } from "../core/format";
 import { Hardware } from "../core/hardware";
+import { INTERFACE_TYPES } from "../core/os/net";
 import { OS } from "../core/os/os";
 import { SimpleEthernet, SimpleEthernetDriver } from "../core/store/simpleEthernet.device";
 import { sendMessage, onMessage, expose } from "./helpers";
@@ -15,11 +16,11 @@ function begin() {
   os.on_output = (text) => sendMessage({ $: "print", text });
   os.fs.on_change = (fs) => sendMessage({ $: "fs", fs });
   {
-    const lo = os.net.add_interface("loopback", "lo", -1);
+    const lo = os.net.add_interface(INTERFACE_TYPES.LOOPBACK, "lo", -1);
     lo.flags.UP = true;
     lo.flags.LOOPBACK = true;
     lo.flags.RUNNING = true;
-    lo.ips.push({ address: (127 << 24) + 1, prefix: 8 });
+    lo.ips.push({ ip: (127 << 24) + 1, prefix: 8 });
     os.net.ip4._routes.push({ iInterface: lo.index, network: 127 << 24, prefix: 8 });
   }
   os.install(software);
@@ -32,9 +33,9 @@ function begin() {
     } else if (msg.$ === "fs") {
       for (const [key, value] of Object.entries(msg.fs)) {
         if (typeof value === "string") {
-          os.fs._fs[key] = value;
+          os.fs.write(key, value);
         } else {
-          delete os.fs._fs[key];
+          os.fs.rm(key);
         }
       }
     } else if (msg.$ === "configure") {

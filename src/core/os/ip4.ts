@@ -1,4 +1,4 @@
-import { NET_ERRORS, type Net, type TInterface } from "./net";
+import { INTERFACE_TYPES, NET_ERRORS, type Net, type TInterface } from "./net";
 import {
   ETHER_TYPES,
   ICMP_TYPES,
@@ -51,8 +51,9 @@ export class IP4 {
       _input = true;
     } else {
       for_interfaces: for (const _iface of this.net._interfaces) {
+        if (!_iface) continue;
         for (const _ip of _iface.ips) {
-          if (_ip.address === dst) {
+          if (_ip.ip === dst) {
             _input = true;
             break for_interfaces;
           }
@@ -95,36 +96,25 @@ export class IP4 {
 
     fw_context.out = iInterface;
 
-    let local_iface: TInterface | undefined;
-    for (const _iface of this.net._interfaces) {
-      for (const _ip of _iface.ips) {
-        if (_ip.address !== ip) continue;
-        local_iface = _iface;
-        break;
-      }
-    }
-    if (local_iface) {
-      setTimeout(() => this.handle_packet(local_iface.index, packet));
-      return 0;
-    }
+    for (const _ip of iface.ips) {
+      if (_ip.ip !== ip) continue;
 
-    if (iface.type === "loopback") {
-      this.handle_packet(iInterface, packet);
+      setTimeout(() => this.handle_packet(iface.index, packet));
       return 0;
     }
 
     if (this.fw.handle_chain(FW_CHAINS.POST_ROUTING, packet, fw_context)) return NET_ERRORS.ACCESS;
     if (this.fw.handle_chain(FW_CHAINS.SRC_NAT, packet, fw_context)) return NET_ERRORS.ACCESS;
 
-    if (iface.type === "ipip") {
+    if (iface.type === INTERFACE_TYPES.IPIP) {
       return this.ipip.send_packet(iInterface, packet);
     }
 
-    if (iface.type === "ipip-udp") {
+    if (iface.type === INTERFACE_TYPES.IPIP_UDP) {
       return this.ipip_udp.send_packet(iInterface, packet);
     }
 
-    if (iface.mac === undefined) return NET_ERRORS.NO_ROUTE;
+    if (!iface.mac) return NET_ERRORS.NO_ROUTE;
 
     const src_mac = iface.mac;
     let dst_mac = -1n; // -1 unknown, -2 pending, -3 fail
@@ -221,7 +211,7 @@ export class IP4 {
     if (route.src) {
       src = route.src;
     } else if (iface.ips.length) {
-      src = iface.ips[0].address;
+      src = iface.ips[0].ip;
     } else {
       return;
     }

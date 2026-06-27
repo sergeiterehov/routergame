@@ -9,10 +9,11 @@ describe("Arguments parsing", () => {
           { name: "-v", type: "flag" },
           { name: "--if", type: "string", multiple: true },
           { name: "--ip", type: "ip", default: ["8.8.8.8"] },
+          { name: "--proto", type: ["tcp", "udp"] },
         ],
-        ["-v", "--if", "eth0", "--if", "eth1"],
+        ["-v", "--if", "eth0", "--if", "eth1", "--proto", "udp"],
       ),
-    ).toEqual({ v: ["1"], if: ["eth0", "eth1"], ip: ["8.8.8.8"] });
+    ).toEqual({ v: ["1"], if: ["eth0", "eth1"], ip: ["8.8.8.8"], proto: ["udp"] });
   });
 
   it("should throw error for unknown argument", () => {
@@ -54,6 +55,12 @@ describe("Arguments parsing", () => {
   it("should throw error for invalid flag", () => {
     expect(() => {
       parse_args([{ name: "-v", type: "flag" }], ["-v", "invalid"]);
+    }).toThrow();
+  });
+
+  it("should throw error for invalid enum", () => {
+    expect(() => {
+      parse_args([{ name: "-a", type: ["ABC"] }], ["-a", "xyz"]);
     }).toThrow();
   });
 

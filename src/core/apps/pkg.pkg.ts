@@ -1,5 +1,5 @@
 import type { OS, TApp, TAppContext } from "../os/os";
-import { run_command_of } from "./app.lib";
+import { with_commander } from "./app.lib";
 
 const _PACKAGES: Record<
   string,
@@ -74,20 +74,14 @@ const _ls = async (os: OS, ctx: TAppContext) => {
   os.print(`Total: ${Object.keys(_PACKAGES).length} packages, ${apps_counter} apps\n`);
 };
 
-export const pkg: TApp = async (os, args, ctx) => {
-  await run_command_of(
-    os,
-    {
-      ls: {
-        desc: "Show all available packages and applications",
-        fn: () => _ls(os, ctx),
-      },
-      install: {
-        desc: "Install one or more packages",
-        args: [{ alias: "name", type: "string", multiple: true, required: true, desc: "Package name" }],
-        fn: (_, parsed) => _install(os, ctx, { names: parsed.name! }),
-      },
-    },
-    args,
-  );
-};
+export const pkg = with_commander({
+  ls: {
+    desc: "Show all available packages and applications",
+    fn: () => (os, _, ctx) => _ls(os, ctx),
+  },
+  install: {
+    desc: "Install one or more packages",
+    args: [{ alias: "name", type: "string", multiple: true, required: true, desc: "Package name" }],
+    fn: (parsed) => (os, _, ctx) => _install(os, ctx, { names: parsed.name! }),
+  },
+});

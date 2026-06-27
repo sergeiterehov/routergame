@@ -11,9 +11,9 @@ import {
 } from "../format";
 import type { TIPIPTun } from "../os/ipip";
 import type { TIPIPUDPTun } from "../os/ipip-udp";
-import type { TInterface } from "../os/net";
+import { INTERFACE_TYPES, type TInterface } from "../os/net";
 import type { OS, TApp, TAppContext } from "../os/os";
-import { find_arg, find_args, has_arg, run_command_of, test_args } from "./app.lib";
+import { find_arg, find_args, has_arg, with_commander, test_args } from "./app.lib";
 
 const _ALL_FLAGS: Required<TInterface["flags"]> = {
   UP: true,
@@ -38,7 +38,7 @@ function _print_interface(os: OS, name: string) {
     [
       `${iface.name}: <${_FLAG_NAMES.filter((k) => iface.flags[k]).join()}>`,
       iface.mac && `ether ${formatMAC(iface.mac)}`,
-      iface.ips?.map((ip) => `inet ${formatIPv4(ip.address)}/${ip.prefix}`).join("\n\t"),
+      iface.ips?.map((ip) => `inet ${formatIPv4(ip.ip)}/${ip.prefix}`).join("\n\t"),
       ...os.net._interfaces
         .filter((other) => other.iMasterInterface === iface.index)
         .map((other) => `member: ${other.name}`),
@@ -50,10 +50,7 @@ function _print_interface(os: OS, name: string) {
 }
 
 function _print_interfaces(os: OS) {
-  for (let i = 0; i < os.net._interfaces.length; i++) {
-    const iface = os.net._interfaces[i];
-    _print_interface(os, iface.name);
-  }
+  os.net._interfaces.forEach((iface) => _print_interface(os, iface.name));
 }
 
 function _print_bridge(os: OS, br_iface: TInterface) {
@@ -63,7 +60,9 @@ function _print_bridge(os: OS, br_iface: TInterface) {
 
   os.print(`${br_iface.name} (VLAN=${bridge.vlan_filtering ? "ON" : "OFF"}, PVID=${bridge.pvid}):\n`);
 
-  for (const port of bridge.ports) {
+  for (const port of os.net.br._ports) {
+    if (port.iBridge !== br_iface.index) continue;
+
     const _iface = os.net.iface(port.iPort);
 
     os.print(
@@ -71,10 +70,12 @@ function _print_bridge(os: OS, br_iface: TInterface) {
     );
   }
 
-  if (bridge.vlans.length) {
+  const vlans = os.net.br._vlans.filter((vlan) => vlan.iBridge === br_iface.index);
+
+  if (vlans.length) {
     os.print("\tVLANS:\n");
 
-    for (const vlan of bridge.vlans) {
+    for (const vlan of vlans) {
       const _iface = os.net.iface(vlan.iVlan);
 
       os.print(`\t\t${_iface.name}: PVID=${vlan.vid}\n`);
@@ -112,7 +113,7 @@ export const iface: TApp = async (os, args, ctx) => {
   const op = args.shift();
   if (!op) return _print_interface(os, name);
 
-  if (iface.type === "loopback") throw new Error("Loopback interface is readonly");
+  if (iface.type === INTERFACE_TYPES.LOOPBACK) throw new Error("Loopback interface is readonly");
 
   if (op === "add" || op === "del") {
     const ip = args.shift();
@@ -123,17 +124,17 @@ export const iface: TApp = async (os, args, ctx) => {
     const _ip = parseIPv4(_ipaddr[0]);
     const _prefix = parseInt(_ipaddr[1]);
 
-    const ip_index = iface.ips.findIndex((p) => p.address === _ip);
+    const ip_index = iface.ips.findIndex((p) => p.ip === _ip);
 
     if (op === "add") {
       if (ip_index !== -1) throw new Error("IP already exists");
-      iface.ips.push({ address: _ip, prefix: _prefix });
+      iface.ips.push({ ip: _ip, prefix: _prefix });
     } else if (op === "del") {
       if (ip_index === -1) throw new Error("IP not found");
       iface.ips.splice(ip_index, 1);
     }
   } else if (op === "mac") {
-    if (iface.mac === undefined) throw new Error("Mac is unsupported");
+    if (!iface.mac) throw new Error("Mac is unsupported");
 
     const mac = args.shift();
     if (!mac) return os.print(`${formatMAC(iface.mac) || ""}\n`);
@@ -270,8 +271,9 @@ export async function route(os: OS, args: string[]) {
       if (!_dev) {
         const src = parseIPv4(_src);
         for_iface: for (const iface of os.net._interfaces) {
+          if (!iface) continue;
           for (const ip of iface.ips) {
-            if (ip.address === src) {
+            if (ip.ip === src) {
               _dev = iface.name;
               break for_iface;
             }
@@ -287,8 +289,8 @@ export async function route(os: OS, args: string[]) {
         const src = parseIPv4(_src);
         let _ip = -1;
         for (const ip of os.net._interfaces[iface.index].ips) {
-          if (ip.address === src) {
-            _ip = ip.address;
+          if (ip.ip === src) {
+            _ip = ip.ip;
             break;
           }
         }
@@ -391,6 +393,7 @@ export async function route(os: OS, args: string[]) {
 export async function br(os: OS, args: string[]) {
   if (!args.length) {
     for (const _br of os.net._interfaces) {
+      if (!_br) continue;
       if (_br.type !== "bridge") continue;
       _print_bridge(os, _br);
     }
@@ -403,6 +406,7 @@ export async function br(os: OS, args: string[]) {
 
     const name = args.shift()!;
     for (const _br of os.net._interfaces) {
+      if (!_br) continue;
       if (_br.name === name) throw new Error("Bridge already exists");
     }
 
@@ -422,8 +426,6 @@ export async function br(os: OS, args: string[]) {
 
     os.net.br._bridges.push({
       iBridge: br_iface.index,
-      ports: [],
-      vlans: [],
       pvid: os.net.br._default_vlan_id,
       vlan_filtering: false,
     });
@@ -436,14 +438,15 @@ export async function br(os: OS, args: string[]) {
       port_iface.flags.PROMISC = true;
       port_iface.flags.SLAVE = true;
 
-      bridge.ports.push({
+      os.net.br._ports.push({
+        iBridge: br_iface.index,
         iPort: port_iface.index,
         pvid: bridge.pvid,
         untagged: [],
         tagged: [],
       });
 
-      if (port_iface.mac !== undefined && br_iface.mac === 0n) {
+      if (!br_iface.mac) {
         br_iface.mac = port_iface.mac;
       }
     }
@@ -508,14 +511,15 @@ export async function br(os: OS, args: string[]) {
     _flush_interface(os, port_iface);
     port_iface.iMasterInterface = br_iface.index;
 
-    bridge.ports.push({
+    os.net.br._ports.push({
+      iBridge: br_iface.index,
       iPort: port_iface.index,
       pvid,
       untagged,
       tagged,
     });
 
-    if (port_iface.mac !== undefined && br_iface.mac === 0n) {
+    if (!br_iface.mac) {
       br_iface.mac = port_iface.mac;
     }
 
@@ -532,12 +536,13 @@ export async function br(os: OS, args: string[]) {
     const vid = Number(_vid);
     if (!_validate_vlan_id(vid)) throw new Error("Invalid VLAN ID");
 
-    if (bridge.vlans.some((v) => v.vid === vid)) throw new Error(`VLAN ${vid} already exists`);
+    if (os.net.br._vlans.some((v) => v.iBridge === bridge.iBridge && v.vid === vid))
+      throw new Error(`VLAN ${vid} already exists`);
 
     const vlan_iface = os.net.add_interface("vlan", vlan_name, -1);
     vlan_iface.iMasterInterface = br_iface.index;
     vlan_iface.mac = br_iface.mac;
-    bridge.vlans.push({ iVlan: vlan_iface.index, vid });
+    os.net.br._vlans.push({ iBridge: bridge.iBridge, iVlan: vlan_iface.index, vid });
 
     return;
   }
@@ -546,7 +551,7 @@ export async function br(os: OS, args: string[]) {
   const port_iface = os.net.iface_by_name(port_name);
   if (!port_iface) throw new Error(`Interface ${port_name} not found`);
   const port = os.net.br.get_port(port_iface.index);
-  if (!bridge.ports.includes(port)) throw new Error(`Interface ${port_name} is not a port`);
+  if (port.iBridge !== bridge.iBridge) throw new Error(`Interface ${port_name} is not a port`);
 
   if (test_args(args, "set")) {
     const tagged = has_arg(args, "-t") ? find_args(args, "-t").map(Number) : undefined;
@@ -582,33 +587,6 @@ async function _tun_ipip_add(os: OS, config: { name: string; local_ip: string; r
 
   return;
 }
-
-const _tun_ipip: TApp = async (os, args, ctx) => {
-  await run_command_of(
-    os,
-    {
-      add: {
-        desc: "Add IPIP tunnel",
-        args: [
-          { alias: "name", type: "string", required: true },
-          { name: "local", type: "ip", required: true, desc: "Local IP address" },
-          { name: "remote", type: "ip", required: true, desc: "Remote IP address" },
-        ],
-        fn: (_args, parsed) =>
-          _tun_ipip_add(
-            os,
-            {
-              name: parsed.name![0],
-              local_ip: parsed.local![0],
-              remote_ip: parsed.remote![0],
-            },
-            ctx,
-          ),
-      },
-    },
-    args,
-  );
-};
 
 const _tun_ipip_udp_add = async (
   os: OS,
@@ -648,10 +626,33 @@ const _tun_ipip_udp_add = async (
   return;
 };
 
-const _tun_ipip_udp: TApp = async (os, args, ctx) => {
-  await run_command_of(
-    os,
-    {
+export const tun = with_commander({
+  ipip: {
+    desc: "IPIP tunnel",
+    fn: {
+      add: {
+        desc: "Add IPIP tunnel",
+        args: [
+          { alias: "name", type: "string", required: true },
+          { name: "local", type: "ip", required: true, desc: "Local IP address" },
+          { name: "remote", type: "ip", required: true, desc: "Remote IP address" },
+        ],
+        fn: (parsed) => (os, _, ctx) =>
+          _tun_ipip_add(
+            os,
+            {
+              name: parsed.name![0],
+              local_ip: parsed.local![0],
+              remote_ip: parsed.remote![0],
+            },
+            ctx,
+          ),
+      },
+    },
+  },
+  "ipip-udp": {
+    desc: "IPIP UDP tunnel. Supports passive mode, for automatic remote address update.",
+    fn: {
       add: {
         desc: "Add IPIP UDP tunnel",
         args: [
@@ -667,7 +668,7 @@ const _tun_ipip_udp: TApp = async (os, args, ctx) => {
             desc: "Wait for incoming packets on local-port, saving and updating remote address information",
           },
         ],
-        fn: (_args, parsed) =>
+        fn: (parsed) => (os, _, ctx) =>
           _tun_ipip_udp_add(
             os,
             {
@@ -683,23 +684,5 @@ const _tun_ipip_udp: TApp = async (os, args, ctx) => {
           ),
       },
     },
-    args,
-  );
-};
-
-export const tun: TApp = async (os, args, ctx) => {
-  await run_command_of(
-    os,
-    {
-      ipip: {
-        desc: "IPIP tunnel",
-        fn: (_args) => _tun_ipip(os, _args, ctx),
-      },
-      "ipip-udp": {
-        desc: "IPIP UDP tunnel. Supports passive mode, for automatic remote address update.",
-        fn: (_args) => _tun_ipip_udp(os, _args, ctx),
-      },
-    },
-    args,
-  );
-};
+  },
+});

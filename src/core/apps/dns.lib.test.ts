@@ -37,11 +37,16 @@ describe("get_hostname_ip", () => {
 
   it("should return IP from /etc/hosts if hostname is found", async () => {
     // Arrange
-    const hostname = "example.com";
+    const hostname = "example.com.";
     const ip = "192.168.1.100";
 
-    _os.fs.exists.mockReturnValue(true);
-    _os.fs.read.mockReturnValue(`${ip} ${hostname}\n10.0.0.1 other.com`);
+    _os.fs.exists.mockImplementation((path) => {
+      if (path === "/etc/hosts") return true;
+      return false;
+    });
+    _os.fs.read.mockImplementation((path) => {
+      if (path === "/etc/hosts") return `${ip} ${hostname}\n10.0.0.1 other.com`;
+    });
 
     // Act
     const result = await get_hostname_ip(os, hostname);

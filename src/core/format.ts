@@ -3,6 +3,13 @@ export const MINUTE = 60 * SEC;
 export const HOUR = 60 * MINUTE;
 export const DAY = 24 * HOUR;
 
+export type IP4 = number;
+
+export type CIDRv4 = {
+  ip: IP4;
+  prefix: number;
+};
+
 export function formatTime(ms: number) {
   if (ms < 1000) return `${ms}ms`;
   if (ms < 1000 * 60) return `${(ms / 1000).toFixed(2)}s`;
@@ -32,7 +39,11 @@ export function maskToPrefix(mask: number) {
   return prefix;
 }
 
-export function testSameNetwork(test_ip: number, ip: number, prefix: number) {
+export function applyPrefix(ip: IP4, prefix: number) {
+  return (prefixToMask(prefix) & ip) >>> 0;
+}
+
+export function testSameNetwork(test_ip: number, ip: IP4, prefix: number) {
   const mask = prefixToMask(prefix);
   return (ip & mask) === (test_ip & mask);
 }
@@ -46,10 +57,10 @@ export function parse_hexdump(data: string) {
 }
 
 export function formatMAC(mac: bigint) {
-  return mac.toString(16).padStart(12, "0").match(/(..)/g)?.join(":");
+  return mac.toString(16).padStart(12, "0").match(/(..)/g)!.join(":") || "";
 }
 
-export function formatIPv4(ip: number) {
+export function formatIPv4(ip: IP4) {
   return (
     ip
       .toString(16)
@@ -60,13 +71,22 @@ export function formatIPv4(ip: number) {
   );
 }
 
-export function parseIPv4(ip: string) {
+export function parseIPv4(ip: string): IP4 {
   const parts = ip.split(".");
   let ip_int = 0;
   for (let i = 0; i < parts.length; i++) {
     ip_int |= parseInt(parts[i], 10) << ((3 - i) * 8);
   }
   return ip_int >>> 0;
+}
+
+export function parseCIDRv4(cidr: string): CIDRv4 {
+  const [_ip, _prefix] = cidr.split("/");
+  return { ip: parseIPv4(_ip), prefix: Number.parseInt(_prefix, 10) };
+}
+
+export function formatCIDRv4(address: CIDRv4) {
+  return `${formatIPv4(address.ip)}/${address.prefix.toString(10)}`;
 }
 
 export function parseMAC(mac: string) {
