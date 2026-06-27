@@ -1,5 +1,6 @@
 import { observer } from "mobx-react-lite";
-import { store, TOOL } from "./state/store.ts";
+import { animated, useSpring } from "@react-spring/web";
+import { store, TOOL, type TArchConnection } from "./state/store.ts";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { autorun } from "mobx";
 import { IconDeviceImac, IconServer2, IconTopologyBus, IconSwitch3 } from "@tabler/icons-react";
@@ -33,6 +34,7 @@ const ConnectionPortSelector = observer(function ConnectionPortSelector() {
       {free_ports.map((p) => {
         return (
           <div
+            key={p.id}
             className="px-2 py-1 rounded-md cursor-pointer hover:bg-base-300"
             onClick={(e) => {
               e.preventDefault();
@@ -48,8 +50,62 @@ const ConnectionPortSelector = observer(function ConnectionPortSelector() {
   );
 });
 
+const Connection = observer(function Connection(props: { c: TArchConnection }) {
+  const { c } = props;
+  const { selected_connection_ids, selected_node_ids, tool } = store;
+
+  const is_selected = selected_connection_ids.includes(c.id);
+  const is_via_selected = selected_node_ids.includes(c.a_id) || selected_node_ids.includes(c.b_id);
+
+  const base_color = is_selected || is_via_selected ? "#000" : "#666";
+
+  const [a_props, a_api] = useSpring(
+    () => ({ config: { duration: 100 }, strokeWidth: is_selected ? 4 : 2, stroke: base_color }),
+    [is_selected, base_color],
+  );
+
+  const blink_ref = useRef({ base_color });
+  blink_ref.current = { base_color };
+
+  useEffect(() => {
+    return autorun(() => {
+      const _ = store.connection_metrics[c.id]?.last_frame_at;
+      a_api.set({ stroke: "#0F0" });
+      a_api.start({ stroke: blink_ref.current.base_color, config: { duration: 1_000 } });
+    });
+  }, [c.id, a_api]);
+
+  const a = store.node_by_id(c.a_id);
+  if (!a) return null;
+  const b = store.node_by_id(c.b_id);
+  if (!b) return null;
+
+  return (
+    <animated.line
+      className="cursor-pointer"
+      x1={a.ui.x + itemSize / 2}
+      y1={a.ui.y + itemSize / 2}
+      x2={b.ui.x + itemSize / 2}
+      y2={b.ui.y + itemSize / 2}
+      style={a_props}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (tool === TOOL.NONE) {
+          if (e.shiftKey) {
+            store.selected_toggle("connection", c.id);
+          } else {
+            store.selected_set("connection", c.id);
+          }
+        }
+      }}
+    />
+  );
+});
+
 export const Canvas = observer(function Canvas() {
-  const { selected_node_ids, selected_connection_ids, tool, grid } = store;
+  const { selected_node_ids, tool, grid } = store;
 
   const connections = store.arch.connections.filter(
     (c) => selected_node_ids.includes(c.a_id) || selected_node_ids.includes(c.b_id),
@@ -153,34 +209,9 @@ export const Canvas = observer(function Canvas() {
     >
       <div ref={canvasRef} className="absolute">
         <svg className="absolute" width={canvas_size.w} height={canvas_size.h}>
-          {store.arch.connections.map((c) => {
-            const a = store.node_by_id(c.a_id);
-            const b = store.node_by_id(c.b_id);
-            if (!a || !b) return null;
-
-            return (
-              <line
-                key={c.id}
-                className={`cursor-pointer stroke-2 ${selected_connection_ids.includes(c.id) ? "stroke-base-content stroke-4" : connections.includes(c) ? "stroke-base-content/70" : "stroke-base-content/50"}`}
-                x1={a.ui.x + itemSize / 2}
-                y1={a.ui.y + itemSize / 2}
-                x2={b.ui.x + itemSize / 2}
-                y2={b.ui.y + itemSize / 2}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-
-                  if (tool === TOOL.NONE) {
-                    if (e.shiftKey) {
-                      store.selected_toggle("connection", c.id);
-                    } else {
-                      store.selected_set("connection", c.id);
-                    }
-                  }
-                }}
-              />
-            );
-          })}
+          {store.arch.connections.map((c) => (
+            <Connection key={c.id} c={c} />
+          ))}
         </svg>
         {store.arch.node.map((n) => {
           const color = Type2Color[n.category!];

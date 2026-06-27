@@ -20,6 +20,7 @@
     "moo": "^0.5.3",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
+    "react-spring": "^10.0.4",
     "tailwindcss": "^4.3.0",
     "zod": "^4.4.3"
   },
