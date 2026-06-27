@@ -154,8 +154,8 @@ export const Canvas = observer(function Canvas() {
       <div ref={canvasRef} className="absolute">
         <svg className="absolute" width={canvas_size.w} height={canvas_size.h}>
           {store.arch.connections.map((c) => {
-            const a = store.arch.node.find((n) => n.id === c.a_id);
-            const b = store.arch.node.find((n) => n.id === c.b_id);
+            const a = store.node_by_id(c.a_id);
+            const b = store.node_by_id(c.b_id);
             if (!a || !b) return null;
 
             return (

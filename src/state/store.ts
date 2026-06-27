@@ -47,6 +47,24 @@ export const enum TOOL {
   CONNECT = "connect",
 }
 
+export type TConnectionMetric = {
+  ab: number;
+  ba: number;
+  ab_beacon_at: number;
+  ba_beacon_at: number;
+  last_frame_at: number;
+};
+
+export type TExchangeJournal = {
+  id: number;
+  created_at: number;
+  a_id: string;
+  a_pid: string;
+  b_id: string;
+  b_pid: string;
+  data: Uint8Array;
+};
+
 const Type2Worker: { [key in TArchNode["type"]]: new (options: WorkerOptions) => Worker } = {
   os: Workers.OSWorker,
   switch: Workers.SwitchWorker,
@@ -59,22 +77,9 @@ export class Store {
   instances: { [key: string]: Worker } = {};
   consoles: { [key: string]: string } = {};
   connection_metrics: {
-    [key: string]: {
-      ab: number;
-      ba: number;
-      ab_beacon_at: number;
-      ba_beacon_at: number;
-    };
+    [key: string]: TConnectionMetric;
   } = {};
-  exchange_journal: {
-    id: number;
-    created_at: number;
-    a_id: string;
-    a_pid: string;
-    b_id: string;
-    b_pid: string;
-    data: Uint8Array;
-  }[] = [];
+  exchange_journal: TExchangeJournal[] = [];
 
   exchange_state?: object; // TODO: filters
 
@@ -261,7 +266,16 @@ export class Store {
 
   private _connection_metrics_get(id: string) {
     let m = this.connection_metrics[id];
-    if (!m) m = this.connection_metrics[id] = { ab: 0, ba: 0, ab_beacon_at: 0, ba_beacon_at: 0 };
+    if (!m) {
+      const _new: TConnectionMetric = {
+        ab: 0,
+        ba: 0,
+        ab_beacon_at: 0,
+        ba_beacon_at: 0,
+        last_frame_at: 0,
+      };
+      m = this.connection_metrics[id] = _new;
+    }
     return m;
   }
 
@@ -272,6 +286,7 @@ export class Store {
     } else {
       m.ba += size;
     }
+    m.last_frame_at = Date.now();
   }
 
   private _connection_metrics_beacon(src: TArchNode, via: TArchConnection, byte: number) {
