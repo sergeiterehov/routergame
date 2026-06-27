@@ -96,17 +96,10 @@ export class IP4 {
 
     fw_context.out = iInterface;
 
-    let local_iface: TInterface | undefined;
-    for (const _iface of this.net._interfaces) {
-      if (!_iface) continue;
-      for (const _ip of _iface.ips) {
-        if (_ip.ip !== ip) continue;
-        local_iface = _iface;
-        break;
-      }
-    }
-    if (local_iface) {
-      setTimeout(() => this.handle_packet(local_iface.index, packet));
+    for (const _ip of iface.ips) {
+      if (_ip.ip !== ip) continue;
+
+      setTimeout(() => this.handle_packet(iface.index, packet));
       return 0;
     }
 
