@@ -70,6 +70,7 @@ const Connection = observer(function Connection(props: { c: TArchConnection }) {
   useEffect(() => {
     return autorun(() => {
       const _ = store.connection_metrics[c.id]?.last_frame_at;
+      if (!_) return;
       a_api.set({ stroke: "#0F0" });
       a_api.start({ stroke: blink_ref.current.base_color, config: { duration: 1_000 } });
     });
