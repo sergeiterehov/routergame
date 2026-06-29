@@ -36,7 +36,7 @@ function _print_interface(os: OS, name: string) {
 
   os.print(
     [
-      `${iface.name}: <${_FLAG_NAMES.filter((k) => iface.flags[k]).join()}>`,
+      `${iface.name}: <${_FLAG_NAMES.filter((k) => iface.flags[k]).join()}> mtu ${iface.mtu}`,
       iface.mac && `ether ${formatMAC(iface.mac)}`,
       iface.ips?.map((ip) => `inet ${formatIPv4(ip.ip)}/${ip.prefix}`).join("\n\t"),
       ...os.net._interfaces
@@ -141,6 +141,17 @@ export const iface: TApp = async (os, args, ctx) => {
     if (!validate_mac(mac)) throw new Error("Mac is invalid");
 
     os.net.change_mac(iface.index, parseMAC(mac));
+  } else if (op === "mtu") {
+    const _mtu = args.shift();
+    if (!_mtu) return os.print(`mtu ${iface.mtu}, min ${iface.min_mtu}, max ${iface.max_mtu}\n`);
+
+    const mtu = Number.parseInt(_mtu, 10);
+    if (Number.isNaN(mtu) || mtu < 68 || mtu > 65535) throw new Error("Invalid MTU");
+
+    if (mtu < iface.min_mtu) throw new Error(`MTU is too small, min is ${iface.min_mtu}`);
+    if (mtu > iface.max_mtu) throw new Error(`MTU is too big, max is ${iface.max_mtu}`);
+
+    os.net.change_mtu(iface.index, mtu);
   } else if (op === "up") {
     iface.flags.UP = true;
   } else if (op === "flush") {

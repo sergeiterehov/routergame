@@ -1,5 +1,5 @@
 import { validate_address, validate_ip } from "../format";
-import { NET_ERRORS } from "../os/net";
+import { E_NET } from "../os/net";
 import type { OS, TApp } from "../os/os";
 import type { TSocket } from "../os/socket";
 import type { TIP4Packet } from "../pack";
@@ -255,7 +255,7 @@ export const with_commander =
   };
 
 export function format_net_error(err: number) {
-  for (const [name, code] of Object.entries(NET_ERRORS)) {
+  for (const [name, code] of Object.entries(E_NET)) {
     if (code === err) return name;
   }
   return `UNKNOWN_${err}`;

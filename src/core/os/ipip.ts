@@ -1,6 +1,6 @@
 import { IP_PROTOCOLS, pack_ip4_packet, unpack_ip4_packet, type TIP4Packet } from "../pack";
 import type { IP4 } from "./ip4";
-import { NET_ERRORS } from "./net";
+import { E_NET } from "./net";
 
 export type TIPIPTun = {
   iInterface: number;
@@ -25,7 +25,7 @@ export class IPIP {
 
   send_packet(iInnerInterface: number, packet: TIP4Packet): number {
     const tun = this._tuns.find((tun) => tun.iInterface === iInnerInterface);
-    if (!tun) return NET_ERRORS.NO_ROUTE;
+    if (!tun) return E_NET.NO_ROUTE;
 
     const inner = pack_ip4_packet(packet);
     return this.ip4.send(undefined, tun.remote_ip, IP_PROTOCOLS.IPIP, inner);

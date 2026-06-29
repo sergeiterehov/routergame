@@ -1,4 +1,4 @@
-import { INTERFACE_TYPES, NET_ERRORS, type Net, type TInterface } from "./net";
+import { INTERFACE_TYPES, E_NET, type Net, type TInterface } from "./net";
 import {
   ETHER_TYPES,
   ICMP_TYPES,
@@ -6,6 +6,7 @@ import {
   IP_PROTOCOLS,
   pack_icmp_packet,
   pack_ip4_packet,
+  prepare_ip4_packet,
   unpack_icmp_packet,
   type TEthernetFrame,
   type TIcmpPacket,
@@ -37,7 +38,7 @@ export class IP4 {
 
   handle_packet(iInterface: number, packet: TIP4Packet) {
     const iface = this.net.iface(iInterface);
-    if (!iface.flags.UP) return NET_ERRORS.INTERFACE_DOWN;
+    if (!iface.flags.UP) return E_NET.INTERFACE_DOWN;
 
     const fw_context: TPacketContext = { in: iInterface };
 
@@ -92,7 +93,7 @@ export class IP4 {
     socket: TSocket | undefined,
   ): number {
     const iface = this.net.iface(iInterface);
-    if (!iface.flags.UP) return NET_ERRORS.INTERFACE_DOWN;
+    if (!iface.flags.UP) return E_NET.INTERFACE_DOWN;
 
     fw_context.out = iInterface;
 
@@ -100,11 +101,13 @@ export class IP4 {
       if (_ip.ip !== ip) continue;
 
       setTimeout(() => this.handle_packet(iface.index, packet));
-      return 0;
+      return E_NET.OK;
     }
 
-    if (this.fw.handle_chain(FW_CHAINS.POST_ROUTING, packet, fw_context)) return NET_ERRORS.ACCESS;
-    if (this.fw.handle_chain(FW_CHAINS.SRC_NAT, packet, fw_context)) return NET_ERRORS.ACCESS;
+    if (iface.mtu < packet.header.length) return E_NET.MESSAGE_SIZE;
+
+    if (this.fw.handle_chain(FW_CHAINS.POST_ROUTING, packet, fw_context)) return E_NET.ACCESS;
+    if (this.fw.handle_chain(FW_CHAINS.SRC_NAT, packet, fw_context)) return E_NET.ACCESS;
 
     if (iface.type === INTERFACE_TYPES.IPIP) {
       return this.ipip.send_packet(iInterface, packet);
@@ -114,10 +117,11 @@ export class IP4 {
       return this.ipip_udp.send_packet(iInterface, packet);
     }
 
-    if (!iface.mac) return NET_ERRORS.NO_ROUTE;
+    if (!iface.mac) return E_NET.NO_ROUTE;
 
     const src_mac = iface.mac;
-    let dst_mac = -1n; // -1 unknown, -2 pending, -3 fail
+    /** -1 unknown, -2 pending, -3 fail */
+    let dst_mac = -1n;
 
     for (const _arp of this.net.arp._table) {
       if (_arp.iInterface === iInterface && _arp.ip === ip) {
@@ -139,7 +143,7 @@ export class IP4 {
       }
     }
 
-    if (dst_mac === -3n) return NET_ERRORS.UNREACHABLE;
+    if (dst_mac === -3n) return E_NET.UNREACHABLE;
 
     const frame: TEthernetFrame = {
       dst: dst_mac,
@@ -155,7 +159,7 @@ export class IP4 {
       this.net.send_frame(iInterface, frame);
     }
 
-    return 0;
+    return E_NET.OK;
   }
 
   send_raw(dst_ip: number, packet: TIP4Packet, socket: TSocket | undefined): number {
@@ -163,10 +167,10 @@ export class IP4 {
 
     const fw_context: TPacketContext = {};
 
-    if (this.fw.handle_chain(FW_CHAINS.OUTPUT, packet, fw_context)) return NET_ERRORS.ACCESS;
+    if (this.fw.handle_chain(FW_CHAINS.OUTPUT, packet, fw_context)) return E_NET.ACCESS;
 
     const route = this.route(dst_ip);
-    if (!route) return NET_ERRORS.NO_ROUTE;
+    if (!route) return E_NET.NO_ROUTE;
 
     if (src <= 0) packet.header.src = route.src;
 
@@ -174,7 +178,7 @@ export class IP4 {
   }
 
   send(socket: TSocket | undefined, dst_ip: number, protocol: number, payload: Uint8Array, src_ip?: number): number {
-    const packet: TIP4Packet = {
+    const packet: TIP4Packet = prepare_ip4_packet({
       header: {
         version: 4,
         dst: dst_ip,
@@ -191,7 +195,7 @@ export class IP4 {
         checksum: 0,
       },
       payload,
-    };
+    });
 
     return this.send_raw(dst_ip, packet, socket);
   }
@@ -229,7 +233,7 @@ export class IP4 {
         if (record.iInterface !== iInterface || record.ip !== ip) continue;
 
         this._buffer.splice(i, 1);
-        record.socket?.on_error?.(NET_ERRORS.UNREACHABLE);
+        record.socket?.on_error?.(E_NET.UNREACHABLE);
       }
 
       return;

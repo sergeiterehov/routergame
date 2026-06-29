@@ -17,6 +17,8 @@ function begin() {
   os.fs.on_change = (fs) => sendMessage({ $: "fs", fs });
   {
     const lo = os.net.add_interface(INTERFACE_TYPES.LOOPBACK, "lo", -1);
+    lo.max_mtu = 65535;
+    lo.mtu = 65535;
     lo.flags.UP = true;
     lo.flags.LOOPBACK = true;
     lo.flags.RUNNING = true;

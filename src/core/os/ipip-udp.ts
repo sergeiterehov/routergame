@@ -9,7 +9,7 @@ import {
   type TIP4Packet,
 } from "../pack";
 import type { IP4 } from "./ip4";
-import { NET_ERRORS } from "./net";
+import { E_NET } from "./net";
 
 export type TIPIPUDPTun = {
   iInterface: number;
@@ -114,7 +114,7 @@ export class IPIPUDP {
 
   send_packet(iInnerInterface: number, packet: TIP4Packet): number {
     const tun = this._tuns.find((tun) => tun.iInterface === iInnerInterface);
-    if (!tun) return NET_ERRORS.NO_ROUTE;
+    if (!tun) return E_NET.NO_ROUTE;
 
     const inner = pack_udp_packet({
       header: {

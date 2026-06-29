@@ -20,6 +20,9 @@ export const IP_PROTOCOLS = {
 export const MAC_BROADCAST = 0xffffffffffffn;
 export const IP_BROADCAST = 0xffffffff;
 
+export const TCP_HEADER_SIZE = 20;
+export const IP4_HEADER_SIZE = 20;
+
 const ETHER_TAG = 0x8100;
 
 export const ETHER_TYPES = {
@@ -49,6 +52,17 @@ export const TCP_FLAGS = {
   RST: 0x04,
   ALL: 0x3f,
   NONE: 0x00,
+} as const;
+
+export const TCP_OPTIONS = {
+  /** 1 byte */
+  EOL: 0,
+  /** 1 byte */
+  NOP: 1,
+  /** Maximum segment size, 1+1+2 bytes */
+  MSS: 2,
+  /** 1+1+1 bytes */
+  WINDOW_SCALE: 3,
 } as const;
 
 export const DHCP_OPS = {
@@ -151,6 +165,21 @@ export function unpack_ethernet_frame(frame: Uint8Array): TEthernetFrame {
 
   return obj;
 }
+
+export function make_tcp_options(options: { MSS?: number; WINDOW_SCALE?: number }): TTcpPacket["header"]["options"] {
+  const res: TTcpPacket["header"]["options"] = [];
+
+  if (options.MSS) {
+    res.push({ kind: TCP_OPTIONS.MSS, data: new Uint8Array([options.MSS >> 8, options.MSS & 0xff]) });
+  }
+  if (options.WINDOW_SCALE) {
+    res.push({ kind: TCP_OPTIONS.WINDOW_SCALE, data: new Uint8Array([options.WINDOW_SCALE]) });
+  }
+
+  return res;
+}
+
+// MARK: main functions
 
 export function pack_ethernet_frame(obj: TEthernetFrame): Uint8Array {
   const tag_shift = obj.tag !== undefined ? 4 : 0;
@@ -280,7 +309,7 @@ export function unpack_ip4_packet(packet: Uint8Array): TIP4Packet {
   return obj;
 }
 
-export function pack_ip4_packet(obj: TIP4Packet): Uint8Array {
+export function prepare_ip4_packet(obj: TIP4Packet): TIP4Packet {
   // id
   if (obj.header.id === 0) obj.header.id = Math.round(Math.random() * 0xffff);
 
@@ -297,6 +326,12 @@ export function pack_ip4_packet(obj: TIP4Packet): Uint8Array {
   {
     obj.header.length = obj.header.ihl * 4 + obj.payload.length;
   }
+
+  return obj;
+}
+
+export function pack_ip4_packet(obj: TIP4Packet): Uint8Array {
+  prepare_ip4_packet(obj);
 
   const packet = new Uint8Array(obj.header.ihl * 4 + obj.payload.length);
   const $ = new DataView(packet.buffer);
@@ -421,7 +456,7 @@ export type TTcpPacket = {
     window: number;
     checksum: number;
     urgent: number;
-    options: Uint8Array;
+    options: { kind: number; data: Uint8Array }[];
   };
   payload: Uint8Array;
 };
@@ -429,6 +464,25 @@ export type TTcpPacket = {
 export function unpack_tcp_packet(packet: Uint8Array): TTcpPacket {
   const $ = new DataView(packet.buffer, packet.byteOffset);
   const data_offset = $.getUint8(12) >> 4;
+  const header_length = data_offset * 4;
+
+  const options: TTcpPacket["header"]["options"] = [];
+  for (let i = TCP_HEADER_SIZE; i < header_length; ) {
+    const kind = $.getUint8(i);
+    i += 1;
+
+    if ($.getUint8(i) === 0) break;
+    if ($.getUint8(i) === 1) continue;
+
+    const len = $.getUint8(i);
+    i += 1;
+
+    const data = packet.subarray(i, i + len);
+    i += len;
+
+    options.push({ kind, data });
+  }
+
   return {
     header: {
       src: $.getUint16(0),
@@ -440,14 +494,17 @@ export function unpack_tcp_packet(packet: Uint8Array): TTcpPacket {
       window: $.getUint16(14),
       checksum: $.getUint16(16),
       urgent: $.getUint16(18),
-      options: packet.subarray(20, data_offset * 4),
+      options,
     },
-    payload: packet.subarray(data_offset * 4),
+    payload: packet.subarray(header_length),
   };
 }
 
 export function pack_tcp_packet(obj: TTcpPacket): Uint8Array {
-  const header_len = Math.ceil((20 + obj.header.options.length) / 4) * 4;
+  let options_length = 0;
+  for (const option of obj.header.options) options_length += 1 + option.data.length;
+
+  const header_len = Math.ceil((TCP_HEADER_SIZE + options_length) / 4) * 4;
   const packet = new Uint8Array(header_len + obj.payload.length);
   const $ = new DataView(packet.buffer, packet.byteOffset);
 
@@ -459,7 +516,16 @@ export function pack_tcp_packet(obj: TTcpPacket): Uint8Array {
   $.setUint16(14, obj.header.window);
   $.setUint16(16, obj.header.checksum);
   $.setUint16(18, obj.header.urgent);
-  packet.set(obj.header.options, 20);
+  for (let i = 0, offset = TCP_HEADER_SIZE; i < obj.header.options.length; i++) {
+    const option = obj.header.options[i];
+    $.setUint8(offset, option.kind);
+    offset += 1;
+    if (option.kind <= 1) continue;
+    $.setUint8(offset, 2 + option.data.length);
+    offset += 1;
+    packet.set(option.data, offset);
+    offset += option.data.length;
+  }
   packet.set(obj.payload, header_len);
 
   return packet;

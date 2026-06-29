@@ -143,7 +143,8 @@ export const nginy: TApp = async (os, args, ctx) => {
         break;
       }
 
-      os.net.socket.send(socket, to_utf8("HTTP/1.1 404 Not Found\r\n\r\n"));
+      const err = os.net.socket.send(socket, to_utf8("HTTP/1.1 404 Not Found\r\n\r\n"));
+      if (err) os.print(`[NGINY] [FAIL] ${format_net_error(err)}`);
     } catch (e) {
       if (socket.state === "established") {
         os.net.socket.send(socket, to_utf8(`HTTP/1.1 500 Internal Server Error\r\n\r\n${e}`));

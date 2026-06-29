@@ -2,10 +2,14 @@ import { SEC } from "../format";
 import { setIntervalRecursive } from "../helpers";
 import {
   ICMP_TYPES,
+  IP4_HEADER_SIZE,
   IP_PROTOCOLS,
+  make_tcp_options,
   pack_tcp_packet,
   pack_udp_packet,
   TCP_FLAGS,
+  TCP_HEADER_SIZE,
+  TCP_OPTIONS,
   unpack_icmp_packet,
   unpack_ip4_packet,
   unpack_tcp_packet,
@@ -14,7 +18,7 @@ import {
   type TIP4Packet,
   type TTcpPacket,
 } from "../pack";
-import { NET_ERRORS, type Net, type TInterface } from "./net";
+import { E_NET, type Net, type TInterface } from "./net";
 
 const _RETRY_TIMEOUTS_MS = [1 * SEC, 2 * SEC, 4 * SEC, 8 * SEC];
 const _TIMEOUTS_MS = {
@@ -54,12 +58,22 @@ export type TSocket = {
   recv_queue: TSocketRecv[];
   expired_at: number;
   parent?: TSocket;
+  mss?: number;
   on_error?: (error: number) => void;
   on_raw_recv?: (recv: TSocketRawRecv) => void;
   on_recv?: (recv: TSocketRecv) => void;
   on_connected?: (socket: TSocket) => void;
   on_close?: () => void;
 };
+
+function _get_tcp_mss(tcp: TTcpPacket) {
+  for (const opt of tcp.header.options) {
+    if (opt.kind === TCP_OPTIONS.MSS) {
+      const mss = (opt.data[0] << 8) | opt.data[1];
+      return mss;
+    }
+  }
+}
 
 export class Socket {
   _3_way_closing = true;
@@ -103,7 +117,7 @@ export class Socket {
   }
 
   bind(socket: TSocket, ip: number, port: number): number {
-    if (socket.type === "tcp" && socket.state !== "closed") return NET_ERRORS.NOT_CLOSED;
+    if (socket.type === "tcp" && socket.state !== "closed") return E_NET.NOT_CLOSED;
 
     socket.src_ip = ip;
     socket.src_port = port;
@@ -112,7 +126,7 @@ export class Socket {
       for (const _sock of this._sockets) {
         if (_sock === socket) continue;
         if (_sock.type === socket.type && _sock.src_port === socket.src_port) {
-          return NET_ERRORS.PORT_BUSY;
+          return E_NET.PORT_BUSY;
         }
       }
     }
@@ -125,20 +139,26 @@ export class Socket {
   }
 
   connect(socket: TSocket, ip: number, port: number): number {
-    if (socket.type === "tcp" && socket.state !== "closed") return NET_ERRORS.NOT_CLOSED;
+    if (socket.type === "tcp" && socket.state !== "closed") return E_NET.NOT_CLOSED;
 
     const route = this.net.ip4.route(ip);
-    if (!route) return NET_ERRORS.NO_ROUTE;
+    if (!route) return E_NET.NO_ROUTE;
 
     socket.src_ip = socket.src_ip === 0 ? route.src : socket.src_ip;
     socket.src_port = socket.src_port === 0 ? this._allocate_port(socket) : socket.src_port;
     socket.dst_ip = ip;
     socket.dst_port = port;
 
-    if (socket.src_port < 0) return NET_ERRORS.PORT_BUSY;
+    if (socket.src_port < 0) return E_NET.PORT_BUSY;
 
     if (socket.type === "tcp") {
-      const err = this._send_tcp(socket, TCP_FLAGS.SYN);
+      const route = this.net.ip4.route(socket.dst_ip);
+      if (!route) return E_NET.NO_ROUTE;
+
+      const iface = this.net.iface(route.iInterface);
+      const mss = iface.mtu - IP4_HEADER_SIZE - TCP_HEADER_SIZE;
+
+      const err = this._send_tcp(socket, TCP_FLAGS.SYN, undefined, make_tcp_options({ MSS: mss }));
       if (err) {
         this._set_state(socket, "closed");
         return err;
@@ -152,10 +172,10 @@ export class Socket {
   }
 
   close(socket: TSocket): number {
-    if (socket.type !== "tcp") return NET_ERRORS.BAD_PROTOCOL;
+    if (socket.type !== "tcp") return E_NET.BAD_PROTOCOL;
 
     if (socket.state === "closed") {
-      return NET_ERRORS.NOT_CONNECTED;
+      return E_NET.NOT_CONNECTED;
     } else if (socket.state === "listen") {
       for (const sock of this._sockets) {
         if (sock.parent === socket) {
@@ -192,39 +212,50 @@ export class Socket {
   }
 
   send_raw_to(socket: TSocket, ip: number, packet: TIP4Packet): number {
-    if (socket.type !== "raw") return NET_ERRORS.BAD_PROTOCOL;
+    if (socket.type !== "raw") return E_NET.BAD_PROTOCOL;
 
     return this.net.ip4.send_raw(ip, packet, socket);
   }
   send_raw(socket: TSocket, packet: TIP4Packet): number {
-    if (socket.type !== "raw") return NET_ERRORS.BAD_PROTOCOL;
-    if (socket.dst_ip === 0) return NET_ERRORS.NO_ROUTE;
+    if (socket.type !== "raw") return E_NET.BAD_PROTOCOL;
+    if (socket.dst_ip === 0) return E_NET.NO_ROUTE;
 
     return this.net.ip4.send_raw(socket.dst_ip, packet, socket);
   }
   send_raw_msg(socket: TSocket, payload: Uint8Array): number {
-    if (socket.type !== "raw") return NET_ERRORS.BAD_PROTOCOL;
-    if (socket.dst_ip === 0 || socket.protocol) return NET_ERRORS.NO_ROUTE;
+    if (socket.type !== "raw") return E_NET.BAD_PROTOCOL;
+    if (socket.dst_ip === 0 || socket.protocol) return E_NET.NO_ROUTE;
 
     return this.net.ip4.send(socket, socket.dst_ip, socket.protocol, payload);
   }
 
   send_to(socket: TSocket, ip: number, port: number, data: Uint8Array): number {
-    if (socket.type === "raw") return NET_ERRORS.BAD_PROTOCOL;
+    if (socket.type === "raw") return E_NET.BAD_PROTOCOL;
 
     if (socket.type === "tcp") {
-      if (socket.state !== "established") return NET_ERRORS.NOT_CONNECTED;
-      if (socket.dst_ip !== ip || socket.dst_port !== port) return NET_ERRORS.IS_CONNECTED;
+      if (socket.state !== "established") return E_NET.NOT_CONNECTED;
+      if (socket.dst_ip !== ip || socket.dst_port !== port) return E_NET.IS_CONNECTED;
     }
 
     if (socket.src_port === 0) {
       const src_port = this._allocate_port(socket);
-      if (src_port < 0) return NET_ERRORS.PORT_BUSY;
+      if (src_port < 0) return E_NET.PORT_BUSY;
       socket.src_port = src_port;
     }
 
     if (socket.type === "tcp") {
-      return this._send_tcp(socket, TCP_FLAGS.ACK, data);
+      const mss = socket.mss;
+      if (!mss) return E_NET.MESSAGE_SIZE;
+      let i = 0;
+      for (;;) {
+        const chunk = data.subarray(i, i + mss);
+        if (chunk.length === 0) break;
+        i += chunk.length;
+
+        const err = this._send_tcp(socket, TCP_FLAGS.ACK, chunk);
+        if (err) return err;
+      }
+      return E_NET.OK;
     } else if (socket.type === "udp") {
       const payload = pack_udp_packet({
         header: { dst: port, src: socket.src_port, length: 0, checksum: 0 },
@@ -234,11 +265,11 @@ export class Socket {
       return this.net.ip4.send(socket, ip, IP_PROTOCOLS.UDP, payload);
     }
 
-    return NET_ERRORS.BAD_PROTOCOL;
+    return E_NET.BAD_PROTOCOL;
   }
   send(socket: TSocket, data: Uint8Array): number {
-    if (socket.type === "raw") return NET_ERRORS.BAD_PROTOCOL;
-    if (socket.dst_ip === 0 || socket.dst_port === 0) return NET_ERRORS.NO_ROUTE;
+    if (socket.type === "raw") return E_NET.BAD_PROTOCOL;
+    if (socket.dst_ip === 0 || socket.dst_port === 0) return E_NET.NO_ROUTE;
 
     return this.send_to(socket, socket.dst_ip, socket.dst_port, data);
   }
@@ -289,12 +320,12 @@ export class Socket {
       return 0;
     }
 
-    if (handlers === 0) return NET_ERRORS.UNREACHABLE;
+    if (handlers === 0) return E_NET.UNREACHABLE;
 
     return 0;
   }
 
-  private _handle_icmp_error(iInterface: number, icmp: TIcmpPacket) {
+  private _handle_icmp_error(_iInterface: number, icmp: TIcmpPacket) {
     const src_packet = unpack_ip4_packet(icmp.payload);
 
     for (const socket of this._sockets) {
@@ -314,16 +345,21 @@ export class Socket {
           const { type } = icmp;
 
           if (type === ICMP_TYPES.DEST_UNREACHABLE) {
-            socket.on_error?.(NET_ERRORS.UNREACHABLE);
+            socket.on_error?.(E_NET.UNREACHABLE);
           } else if (type === ICMP_TYPES.TIME_EXCEEDED) {
-            socket.on_error?.(NET_ERRORS.TIMEOUT);
+            socket.on_error?.(E_NET.TIMEOUT);
           }
         }
       }
     }
   }
 
-  private _send_tcp(socket: TSocket, flags: number, payload: Uint8Array = new Uint8Array()) {
+  private _send_tcp(
+    socket: TSocket,
+    flags: number,
+    payload: Uint8Array = new Uint8Array(),
+    options: TTcpPacket["header"]["options"] = [],
+  ) {
     const tcp: TTcpPacket = {
       header: {
         dst: socket.dst_port,
@@ -333,7 +369,7 @@ export class Socket {
         flags: flags,
         urgent: 0,
         window: 0,
-        options: new Uint8Array(),
+        options,
         checksum: 0,
         data_offset: 0,
       },
@@ -359,8 +395,12 @@ export class Socket {
         child.dst_ip = ip.header.src;
         child.dst_port = tcp.header.src;
 
+        const my_mss = iface.mtu - IP4_HEADER_SIZE - TCP_HEADER_SIZE;
+        const mss = _get_tcp_mss(tcp);
+        child.mss = mss ? Math.min(mss, my_mss) : my_mss;
+
         child.rcv_nxt = seq + 1;
-        this._send_tcp(child, TCP_FLAGS.SYN + TCP_FLAGS.ACK);
+        this._send_tcp(child, TCP_FLAGS.SYN + TCP_FLAGS.ACK, undefined, make_tcp_options({ MSS: child.mss }));
         child.snd_nxt += 1;
         this._set_state(child, "syn_received");
       }
@@ -389,6 +429,10 @@ export class Socket {
 
     if (state === "syn_sent") {
       if (flags & (TCP_FLAGS.SYN + TCP_FLAGS.ACK)) {
+        const my_mss = iface.mtu - IP4_HEADER_SIZE - TCP_HEADER_SIZE;
+        const mss = _get_tcp_mss(tcp);
+        socket.mss = mss ? Math.min(mss, my_mss) : mss;
+
         socket.rcv_nxt = seq + 1;
         this._send_tcp(socket, TCP_FLAGS.ACK);
         this._set_state(socket, "established");
@@ -524,17 +568,17 @@ export class Socket {
       } else if (state === "fin_wait_2") {
         this._send_tcp(socket, TCP_FLAGS.RST);
         this._flush_tcp_socket(socket);
-        socket.on_error?.(NET_ERRORS.TIMEOUT);
+        socket.on_error?.(E_NET.TIMEOUT);
       } else if (state === "time_wait") {
         this._set_state(socket, "closed");
         this._flush_tcp_socket(socket);
-        socket.on_error?.(NET_ERRORS.TIMEOUT);
+        socket.on_error?.(E_NET.TIMEOUT);
       } else {
         if (retry_queue.length) {
           socket.retry_counter += 1;
           if (socket.retry_counter >= _RETRY_TIMEOUTS_MS.length) {
             this._flush_tcp_socket(socket);
-            socket.on_error?.(NET_ERRORS.TIMEOUT);
+            socket.on_error?.(E_NET.TIMEOUT);
           } else {
             this._resend_tcp_queue(socket);
             socket.expired_at = Date.now() + _RETRY_TIMEOUTS_MS[socket.retry_counter];

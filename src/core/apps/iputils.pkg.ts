@@ -8,6 +8,7 @@ import {
   ICMP_TYPES,
   IP_PROTOCOLS,
   pack_icmp_packet,
+  prepare_ip4_packet,
   unpack_icmp_packet,
   unpack_ip4_packet,
   type TIcmpPacket,
@@ -131,7 +132,7 @@ export const ping: TApp = async (os, args, ctx) => {
       const seq = i;
       const data = new Uint8Array([id >> 8, id & 0xff, seq >> 8, seq & 0xff]);
 
-      const packet: TIP4Packet = {
+      const packet: TIP4Packet = prepare_ip4_packet({
         header: {
           version: 4,
           dst: ip,
@@ -154,7 +155,7 @@ export const ping: TApp = async (os, args, ctx) => {
           payload: new Uint8Array(size),
           checksum: 0,
         }),
-      };
+      });
 
       err = os.net.socket.send_raw(socket, packet);
       if (err) throw new Error(`Failed to send packet ${format_net_error(err)}`);
@@ -488,7 +489,7 @@ export const trace: TApp = async (os, args, ctx) => {
 
         os.print(`${ttl}\t`);
 
-        const prob: TIP4Packet = {
+        const prob: TIP4Packet = prepare_ip4_packet({
           header: {
             version: 4,
             dst: ip,
@@ -505,7 +506,7 @@ export const trace: TApp = async (os, args, ctx) => {
             tos: 0,
           },
           payload: pack_icmp_packet(icmp_request),
-        };
+        });
 
         err = os.net.socket.send_raw_to(socket, prob.header.dst, prob);
         if (err) throw new Error(`Sending error ${format_net_error(err)}`);

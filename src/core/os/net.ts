@@ -12,8 +12,14 @@ import { Bridge } from "./br";
 import { IP4 } from "./ip4";
 import { Socket } from "./socket";
 import { ARP } from "./arp";
+import { DRIVER_CALLS } from "./driver";
 
-export const NET_ERRORS = {
+const _DEFAULT_MTU_MIN = 68;
+const _DEFAULT_MTU = 1500;
+
+/** Результаты вызова сетевых функций. */
+export const E_NET = {
+  OK: 0,
   NO_ROUTE: 1,
   ACCESS: 2,
   UNREACHABLE: 3,
@@ -24,6 +30,8 @@ export const NET_ERRORS = {
   IS_CONNECTED: 8,
   TIMEOUT: 9,
   INTERFACE_DOWN: 10,
+  MTU_OUT_OF_RANGE: 11,
+  MESSAGE_SIZE: 12,
 } as const;
 
 export const INTERFACE_TYPES = {
@@ -51,6 +59,9 @@ export type TInterface = {
     MASTER?: boolean;
   };
   mac: bigint;
+  mtu: number;
+  min_mtu: number;
+  max_mtu: number;
   iDriver: number;
   iMasterInterface?: number;
   ips: TIP4[];
@@ -79,7 +90,18 @@ export class Net {
 
   add_interface(type: TInterface["type"], name: string, iDriver: number) {
     const index = this._interfaces.length;
-    const iface: TInterface = { index, type, name, mac: 0n, iDriver, ips: [], flags: {} };
+    const iface: TInterface = {
+      index,
+      type,
+      name,
+      mac: 0n,
+      iDriver,
+      ips: [],
+      flags: {},
+      mtu: _DEFAULT_MTU,
+      min_mtu: _DEFAULT_MTU_MIN,
+      max_mtu: _DEFAULT_MTU,
+    };
     this._interfaces.push(iface);
     return iface;
   }
@@ -94,17 +116,26 @@ export class Net {
 
     if (iface.type === "ethernet") {
       const driver = this.os._drivers[iface.iDriver];
-      driver.call({ $: "change_mac", mac });
+      driver.call({ $: DRIVER_CALLS.NIC_MAC_SET, mac });
       return;
     }
+  }
+
+  change_mtu(iInterface: number, mtu: number): number {
+    const iface = this.iface(iInterface);
+
+    if (mtu < iface.min_mtu || iface.max_mtu < mtu) return E_NET.MTU_OUT_OF_RANGE;
+
+    iface.mtu = mtu;
+    return 0;
   }
 
   send_frame(iInterface: number, frame: TEthernetFrame): number {
     const iface = this._interfaces[iInterface];
 
-    if (!iface.flags.UP) return NET_ERRORS.INTERFACE_DOWN;
+    if (!iface.flags.UP) return E_NET.INTERFACE_DOWN;
 
-    if (!iface.mac) return NET_ERRORS.UNREACHABLE;
+    if (!iface.mac) return E_NET.UNREACHABLE;
 
     if (iface.type === "bridge") {
       this.br.br_send_frame(iface.index, frame);
@@ -123,7 +154,7 @@ export class Net {
       return 0;
     }
 
-    return NET_ERRORS.UNREACHABLE;
+    return E_NET.UNREACHABLE;
   }
 
   handle_raw_ingress(iInterface: number, raw: Uint8Array) {

@@ -107,7 +107,15 @@ function _fast_analyze(data: Uint8Array): string[] {
 
         const payload = data.subarray(54);
 
-        if (from_utf8(payload.subarray(0, 10)).startsWith("HTTP")) {
+        let first_line = "";
+        for (let i = 0; i < payload.length; i++) {
+          const c = payload[i];
+          first_line += String.fromCharCode(c);
+          if (c === 0x0a) break;
+        }
+        first_line = first_line.trim();
+
+        if (first_line.startsWith("HTTP") || first_line.endsWith("HTTP/1.1")) {
           res.push("HTTP");
         }
       }

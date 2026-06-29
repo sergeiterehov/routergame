@@ -1,11 +1,12 @@
 import { Device, Port } from "../device";
-import { Driver } from "../os/driver";
-import type { TInterface } from "../os/net";
+import { Driver, DRIVER_CALLS, type TDriverCall } from "../os/driver";
+import { E_NET, type TInterface } from "../os/net";
 import type { OS } from "../os/os";
 
 export class SimpleEthernet extends Device {
   type: string = "SimpleEthernet";
   mac = 0n;
+  max_frame_size = 9014; // header(14) + payload(9000)
 
   private _link = false;
   private _tx: (frame: Uint8Array) => void = () => null;
@@ -26,6 +27,7 @@ export class SimpleEthernet extends Device {
   }
 
   private _handle_rx(frame: Uint8Array) {
+    if (frame.length > this.max_frame_size) return;
     this.received = frame;
     this._interrupt();
   }
@@ -45,6 +47,7 @@ export class SimpleEthernet extends Device {
 
   tx(frame: Uint8Array) {
     if (!this._link) return;
+    if (frame.length > this.max_frame_size) return;
     this._tx(frame);
   }
 }
@@ -69,6 +72,8 @@ export class SimpleEthernetDriver extends Driver {
 
     this._iface = this._os.net.add_interface("ethernet", `eth${iDevice}`, this._iDriver);
     this._iface.mac = this._device.mac;
+    this._iface.mtu = 1500;
+    this._iface.max_mtu = this._device.max_frame_size - 14; // max_frame_size - header(14)
     this._iface.flags.RUNNING = this._device.get_link();
     this._iface.flags.UP = true;
   }
@@ -84,17 +89,20 @@ export class SimpleEthernetDriver extends Driver {
     this._iface.flags.RUNNING = dev.get_link();
   }
 
-  net_send_frame = (iInterface: number, data: Uint8Array) => {
+  net_send_frame = (_iInterface: number, data: Uint8Array) => {
+    if (data.length > this._device.max_frame_size) return E_NET.MESSAGE_SIZE;
+
     this._device.tx(data);
+    return E_NET.OK;
   };
 
-  call(cmd: { $: "change_mac"; mac: bigint } | { $: "up" } | { $: "down" }) {
-    if (cmd.$ === "change_mac") {
+  override call(cmd: TDriverCall) {
+    if (cmd.$ === DRIVER_CALLS.NIC_MAC_SET) {
       this._device.change_mac(cmd.mac);
       this._iface.mac = cmd.mac;
-    } else if (cmd.$ === "up") {
+    } else if (cmd.$ === DRIVER_CALLS.NIC_UP) {
       this._device.port._enabled = true;
-    } else if (cmd.$ === "down") {
+    } else if (DRIVER_CALLS.NIC_DOWN) {
       this._device.port._enabled = false;
     }
   }
