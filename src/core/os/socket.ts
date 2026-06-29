@@ -2,6 +2,7 @@ import { SEC } from "../format";
 import { setIntervalRecursive } from "../helpers";
 import {
   ICMP_TYPES,
+  inject_tcp_checksum,
   IP4_HEADER_SIZE,
   IP_PROTOCOLS,
   make_tcp_options,
@@ -380,7 +381,10 @@ export class Socket {
 
     if (tcp.header.flags !== TCP_FLAGS.ACK || payload.length) socket.retry_queue.push(tcp);
 
-    return this.net.ip4.send(socket, socket.dst_ip, IP_PROTOCOLS.TCP, pack_tcp_packet(tcp), socket.src_ip);
+    const packet = pack_tcp_packet(tcp);
+    inject_tcp_checksum(packet, socket.src_ip, socket.dst_ip);
+
+    return this.net.ip4.send(socket, socket.dst_ip, IP_PROTOCOLS.TCP, packet, socket.src_ip);
   }
 
   private _handle_tcp(socket: TSocket, iface: TInterface, ip: TIP4Packet, tcp: TTcpPacket) {

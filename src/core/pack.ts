@@ -179,6 +179,37 @@ export function make_tcp_options(options: { MSS?: number; WINDOW_SCALE?: number 
   return res;
 }
 
+export function inject_tcp_checksum(tcp: Uint8Array, src_ip: number, dst_ip: number) {
+  let sum = 0;
+
+  const buffer = new Uint8Array(12 + tcp.length);
+  const view = new DataView(buffer.buffer, buffer.byteOffset);
+  buffer[0] = src_ip >> 24;
+  buffer[1] = (src_ip >> 16) & 0xff;
+  buffer[2] = (src_ip >> 8) & 0xff;
+  buffer[3] = src_ip & 0xff;
+  buffer[4] = dst_ip >> 24;
+  buffer[5] = (dst_ip >> 16) & 0xff;
+  buffer[6] = (dst_ip >> 8) & 0xff;
+  buffer[7] = dst_ip & 0xff;
+  buffer[8] = 0;
+  buffer[9] = IP_PROTOCOLS.TCP;
+  buffer[10] = (tcp.length >> 8) & 0xff;
+  buffer[11] = tcp.length & 0xff;
+  buffer.set(tcp, 12);
+
+  tcp[16] = 0;
+  tcp[17] = 0;
+
+  for (let i = 0; i < buffer.length - 1; i += 2) sum += view.getUint16(i, false);
+  if (buffer.length % 2 !== 0) sum += buffer[buffer.length - 1] << 8;
+  while (sum >> 16) sum = (sum & 0xffff) + (sum >> 16);
+  sum = ~sum & 0xffff;
+
+  tcp[16] = sum >> 8;
+  tcp[17] = sum & 0xff;
+}
+
 // MARK: main functions
 
 export function pack_ethernet_frame(obj: TEthernetFrame): Uint8Array {
