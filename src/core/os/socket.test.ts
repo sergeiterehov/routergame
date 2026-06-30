@@ -37,13 +37,16 @@ const DEFAULT_TCP_HEADER = {
   seq: 0,
   checksum: 0,
   data_offset: 0,
-  options: new Uint8Array(),
+  options: [],
   urgent: 0,
   window: 65535,
 };
 
 const iface_mock: TInterface = {
   index: 0,
+  mtu: 1500,
+  min_mtu: 68,
+  max_mtu: 1500,
   type: "ethernet",
   name: "eth0",
   flags: { UP: true },
@@ -138,7 +141,10 @@ describe("Socket TCP: Клиентский режим", () => {
     instance.handle_packet(iface_mock.index, {
       header: _ip_header,
       payload: pack_tcp_packet({
-        header: _get_tcp_header(TCP_FLAGS.SYN + TCP_FLAGS.ACK),
+        header: {
+          ..._get_tcp_header(TCP_FLAGS.SYN + TCP_FLAGS.ACK),
+          options: [{ kind: 2, data: new Uint8Array([0x00, 0x50]) }],
+        },
         payload: new Uint8Array(),
       }),
     });
